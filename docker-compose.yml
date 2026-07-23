@@ -1,0 +1,68 @@
+networks:
+  sgetai:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  ollama_data:
+  caddy_data:
+  caddy_config:
+
+services:
+  mongo:
+    image: mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - sgetai
+
+  ollama:
+    image: ollama/ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - sgetai
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      PORT: 5001
+      MONGO_URI: mongodb://mongo:27017/getai
+      FRONTEND_URL: https://sgetai.com
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      - mongo
+      - ollama
+    networks:
+      - sgetai
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: https://api.sgetai.com/api
+    restart: unless-stopped
+    networks:
+      - sgetai
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - sgetai

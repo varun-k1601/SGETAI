@@ -1,0 +1,7 @@
+sgetai.com {
+	reverse_proxy frontend:8080
+}
+
+api.sgetai.com {
+	reverse_proxy backend:5001
+}

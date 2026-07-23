@@ -1,0 +1,112 @@
+const mongoose = require("mongoose");
+const { mediaSchema } = require("./subschemas");
+
+const tailoredResumeSchema = new mongoose.Schema(
+  {
+    latex: { type: String },
+    fileName: { type: String, trim: true },
+    generatedAt: Date,
+    source: {
+      type: String,
+      enum: ["ManualApply", "AutoApply", "ProTools"],
+      default: "ManualApply"
+    },
+    profileSectionsUsed: {
+      objective: { type: Boolean, default: false },
+      educationCount: { type: Number, default: 0 },
+      experienceCount: { type: Number, default: 0 },
+      projectCount: { type: Number, default: 0 },
+      skillCount: { type: Number, default: 0 },
+      certificationCount: { type: Number, default: 0 },
+      achievementCount: { type: Number, default: 0 }
+    }
+  },
+  { _id: false }
+);
+
+const applicationSchema = new mongoose.Schema(
+  {
+    jobId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Job",
+      required: true
+    },
+    jobSeekerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "JobSeeker",
+      required: true
+    },
+    organizationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Organization",
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ["Pending", "UnderReview", "Interview", "Accepted", "Rejected", "Withdrawn"],
+      default: "Pending"
+    },
+    atsScore: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0
+    },
+    atsTag: { type: String, trim: true },
+    trustScore: { type: Number, default: 0 },
+    trustScoreTag: { type: String, trim: true },
+    verificationStatus: {
+      type: String,
+      enum: ["Pending", "InProgress", "Verified"],
+      default: "Pending"
+    },
+    source: {
+      type: String,
+      enum: ["Manual", "AutoApply", "auto"],
+      default: "Manual"
+    },
+    tailoredResume: tailoredResumeSchema,
+    attachedResume: {
+      media: mediaSchema,
+      originalName: { type: String, trim: true },
+      uploadedAt: Date,
+      source: {
+        type: String,
+        enum: ["ManualUpload"],
+        default: "ManualUpload"
+      }
+    },
+    withdrawnAt: Date,
+    reappliedAt: Date,
+    acceptedAt: Date,
+    ragAnalysis: {
+      resumeId: { type: String, trim: true },
+      matchScore: { type: Number, min: 0, max: 100 },
+      matchTag: { type: String, trim: true },
+      skillsMatch: {
+        required: { type: [String], default: [] },
+        found: { type: [String], default: [] },
+        missing: { type: [String], default: [] },
+        matchPercentage: { type: Number, min: 0, max: 100 }
+      },
+      strengths: { type: [String], default: [] },
+      weaknesses: { type: [String], default: [] },
+      recruiterSummary: { type: String, trim: true },
+      retrievedChunks: [
+        {
+          chunkId: { type: String, trim: true },
+          sectionType: { type: String, trim: true },
+          relevanceScore: { type: Number, min: 0, max: 1 },
+          text: { type: String }
+        }
+      ],
+      analysisSource: { type: String, enum: ["rag", "legacy-ats", "none"], default: "none" },
+      analysisTimestamp: Date
+    }
+  },
+  { timestamps: true }
+);
+
+applicationSchema.index({ jobId: 1, jobSeekerId: 1 }, { unique: true });
+
+module.exports = mongoose.model("Application", applicationSchema);

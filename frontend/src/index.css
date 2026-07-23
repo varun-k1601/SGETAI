@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* Wires this app's two-font system into Tailwind v4's own theme so `font-display` (and the
+   default `font-sans`) actually generate real utility CSS — previously a no-op sitewide because
+   nothing pointed Tailwind at these tokens (no `@theme`/`@config`), even though every page already
+   applied the `font-display` class as if it worked. Font stacks match styles.css's `:root`. */
+@theme {
+  --font-sans: "Plus Jakarta Sans", "Segoe UI", sans-serif;
+  --font-display: "Sora", "Plus Jakarta Sans", sans-serif;
+}

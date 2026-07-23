@@ -1,0 +1,82 @@
+{
+  "timestamp": "2026-06-20T20:06:19.708340",
+  "url": "https://pro-networker-ai.lovable.app/pro",
+  "sections": [
+    {
+      "index": 0,
+      "id": null,
+      "class": "col-span-12 space-y-5 lg:col-span-8",
+      "textPreview": "Automation enginePro AI is on duty ActiveAuto-apply engineApply to jobs that meet your benchmark — automatically.Auto-connect to recruitersSend personalized connection requests to recruiters & hiring ",
+      "styles": {
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "color": "lab(3.58546 0.107899 -8.54721)",
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px",
+        "boxShadow": "none"
+      },
+      "cardCount": 9,
+      "firstCard": {
+        "text": "Automation enginePro AI is on duty ActiveAuto-apply engineApply to jobs that meet your benchmark — automatically.Auto-connect to recruitersSend personalized connection requests to recruiters & hiring managers.Auto-DM warm introsSend a tailored first message after a connection is accepted.Match thres",
+        "html": "<div class=\"mb-4 flex items-end justify-between gap-4\"><div><p class=\"text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground\">Automation engine</p><h2 class=\"mt-1 font-display text-xl font-semibold tracking-tight\">Pro AI is on duty</h2></div><span class=\"inline-flex items-center gap-1.5 rounded-full bg-success/15 px-2.5 py-1 text-xs font-semibold text-success\"><span class=\"h-1.5 w-1.5 animate-pulse rounded-full bg-success\"></span> Active</span></div><div class=\"space-y-3\"><div c"
+      }
+    }
+  ],
+  "headings": [
+    {
+      "tag": "H1",
+      "text": "12 jobs auto-applied this week"
+    },
+    {
+      "tag": "H2",
+      "text": "Pro AI is on duty"
+    },
+    {
+      "tag": "H2",
+      "text": "AI activity feed"
+    },
+    {
+      "tag": "H2",
+      "text": "AI-curated for you"
+    },
+    {
+      "tag": "H2",
+      "text": "Career Copilot"
+    }
+  ],
+  "colors": [
+    "lab(99.4186 -0.2231 -0.716782)",
+    "lab(3.58546 0.107899 -8.54721)",
+    "rgba(255, 255, 255, 0.85)",
+    "lab(98.84 0.0000298023 -0.0000119209)",
+    "lab(100 0 0)",
+    "lab(41.9149 -1.28448 -9.13028)",
+    "rgba(255, 255, 255, 0.7)",
+    "oklab(0.999998 -0.00000980496 0.0000234246 / 0.7)",
+    "oklab(0.999994 0.0000455678 0.0000200868 / 0.2)",
+    "oklab(0.999994 0.0000455678 0.0000200868 / 0.1)",
+    "oklab(0.999994 0.0000455678 0.0000200868 / 0.15)",
+    "oklab(0.999994 0.0000455678 0.0000200868 / 0.85)",
+    "oklab(0.699997 -0.150345 0.0547341 / 0.15)",
+    "lab(67.3029 -53.6417 21.0387)",
+    "oklab(0.999998 -0.00000980496 0.0000234246 / 0.6)",
+    "rgb(255, 255, 255)",
+    "lab(95.3536 -0.878215 -2.85877)",
+    "oklab(0.999998 -0.00000980496 0.0000234246 / 0.4)",
+    "lab(54.4886 3.96594 -65.2307)",
+    "lab(1.69689 -3.04021 1.19474)"
+  ],
+  "buttonCount": 12,
+  "buttonSample": {
+    "backgroundColor": "rgba(0, 0, 0, 0)",
+    "color": "lab(41.9149 -1.28448 -9.13028)",
+    "padding": "8px 12px",
+    "borderRadius": "14px",
+    "fontSize": "12px",
+    "fontWeight": "500"
+  },
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  }
+}

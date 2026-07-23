@@ -1,0 +1,4 @@
+Hi Claude Code,
+Read all my codebase, and understand resume analysis with this one D:\Desktop\GetAI\backend\src\controllers\resumeController.js
+Now, I want to do with RAG Analysis of my User Resume, By collecting the user information with uid and whenever he uploads the resume with id like resume id and collect it now pass chunk the resume and pass it towards vector database and pass it towards ollama llm
+Now with Job Description provided from the Recruiter it should match them and give a score and it should give and show it in the UI as match score, for this one use ollama 7b paramater llm model

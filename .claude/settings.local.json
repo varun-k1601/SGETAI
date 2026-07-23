@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($processes = Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if \\($processes\\) { $processes | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue; Write-Host \"Killed PID: $_\" } } else { Write-Host \"No process on port 5000\" })",
+      "PowerShell(Get-ChildItem \"d:\\\\Desktop\\\\GetAI\" | Where-Object {$_.PSIsContainer} | Select-Object Name)",
+      "Bash(curl -s http://localhost:5000/health)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(curl -s http://localhost:11434/api/tags)",
+      "Bash(netstat -tuln)",
+      "Bash(ollama list *)"
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+<!doctype html>
+<html data-theme="dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="./dist/assets/index-BiOobqAN.css">
+<style>body{background:#000;margin:0;padding:40px;}</style>
+</head>
+<body>
+  <div class="flex items-center gap-1">
+    <button id="bk" class="grid h-8 w-8 place-items-center rounded-lg border border-border bg-surface p-0! text-muted-foreground hover:bg-surface/80">
+      <svg id="ic" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide h-4 w-4">
+        <path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"></path>
+      </svg>
+    </button>
+    <button id="ap" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-transparent bg-foreground py-0! px-3! text-xs font-semibold text-background hover:opacity-90">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide h-3.5 w-3.5">
+        <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"></path>
+        <path d="m21.854 2.147-10.94 10.939"></path>
+      </svg>
+      Apply
+    </button>
+  </div>
+  <pre id="out" style="color:lime;font-size:15px;white-space:pre-wrap;"></pre>
+<script>
+window.addEventListener('load', () => {
+  const bk = document.getElementById('bk').getBoundingClientRect();
+  const ic = document.getElementById('ic').getBoundingClientRect();
+  const ap = document.getElementById('ap').getBoundingClientRect();
+  const leftGap = ic.left - bk.left;
+  const rightGap = bk.right - ic.right;
+  const topGap = ic.top - bk.top;
+  const bottomGap = bk.bottom - ic.bottom;
+  document.getElementById('out').textContent =
+    'bookmark button: width=' + bk.width.toFixed(2) + ' height=' + bk.height.toFixed(2) + '\n' +
+    'icon leftGap=' + leftGap.toFixed(2) + ' rightGap=' + rightGap.toFixed(2) + ' topGap=' + topGap.toFixed(2) + ' bottomGap=' + bottomGap.toFixed(2) + '\n' +
+    'apply button: width=' + ap.width.toFixed(2) + ' height=' + ap.height.toFixed(2) + '\n' +
+    'button heights match: ' + (bk.height === ap.height) + '\n' +
+    'button tops aligned: ' + (Math.abs(bk.top - ap.top) < 0.5);
+});
+</script>
+</body>
+</html>
