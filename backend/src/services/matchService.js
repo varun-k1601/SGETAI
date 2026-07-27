@@ -1004,7 +1004,11 @@ function computeResumeTextMatch(resumeText, jobText) {
     ? (meetsExperienceRequirement ? 5 : -15)
     : 0;
   const baselineScore = 5;
-  const score = clampScore(skillScore + keywordScore + evidenceScore + roleScore + educationScore + experienceScore + baselineScore);
+  const rawTotal = skillScore + keywordScore + evidenceScore + roleScore + educationScore + experienceScore + baselineScore;
+  const educationMax = requiredEducationYears ? 8 : 5;
+  const experienceMax = requiredExperienceYears ? 5 : 0;
+  const actualMaxPossible = 35 + 20 + 10 + 10 + educationMax + experienceMax + baselineScore;
+  const score = clampScore((rawTotal / actualMaxPossible) * 100);
   const educationMissing = requiredEducationYears && !meetsEducationRequirement
     ? [`${requiredEducationYears} years full time education`]
     : [];
@@ -1085,7 +1089,12 @@ function computeResumeJobMatch(resumeText, job) {
     ? (meetsExperienceRequirement ? 5 : -15)
     : 0;
   const baselineScore = 5;
-  const score = clampScore(skillScore + requirementScore + descriptionScore + evidenceScore + roleScore + educationScore + experienceScore + baselineScore);
+  const rawTotal = skillScore + requirementScore + descriptionScore + evidenceScore + roleScore + educationScore + experienceScore + baselineScore;
+  const skillMax = target.explicitSkills.length ? 35 : 25;
+  const educationMax = requiredEducationYears ? 8 : 5;
+  const experienceMax = requiredExperienceYears ? 5 : 0;
+  const actualMaxPossible = skillMax + 15 + 10 + 10 + 10 + educationMax + experienceMax + baselineScore;
+  const score = clampScore((rawTotal / actualMaxPossible) * 100);
   const educationMissing = requiredEducationYears && !meetsEducationRequirement
     ? [`${requiredEducationYears} years full time education`]
     : [];
