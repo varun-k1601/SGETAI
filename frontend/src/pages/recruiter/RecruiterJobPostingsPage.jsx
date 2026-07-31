@@ -325,6 +325,11 @@ export function RecruiterJobPostingsPage() {
                     <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
                       {timeAgo(job.createdAt)}
                     </span>
+                    {job.postedBy?.name && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
+                        Posted by {job.postedBy.name}
+                      </span>
+                    )}
                   </div>
                 </div>
 

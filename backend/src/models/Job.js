@@ -23,6 +23,14 @@ const jobSchema = new mongoose.Schema(
       required: true,
       index: true
     },
+    // Which individual team member (see OrganizationMember) actually created this posting — purely
+    // additive attribution, never required. organizationId above keeps its exact current meaning
+    // and remains the field every existing org-scoped query uses.
+    postedByMemberId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "OrganizationMember",
+      index: true
+    },
     location: { type: String, trim: true },
     industry: { type: String, trim: true },
     type: {

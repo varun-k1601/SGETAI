@@ -16,6 +16,7 @@ const {
 const Admin = require("../models/Admin");
 const JobSeeker = require("../models/JobSeeker");
 const Organization = require("../models/Organization");
+const OrganizationMember = require("../models/OrganizationMember");
 
 const roleModelMap = {
   seeker: JobSeeker,
@@ -210,57 +211,121 @@ function optionalStringOrExisting(value, existingValue) {
   return normalized !== undefined ? normalized : existingValue;
 }
 
-function buildAuthPayload(user, role) {
+// `member` is only ever present for role === "organization" — the acting OrganizationMember.
+// `id` stays the Organization's own _id in every case (unchanged meaning, relied on by ~45
+// existing call sites across the backend); memberId is a new, purely additive field used only by
+// team-management endpoints and job attribution (see requireOrgMemberRole.js, jobController.js).
+function buildAuthPayload(user, role, member) {
   return {
     id: user._id.toString(),
     role,
-    email: user.email,
-    username: user.username
+    email: member ? member.email : user.email,
+    username: user.username,
+    ...(member ? { memberId: member._id.toString(), memberRole: member.role } : {})
   };
 }
 
-function buildAuthResponse(user, role) {
-  const payload = buildAuthPayload(user, role);
+function buildAuthResponse(user, role, member) {
+  const payload = buildAuthPayload(user, role, member);
 
   return {
     accessToken: createAccessToken(payload),
     refreshToken: createRefreshToken(payload),
     role,
     userId: user._id,
-    email: user.email,
-    username: user.username
+    email: payload.email,
+    username: user.username,
+    ...(member ? { memberId: member._id, memberRole: member.role } : {})
   };
 }
 
+// Ensures the first (Owner) OrganizationMember exists for a company — idempotent, called right
+// after an Organization is created/claimed during registration. Individual team members added
+// later come from the invite flow (organizationMemberController.js), not from here.
+async function ensureOwnerMember(organization, { email, passwordHash, name }) {
+  const existingOwner = await OrganizationMember.findOne({
+    organizationId: organization._id,
+    role: "Owner"
+  }).select("+passwordHash");
+
+  if (existingOwner) {
+    // A real (non-OAuth-only) registration re-claim can set a fresh password — keep the Owner
+    // member's credential in sync so the password the user just set is the one that works.
+    if (passwordHash && existingOwner.passwordHash !== passwordHash) {
+      existingOwner.passwordHash = passwordHash;
+      await existingOwner.save();
+    }
+    return existingOwner;
+  }
+
+  const nameParts = String(name || organization.companyName || "Owner").trim().split(/\s+/);
+
+  return OrganizationMember.create({
+    organizationId: organization._id,
+    firstName: nameParts[0] || "Owner",
+    lastName: nameParts.slice(1).join(" ") || "Account",
+    email,
+    passwordHash,
+    role: "Owner",
+    status: "Active"
+  });
+}
+
+// The real credential lookup for the organization side of login — checks OrganizationMember
+// (each team member's own email/password) first, falling back to the Organization's own
+// deprecated email/passwordHash only for legacy accounts that haven't been migrated yet (see
+// scripts/migrateOrganizationLogins.js). Returns null if neither resolves.
+async function resolveOrganizationLoginByEmail(email) {
+  const member = await OrganizationMember.findOne({
+    email,
+    status: { $ne: "Disabled" }
+  }).select("+passwordHash");
+
+  if (member) {
+    const organization = await Organization.findById(member.organizationId);
+    if (organization) {
+      return { organization, member };
+    }
+  }
+
+  const organization = await Organization.findOne({ email }).select("+passwordHash");
+
+  if (organization) {
+    return { organization, member: null };
+  }
+
+  return null;
+}
+
 async function findExistingUserByEmail(email) {
-  const [jobSeeker, organization] = await Promise.all([
+  const [jobSeeker, organizationLogin] = await Promise.all([
     JobSeeker.findOne({ email }),
-    Organization.findOne({ email })
+    resolveOrganizationLoginByEmail(email)
   ]);
 
   if (jobSeeker) {
     return { role: "seeker", user: jobSeeker };
   }
 
-  if (organization) {
-    return { role: "organization", user: organization };
+  if (organizationLogin) {
+    return { role: "organization", user: organizationLogin.organization, member: organizationLogin.member };
   }
 
   return null;
 }
 
 async function findExistingUserByEmailWithPassword(email) {
-  const [jobSeeker, organization] = await Promise.all([
+  const [jobSeeker, organizationLogin] = await Promise.all([
     JobSeeker.findOne({ email }).select("+passwordHash"),
-    Organization.findOne({ email }).select("+passwordHash")
+    resolveOrganizationLoginByEmail(email)
   ]);
 
   if (jobSeeker) {
     return { role: "seeker", user: jobSeeker };
   }
 
-  if (organization) {
-    return { role: "organization", user: organization };
+  if (organizationLogin) {
+    return { role: "organization", user: organizationLogin.organization, member: organizationLogin.member };
   }
 
   return null;
@@ -290,21 +355,27 @@ async function findExistingUserByLogin(identifier) {
     return null;
   }
 
-  const query = value.includes("@")
-    ? { email: value }
-    : { username: normalizeUsername(value) };
+  const isEmail = value.includes("@");
+  const query = isEmail ? { email: value } : { username: normalizeUsername(value) };
 
-  const [jobSeeker, organization] = await Promise.all([
+  // OrganizationMember has no username field (only Organization/legacy accounts did) — a
+  // username-style identifier can only ever resolve to a legacy, pre-migration Organization
+  // login. Email-style identifiers go through the member-aware resolver.
+  const [jobSeeker, organizationLogin] = await Promise.all([
     JobSeeker.findOne(query).select("+passwordHash"),
-    Organization.findOne(query).select("+passwordHash")
+    isEmail
+      ? resolveOrganizationLoginByEmail(value)
+      : Organization.findOne(query).select("+passwordHash").then((organization) =>
+          organization ? { organization, member: null } : null
+        )
   ]);
 
   if (jobSeeker) {
     return { role: "seeker", user: jobSeeker };
   }
 
-  if (organization) {
-    return { role: "organization", user: organization };
+  if (organizationLogin) {
+    return { role: "organization", user: organizationLogin.organization, member: organizationLogin.member };
   }
 
   return null;
@@ -388,6 +459,7 @@ async function registerWithRole(req, res, role) {
   }
 
   let user;
+  let member;
   const legacyUser = await findClaimableLegacyUser(email, username, role);
   const passwordHash = await bcrypt.hash(password, 10);
 
@@ -465,6 +537,12 @@ async function registerWithRole(req, res, role) {
       user = await Organization.create(organizationPayload);
     }
 
+    member = await ensureOwnerMember(user, {
+      email,
+      passwordHash,
+      name: organizationPayload.representativeDetails?.name
+    });
+
     if (!domainMatched) {
       return sendSuccess(
         res,
@@ -484,7 +562,7 @@ async function registerWithRole(req, res, role) {
     res,
     {
       message: "Registration successful.",
-      ...buildAuthResponse(user, role)
+      ...buildAuthResponse(user, role, member)
     },
     201
   );
@@ -521,11 +599,18 @@ const login = asyncHandler(async (req, res) => {
     throw new ApiError(403, "Organization account is on hold pending domain review.");
   }
 
-  if (!existingUser.user.passwordHash) {
+  // For organization logins that resolved to a specific OrganizationMember, that member's own
+  // password is authoritative — the Organization's own passwordHash is only checked as a legacy
+  // fallback (pre-migration accounts, or the rare case a member record couldn't be resolved).
+  const passwordHashToCheck = existingUser.member
+    ? existingUser.member.passwordHash
+    : existingUser.user.passwordHash;
+
+  if (!passwordHashToCheck) {
     throw new ApiError(401, "Password login is not enabled for this account. Please register again with username and password.");
   }
 
-  const passwordMatches = await bcrypt.compare(password, existingUser.user.passwordHash);
+  const passwordMatches = await bcrypt.compare(password, passwordHashToCheck);
 
   if (!passwordMatches) {
     throw new ApiError(401, "Invalid login credentials.");
@@ -533,7 +618,7 @@ const login = asyncHandler(async (req, res) => {
 
   return sendSuccess(res, {
     message: "Login successful.",
-    ...buildAuthResponse(existingUser.user, existingUser.role)
+    ...buildAuthResponse(existingUser.user, existingUser.role, existingUser.member)
   });
 });
 
@@ -692,7 +777,7 @@ const completeOAuthOrganization = asyncHandler(async (req, res) => {
 
     return sendSuccess(res, {
       message: "Account already exists. Signed in successfully.",
-      ...buildAuthResponse(existingUser.user, existingUser.role)
+      ...buildAuthResponse(existingUser.user, existingUser.role, existingUser.member)
     });
   }
 
@@ -723,6 +808,12 @@ const completeOAuthOrganization = asyncHandler(async (req, res) => {
     }
   });
 
+  const member = await ensureOwnerMember(user, {
+    email,
+    passwordHash: undefined,
+    name: profile.name
+  });
+
   if (!domainMatched) {
     return sendSuccess(
       res,
@@ -741,7 +832,7 @@ const completeOAuthOrganization = asyncHandler(async (req, res) => {
     res,
     {
       message: "Recruiter account created successfully.",
-      ...buildAuthResponse(user, "organization")
+      ...buildAuthResponse(user, "organization", member)
     },
     201
   );
@@ -781,7 +872,7 @@ const handleOAuthCallback = asyncHandler(async (req, res) => {
 
     return redirectToOAuthCallback(
       res,
-      buildAuthResponse(existingUser.user, existingUser.role),
+      buildAuthResponse(existingUser.user, existingUser.role, existingUser.member),
       { isNewOAuthUser: existingUser.isNewOAuthUser }
     );
   } catch (error) {

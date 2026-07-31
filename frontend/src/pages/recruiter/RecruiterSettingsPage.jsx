@@ -1,4 +1,14 @@
 import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "../../context/AuthContext";
+import { apiRequest } from "../../services/api";
+import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
+
+const MEMBER_ROLE_OPTIONS = ["Owner", "Admin", "Recruiter"];
+
+function getInitials(firstName, lastName) {
+  return `${firstName?.[0] || ""}${lastName?.[0] || ""}`.toUpperCase() || "?";
+}
 
 export function RecruiterSettingsPage() {
   const [companyName, setCompanyName] = useState("Acme Talent");
@@ -12,29 +22,81 @@ export function RecruiterSettingsPage() {
     backgroundCheck: true,
   });
 
-  const recruiters = [
-    {
-      id: 1,
-      initials: "MC",
-      name: "Maya Cohen",
-      email: "maya@acme.com",
-      role: "Admin",
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
+  const [teamFeedback, setTeamFeedback] = useState({ type: "", message: "" });
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("Recruiter");
+  // Owner/Admin only — real enforcement lives server-side (requireOrgMemberRole), this only
+  // controls whether the invite/manage controls render.
+  const canManageTeam = session?.memberRole === "Owner" || session?.memberRole === "Admin";
+
+  const membersQuery = useQuery({
+    queryKey: ["organization", "members"],
+    queryFn: () => apiRequest("/organization/members", { token: session.accessToken }),
+    enabled: Boolean(session?.accessToken),
+  });
+
+  const members = membersQuery.data?.members || [];
+
+  const inviteMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("/organization/members/invite", {
+        method: "POST",
+        token: session.accessToken,
+        body: { email: inviteEmail, role: inviteRole },
+      }),
+    onSuccess: () => {
+      setTeamFeedback({ type: "success", message: "Invite sent." });
+      setInviteEmail("");
+      setInviteRole("Recruiter");
+      queryClient.invalidateQueries({ queryKey: ["organization", "members"] });
     },
-    {
-      id: 2,
-      initials: "DP",
-      name: "Devon Park",
-      email: "devon@acme.com",
-      role: "Recruiter",
+    onError: (error) => setTeamFeedback({ type: "error", message: error.message }),
+  });
+
+  const roleMutation = useMutation({
+    mutationFn: ({ memberId, role }) =>
+      apiRequest(`/organization/members/${memberId}/role`, {
+        method: "PUT",
+        token: session.accessToken,
+        body: { role },
+      }),
+    onSuccess: () => {
+      setTeamFeedback({ type: "success", message: "Role updated." });
+      queryClient.invalidateQueries({ queryKey: ["organization", "members"] });
     },
-    {
-      id: 3,
-      initials: "SL",
-      name: "Sara Lin",
-      email: "sara@acme.com",
-      role: "Hiring Manager",
+    onError: (error) => setTeamFeedback({ type: "error", message: error.message }),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (memberId) =>
+      apiRequest(`/organization/members/${memberId}`, {
+        method: "DELETE",
+        token: session.accessToken,
+      }),
+    onSuccess: () => {
+      setTeamFeedback({ type: "success", message: "Team member removed." });
+      queryClient.invalidateQueries({ queryKey: ["organization", "members"] });
     },
-  ];
+    onError: (error) => setTeamFeedback({ type: "error", message: error.message }),
+  });
+
+  function handleInviteSubmit(event) {
+    event.preventDefault();
+    setTeamFeedback({ type: "", message: "" });
+    if (!inviteEmail.trim()) {
+      return;
+    }
+    inviteMutation.mutate();
+  }
+
+  function handleRemoveMember(member) {
+    const confirmed = window.confirm(`Remove ${member.firstName || member.email} from the team?`);
+    if (confirmed) {
+      removeMutation.mutate(member._id);
+    }
+  }
 
   const toggleNotification = (key) => {
     setNotifications((prev) => ({
@@ -122,7 +184,7 @@ export function RecruiterSettingsPage() {
           </div>
         </div>
 
-        {/* Team Section */}
+        {/* Team Section — real OrganizationMember data */}
         <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
           <div className="mb-4 flex items-end justify-between gap-4">
             <div>
@@ -133,29 +195,102 @@ export function RecruiterSettingsPage() {
                 Recruiters
               </h2>
             </div>
-            <button className="rounded-full bg-gradient-recruiter px-3 py-1 text-xs font-semibold text-recruiter-foreground shadow-recruiter hover:opacity-95 transition">
-              Invite
-            </button>
           </div>
 
-          <div className="space-y-2">
-            {recruiters.map((recruiter) => (
-              <div
-                key={recruiter.id}
-                className="flex items-center gap-3 rounded-xl border border-border/40 bg-surface/40 p-3"
-              >
-                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-recruiter text-xs font-semibold text-recruiter-foreground">
-                  {recruiter.initials}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold">{recruiter.name}</p>
-                  <p className="text-xs text-muted-foreground">{recruiter.email}</p>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium shrink-0">
-                  {recruiter.role}
-                </span>
+          <AutoDismissFeedback feedback={teamFeedback} onClear={() => setTeamFeedback({ type: "", message: "" })} />
+
+          {canManageTeam && (
+            <form onSubmit={handleInviteSubmit} className="mb-4 flex flex-wrap items-end gap-2">
+              <div className="flex-1 min-w-45">
+                <label className="text-xs font-medium text-muted-foreground">Invite teammate</label>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                  placeholder="teammate@company.com"
+                  className="mt-1 w-full rounded-lg border border-border/60 bg-surface/70 px-3 py-2 text-sm outline-none focus:bg-surface transition"
+                />
               </div>
-            ))}
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Role</label>
+                <select
+                  value={inviteRole}
+                  onChange={(event) => setInviteRole(event.target.value)}
+                  className="mt-1 rounded-lg border border-border/60 bg-surface/70 px-3 py-2 text-sm outline-none focus:bg-surface transition"
+                >
+                  {MEMBER_ROLE_OPTIONS.filter((role) => role !== "Owner").map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="submit"
+                disabled={inviteMutation.isPending || !inviteEmail.trim()}
+                className="rounded-full bg-gradient-recruiter px-3 py-2 text-xs font-semibold text-recruiter-foreground shadow-recruiter hover:opacity-95 disabled:opacity-50 transition"
+              >
+                {inviteMutation.isPending ? "Sending…" : "Invite"}
+              </button>
+            </form>
+          )}
+
+          <div className="space-y-2">
+            {membersQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading team…</p>
+            ) : members.length ? (
+              members.map((member) => (
+                <div
+                  key={member._id}
+                  className="flex items-center gap-3 rounded-xl border border-border/40 bg-surface/40 p-3"
+                >
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-recruiter text-xs font-semibold text-recruiter-foreground">
+                    {getInitials(member.firstName, member.lastName)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">
+                      {`${member.firstName || ""} ${member.lastName || ""}`.trim() || member.email}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {member.email}
+                      {member.status !== "Active" ? ` · ${member.status}` : ""}
+                    </p>
+                  </div>
+                  {canManageTeam && session?.memberRole === "Owner" ? (
+                    <select
+                      value={member.role}
+                      disabled={roleMutation.isPending}
+                      onChange={(event) =>
+                        roleMutation.mutate({ memberId: member._id, role: event.target.value })
+                      }
+                      className="shrink-0 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium outline-none"
+                    >
+                      {MEMBER_ROLE_OPTIONS.map((role) => (
+                        <option key={role} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium shrink-0">
+                      {member.role}
+                    </span>
+                  )}
+                  {canManageTeam && member.status === "Active" && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveMember(member)}
+                      disabled={removeMutation.isPending}
+                      className="shrink-0 rounded-full border border-border/60 bg-surface px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-surface/80 hover:text-foreground disabled:opacity-50 transition"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No team members yet.</p>
+            )}
           </div>
         </div>
 

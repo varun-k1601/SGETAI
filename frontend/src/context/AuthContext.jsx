@@ -77,6 +77,10 @@ export function AuthProvider({ children }) {
       userId: authUser.id || baseSession.userId,
       email: authUser.email || baseSession.email || "",
       username: authUser.username || baseSession.username || "",
+      // Present only for organization sessions issued after multi-user-per-company support
+      // shipped — the acting team member, not the company (userId stays the company's own id).
+      memberId: authUser.memberId || baseSession.memberId || null,
+      memberRole: authUser.memberRole || baseSession.memberRole || null,
       profile,
       isPro,
     };
@@ -117,6 +121,8 @@ export function AuthProvider({ children }) {
           userId: authResponse.userId,
           email: authResponse.email || "",
           username: authResponse.username || "",
+          memberId: authResponse.memberId || null,
+          memberRole: authResponse.memberRole || null,
         };
 
         const nextSession = await hydrateSession(baseSession);

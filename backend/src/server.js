@@ -41,6 +41,7 @@ const resumeRagRoutes = require("./routes/resumeRag");
 const adminRoutes = require("./routes/admin");
 const dashboardRoutes = require("./routes/dashboard");
 const feedbackRoutes = require("./routes/feedback");
+const organizationMemberRoutes = require("./routes/organizationMembers");
 
 function createApp() {
   const app = express();
@@ -100,6 +101,7 @@ function createApp() {
   app.use("/api/admin", adminRoutes);
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/feedback", feedbackRoutes);
+  app.use("/api/organization/members", organizationMemberRoutes);
 
   app.use(notFound);
   app.use(errorHandler);

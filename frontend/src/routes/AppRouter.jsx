@@ -6,6 +6,7 @@ import { getHomePathForRole } from "../utils/roleHome";
 import { LoginPage } from "../pages/auth/LoginPage";
 import { OAuthCallbackPage } from "../pages/auth/OAuthCallbackPage";
 import { OAuthCompleteRecruiterPage } from "../pages/auth/OAuthCompleteRecruiterPage";
+import { AcceptTeamInvitePage } from "../pages/auth/AcceptTeamInvitePage";
 import { RegisterPage } from "../pages/auth/RegisterPage";
 import { RecruiterDashboardPage } from "../pages/dashboard/RecruiterDashboardPage";
 import { AdminDashboardPage } from "../pages/admin/AdminDashboardPage";
@@ -57,6 +58,7 @@ export function AppRouter() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
       <Route path="/oauth/complete-recruiter" element={<OAuthCompleteRecruiterPage />} />
+      <Route path="/team/accept-invite" element={<AcceptTeamInvitePage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/verification" element={<VerificationSubmitPage />} />
 

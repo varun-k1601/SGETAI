@@ -21,6 +21,7 @@ const Job = require("../models/Job");
 const Application = require("../models/Application");
 const JobSeeker = require("../models/JobSeeker");
 const Organization = require("../models/Organization");
+const OrganizationMember = require("../models/OrganizationMember");
 const Follow = require("../models/Follow");
 const VerificationRequest = require("../models/VerificationRequest");
 const { createNotification } = require("../services/notificationService");
@@ -47,6 +48,31 @@ function toApplicationResponse(application, latestVerificationRequest) {
         }
       : null
   };
+}
+
+// Attaches a lightweight `postedBy` display object (name only) to each job with a
+// postedByMemberId — jobs created before this feature or by a legacy session simply have no
+// postedBy in the response, same as they had no attribution before.
+async function attachPostedByName(jobs) {
+  const memberIds = [...new Set(jobs.map((job) => job.postedByMemberId).filter(Boolean).map(String))];
+
+  if (!memberIds.length) {
+    return jobs;
+  }
+
+  const members = await OrganizationMember.find({ _id: { $in: memberIds } }).select("firstName lastName");
+  const memberById = new Map(members.map((member) => [member._id.toString(), member]));
+
+  return jobs.map((job) => {
+    const member = job.postedByMemberId ? memberById.get(String(job.postedByMemberId)) : null;
+
+    return {
+      ...job,
+      postedBy: member
+        ? { name: `${member.firstName || ""} ${member.lastName || ""}`.trim() || "Team member" }
+        : null
+    };
+  });
 }
 
 function parseOptionalNumber(value, field, { min, max, integer = true } = {}) {
@@ -149,6 +175,9 @@ const createJob = asyncHandler(async (req, res) => {
     title: requireNonEmptyString(req.body.title, "title"),
     description: optionalString(req.body.description),
     organizationId: organization._id,
+    // The acting team member (see OrganizationMember) — not a form field, set automatically from
+    // the session. Absent for legacy sessions issued before team accounts existed.
+    postedByMemberId: req.user.memberId || undefined,
     location: optionalString(req.body.location),
     industry: optionalString(req.body.industry),
     type: req.body.type || undefined,
@@ -214,6 +243,10 @@ const updateJob = asyncHandler(async (req, res) => {
     ...(req.body.customFields !== undefined
       ? { customFields: requireArrayOfCustomFields(req.body.customFields, "customFields", { max: 20 }) }
       : {}),
+    // Backfill only — a job that already has an original poster keeps that attribution even when
+    // a different team member edits it later; only jobs with no attribution yet (created before
+    // this feature, or by a legacy session) pick up the current editor.
+    ...(!job.postedByMemberId && req.user.memberId ? { postedByMemberId: req.user.memberId } : {}),
     ...(() => {
       const fields = getAutoApplyFields(req.body, job);
       delete fields.autoApplyThreshold;
@@ -345,9 +378,11 @@ const getMyJobs = asyncHandler(async (req, res) => {
     }
   }
 
+  const jobsWithPostedBy = await attachPostedByName(jobs);
+
   return sendSuccess(res, {
     message: "Recruiter jobs fetched successfully.",
-    jobs: jobs.map((job) => ({
+    jobs: jobsWithPostedBy.map((job) => ({
       ...job,
       applicationCount: countByJobId.get(job._id.toString()) || 0
     })),
@@ -698,8 +733,9 @@ const getJobById = asyncHandler(async (req, res) => {
     .select("companyName industry headquartersLocation logo websiteUrl description companySize foundedYear")
     .lean();
 
+  const [jobWithPostedBy] = await attachPostedByName([job]);
   const jobWithOrganization = {
-    ...job,
+    ...jobWithPostedBy,
     organizationId: organization || job.organizationId
   };
 

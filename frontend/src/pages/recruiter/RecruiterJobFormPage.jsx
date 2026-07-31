@@ -256,9 +256,14 @@ export function RecruiterJobFormPage() {
 
       <div className="rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-6 shadow-elegant">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="font-display text-2xl font-semibold tracking-tight">
-            {isEditing ? "Edit job posting" : "New job posting"}
-          </h1>
+          <div>
+            <h1 className="font-display text-2xl font-semibold tracking-tight">
+              {isEditing ? "Edit job posting" : "New job posting"}
+            </h1>
+            {isEditing && job?.postedBy?.name && (
+              <p className="mt-1 text-xs text-muted-foreground">Posted by {job.postedBy.name}</p>
+            )}
+          </div>
           {isEditing && job?.status && (
             <span
               className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${
