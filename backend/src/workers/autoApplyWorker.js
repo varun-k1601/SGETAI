@@ -7,9 +7,15 @@ const ChatSession = require("../models/ChatSession");
 const AutoApplyRun = require("../models/AutoApplyRun");
 const { createNotification } = require("../services/notificationService");
 const { buildTailoredResumeForJob } = require("../services/applicationResumeService");
-const { latexToPlainText, scoreResumeAgainstJob } = require("../services/resumeScoringService");
+const { latexToPlainText } = require("../services/resumeScoringService");
 const { getProAutoApplyPolicy } = require("../services/platformSettingsService");
-const { computeAutoApplyCompositeMatch, computeCandidateMatch, tagFromScore, cosineSimilarity } = require("../services/matchService");
+const {
+  computeAutoApplyCompositeMatch,
+  computeCandidateMatch,
+  computeFinalAutoApplyScore,
+  tagFromScore,
+  cosineSimilarity
+} = require("../services/matchService");
 const { evaluateCandidateMatch } = require("../services/geminiService");
 const { buildJobText, buildSeekerText } = require("../utils/textBuilders");
 
@@ -315,7 +321,7 @@ async function maybeRunGeminiScore({ seeker, job, match, threshold, useAIScoring
   }
 }
 
-async function attachResumeForAutoApply({ seeker, job, applicationPayload, warnings }) {
+async function attachResumeForAutoApply({ seeker, job, applicationPayload, warnings, vectorScore }) {
   try {
     const resumeResult = await buildTailoredResumeForJob({
       seeker,
@@ -342,16 +348,22 @@ async function attachResumeForAutoApply({ seeker, job, applicationPayload, warni
       };
     }
 
-    const resumeMatch = await scoreResumeAgainstJob(
-      latexToPlainText(resumeResult.tailoredResume.latex),
-      job
-    );
+    // The single authoritative ATS score — computed once, now that real tailored-resume text
+    // exists, blending the resume's own keyword/requirement match against the job with the same
+    // vector similarity already computed for retrieval (threaded through as `vectorScore`, never
+    // recomputed here). Everything upstream of this (computeAutoApplyCompositeMatch,
+    // maybeRunGeminiScore) was only a cheap pre-filter deciding whether to spend this resume
+    // generation call at all.
+    const resumeText = latexToPlainText(resumeResult.tailoredResume.latex);
+    const finalMatch = computeFinalAutoApplyScore(resumeText, job, { vectorScore });
 
     return {
       ready: true,
       tailoredResume: resumeResult.tailoredResume,
-      score: resumeMatch.score,
-      tag: resumeMatch.tag
+      score: finalMatch.score,
+      tag: finalMatch.tag,
+      resumeKeywordScore: finalMatch.reasoning.resumeKeywordScore,
+      resumeKeywordTag: tagFromScore(finalMatch.reasoning.resumeKeywordScore)
     };
   } catch (error) {
     warnings.push(`Auto-apply for job ${job._id}: Error generating tailored resume: ${error.message}. Attempting fallback to default resume.`);
@@ -495,6 +507,10 @@ async function runAutoApplyForJob(jobId, options = {}) {
         jobId: job._id,
         jobSeekerId: seeker._id,
         organizationId: job.organizationId,
+        // Pre-resume composite score — only a cost-control pre-filter signal. Overwritten below
+        // with the blended post-resume score (the true authoritative ATS score) once a tailored
+        // resume exists; kept as-is only for the rare default-resume fallback, where there's no
+        // resume text to re-score against.
         atsScore: match.score,
         atsTag: match.tag,
         source: "auto"
@@ -504,7 +520,8 @@ async function runAutoApplyForJob(jobId, options = {}) {
         seeker,
         job,
         applicationPayload,
-        warnings: runLog.warnings
+        warnings: runLog.warnings,
+        vectorScore
       });
 
       if (!resumeAttachment.ready) {
@@ -514,9 +531,20 @@ async function runAutoApplyForJob(jobId, options = {}) {
       }
 
       if (resumeAttachment.tailoredResume) {
+        // The blended resume-vs-job + vector-similarity score is the real, final gate — the
+        // pre-resume composite score above only decided whether this candidate was worth
+        // generating a resume for, not whether they actually clear the bar.
+        if (resumeAttachment.score < threshold) {
+          await releaseAutoApplySlot(seeker._id);
+          incrementReason(runLog.skippedReasons, "belowThresholdAfterResume");
+          continue;
+        }
+
         applicationPayload.tailoredResume = resumeAttachment.tailoredResume;
-        applicationPayload.resumeMatchScore = resumeAttachment.score ?? null;
-        applicationPayload.resumeMatchTag = resumeAttachment.tag ?? null;
+        applicationPayload.atsScore = resumeAttachment.score;
+        applicationPayload.atsTag = resumeAttachment.tag;
+        applicationPayload.resumeMatchScore = resumeAttachment.resumeKeywordScore ?? null;
+        applicationPayload.resumeMatchTag = resumeAttachment.resumeKeywordTag ?? null;
       }
 
       try {
@@ -675,7 +703,9 @@ async function runAutoApplyForSeeker(seekerId) {
     vectorWarnings.forEach((warning) => console.log(`[AutoApply Debug] ${warning}`));
     const candidateMatch = computeCandidateMatch(seeker, job);
     const match = computeAutoApplyCompositeMatch(seeker, job, { vectorScore });
-    console.log(`[AutoApply] "${job.title}" — candidateScore: ${candidateMatch.score}, compositeScore: ${match.score}, finalScore: ${match.score}, threshold: ${threshold}`);
+    // NOT the final score — compositeScore here is only the pre-resume pre-filter. The real,
+    // authoritative finalScore is logged below, once a tailored resume actually exists.
+    console.log(`[AutoApply] "${job.title}" — candidateScore: ${candidateMatch.score}, compositeScore (pre-filter): ${match.score}, threshold: ${threshold}`);
 
     if (match.score < threshold) {
       console.log(`[AutoApply Debug] Skipped "${job.title}" — below threshold. Score: ${match.score}, Threshold: ${threshold}, autoApplyEnabled: ${job.autoApplyEnabled}`);
@@ -703,6 +733,10 @@ async function runAutoApplyForSeeker(seekerId) {
       jobId: job._id,
       jobSeekerId: seeker._id,
       organizationId: job.organizationId,
+      // Pre-resume composite score — only a cost-control pre-filter signal. Overwritten below
+      // with the blended post-resume score (the true authoritative ATS score) once a tailored
+      // resume exists; kept as-is only for the rare default-resume fallback, where there's no
+      // resume text to re-score against.
       atsScore: match.score,
       atsTag: match.tag,
       source: "auto"
@@ -712,7 +746,8 @@ async function runAutoApplyForSeeker(seekerId) {
       seeker,
       job,
       applicationPayload,
-      warnings
+      warnings,
+      vectorScore
     });
 
     if (!resumeAttachment.ready) {
@@ -740,10 +775,30 @@ async function runAutoApplyForSeeker(seekerId) {
     }
 
     if (resumeAttachment.tailoredResume) {
+      // The blended resume-vs-job + vector-similarity score is the real, final gate — the
+      // pre-resume composite score above only decided whether this candidate was worth
+      // generating a resume for, not whether they actually clear the bar.
+      if (resumeAttachment.score < threshold) {
+        await releaseAutoApplySlot(seeker._id);
+        console.log(`[AutoApply] Skipped "${job.title}" after resume generation — below threshold. finalScore: ${resumeAttachment.score}, threshold: ${threshold}`);
+        results.push({
+          ...baseResult,
+          status: "skipped",
+          reason: "belowThresholdAfterResume",
+          score: resumeAttachment.score,
+          tag: resumeAttachment.tag
+        });
+        continue;
+      }
+
       applicationPayload.tailoredResume = resumeAttachment.tailoredResume;
-      applicationPayload.resumeMatchScore = resumeAttachment.score ?? null;
-      applicationPayload.resumeMatchTag = resumeAttachment.tag ?? null;
+      applicationPayload.atsScore = resumeAttachment.score;
+      applicationPayload.atsTag = resumeAttachment.tag;
+      applicationPayload.resumeMatchScore = resumeAttachment.resumeKeywordScore ?? null;
+      applicationPayload.resumeMatchTag = resumeAttachment.resumeKeywordTag ?? null;
     }
+
+    console.log(`[AutoApply] "${job.title}" — candidateScore: ${candidateMatch.score}, compositeScore: ${match.score}, finalScore: ${applicationPayload.atsScore}, threshold: ${threshold}`);
 
     try {
       const application = await Application.create(applicationPayload);

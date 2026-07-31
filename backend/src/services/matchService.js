@@ -1151,9 +1151,41 @@ function computeResumeJobMatch(resumeText, job) {
   };
 }
 
+// The single authoritative ATS score for auto-apply — computed once, after the tailored resume
+// exists, blending the resume's real keyword/requirement/education/experience match against the
+// job with the same vector similarity already computed for retrieval (see computePairVectorScore
+// in autoApplyWorker.js). Vector search + computeAutoApplyCompositeMatch upstream of this are only
+// a retrieval/pre-filter step — they decide who's worth generating a resume for, not what gets
+// stored as atsScore. Without the vector term here, the semantic-similarity signal the embedding
+// pipeline exists to provide would be computed twice and then discarded at the final decision.
+function computeFinalAutoApplyScore(resumeText, job, options = {}) {
+  const resumeMatch = computeResumeJobMatch(resumeText, job);
+  const hasVectorScore =
+    options.vectorScore !== null &&
+    options.vectorScore !== undefined &&
+    Number.isFinite(Number(options.vectorScore));
+  const normalizedVector = hasVectorScore ? normalizeVectorScore(options.vectorScore) : null;
+  const score = hasVectorScore
+    ? clampScore(resumeMatch.score * 0.6 + normalizedVector * 0.4)
+    : resumeMatch.score;
+
+  return {
+    score,
+    tag: tagFromScore(score),
+    reasoning: {
+      ...resumeMatch.reasoning,
+      resumeKeywordScore: resumeMatch.score,
+      vectorScore: normalizedVector,
+      hasVectorScore
+    },
+    suggestions: resumeMatch.suggestions
+  };
+}
+
 module.exports = {
   computeCandidateMatch,
   computeAutoApplyCompositeMatch,
+  computeFinalAutoApplyScore,
   computeResumeJobMatch,
   computeResumeTextMatch,
   getTopKeywords: extractImportantTerms,
