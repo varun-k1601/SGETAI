@@ -423,24 +423,29 @@ export function RecruiterJobFormPage() {
           </label>
 
           <label className="block">
-            <span className="text-xs font-medium text-muted-foreground">Skills required</span>
+            <span className="text-xs font-medium text-muted-foreground">Required skills</span>
             <textarea
               rows={3}
               value={form.skillsRequired}
               onChange={(event) => handleChange("skillsRequired", event.target.value)}
               className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
             />
-            <span className="mt-1 block text-xs text-muted-foreground">One skill per line, or comma-separated.</span>
+            <span className="mt-1 block text-xs text-muted-foreground">
+              Must-have skills — weighted highest in search and candidate matching. One per line, or comma-separated.
+            </span>
           </label>
 
           <label className="block">
-            <span className="text-xs font-medium text-muted-foreground">Skills</span>
+            <span className="text-xs font-medium text-muted-foreground">Preferred skills</span>
             <textarea
               rows={3}
               value={form.skills}
               onChange={(event) => handleChange("skills", event.target.value)}
               className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
             />
+            <span className="mt-1 block text-xs text-muted-foreground">
+              Nice-to-have skills that aren't strictly required. One per line, or comma-separated.
+            </span>
           </label>
 
           {!hiddenFields.includes("requirements") && (
@@ -493,14 +498,14 @@ export function RecruiterJobFormPage() {
                     type="text"
                     value={field.label}
                     onChange={(event) => handleCustomFieldChange(index, "label", event.target.value)}
-                    placeholder="Label (e.g. Visa sponsorship)"
+                    placeholder="Label"
                     className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
                   />
                   <input
                     type="text"
                     value={field.value}
                     onChange={(event) => handleCustomFieldChange(index, "value", event.target.value)}
-                    placeholder="Value (e.g. Yes)"
+                    placeholder="Value"
                     className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
                   />
                   <button

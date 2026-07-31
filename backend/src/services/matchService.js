@@ -936,15 +936,29 @@ function computeCandidateMatch(seeker, job) {
     ...matchTerms([...target.explicitSkills, ...target.requirementTerms], candidate.experienceText)
   ]);
 
+  // Weights are only counted in the denominator when the JD actually has content to score that
+  // section against — otherwise an empty section (e.g. no separately-extractable "Requirements"
+  // text) would silently zero out its slot and cap every candidate's ceiling below 100, regardless
+  // of how well they actually match. Same technique already used by computeResumeTextMatch /
+  // computeResumeJobMatch below.
+  const skillWeight = target.explicitSkills.length ? 55 : 25;
   const skillScore = target.explicitSkills.length
-    ? scoreCoverage(matchedSkills.length, target.explicitSkills.length, 55)
-    : scoreCoverage(matchedDescriptionKeywords.length, Math.max(target.descriptionTerms.length, 1), 25);
-  const requirementScore = scoreCoverage(matchedRequirements.length, Math.max(target.requirementTerms.length, 1), 25);
-  const descriptionScore = scoreCoverage(matchedDescriptionKeywords.length, Math.max(target.descriptionTerms.length, 1), 10);
-  const roleScore = roleMatches.length ? 5 : 0;
-  const evidenceScore = projectExperienceMatches.length ? 5 : 0;
+    ? scoreCoverage(matchedSkills.length, target.explicitSkills.length, skillWeight)
+    : scoreCoverage(matchedDescriptionKeywords.length, target.descriptionTerms.length, skillWeight);
+  const requirementWeight = target.requirementTerms.length ? 25 : 0;
+  const requirementScore = scoreCoverage(matchedRequirements.length, target.requirementTerms.length, requirementWeight);
+  const descriptionWeight = target.descriptionTerms.length ? 10 : 0;
+  const descriptionScore = scoreCoverage(matchedDescriptionKeywords.length, target.descriptionTerms.length, descriptionWeight);
+  const roleWeight = 5;
+  const roleScore = roleMatches.length ? roleWeight : 0;
+  const evidenceWeight = 5;
+  const evidenceScore = projectExperienceMatches.length ? evidenceWeight : 0;
+  const educationWeight = requiredEducationYears ? 5 : 0;
   const educationScore = requiredEducationYears ? (meetsEducationRequirement ? 5 : -10) : 0;
-  const score = Math.max(0, Math.min(100, skillScore + requirementScore + descriptionScore + roleScore + evidenceScore + educationScore));
+
+  const rawTotal = skillScore + requirementScore + descriptionScore + roleScore + evidenceScore + educationScore;
+  const actualMaxPossible = skillWeight + requirementWeight + descriptionWeight + roleWeight + evidenceWeight + educationWeight;
+  const score = clampScore((rawTotal / actualMaxPossible) * 100);
 
   return {
     score,

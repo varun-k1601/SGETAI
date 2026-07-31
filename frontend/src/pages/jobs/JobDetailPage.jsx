@@ -92,7 +92,8 @@ export function JobDetailPage() {
 
   const { job, alreadyApplied, applicationStatus } = jobQuery.data;
   const organization = job.organizationId || {};
-  const skills = job.skillsRequired || job.skills || [];
+  const requiredSkills = job.skillsRequired || [];
+  const preferredSkills = job.skills || [];
   const requirements = job.requirements || [];
   const customFields = job.customFields || [];
   const currentStatus = successResult ? "Pending" : applicationStatus;
@@ -124,16 +125,35 @@ export function JobDetailPage() {
           </div>
         </div>
 
-        {skills.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-1.5">
-            {skills.map((skill, idx) => (
-              <span
-                key={idx}
-                className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium"
-              >
-                {skill}
-              </span>
-            ))}
+        {requiredSkills.length > 0 && (
+          <div className="mt-4">
+            <p className="text-xs font-medium text-muted-foreground">Required skills</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {requiredSkills.map((skill, idx) => (
+                <span
+                  key={idx}
+                  className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium"
+                >
+                  {skill}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {preferredSkills.length > 0 && (
+          <div className="mt-3">
+            <p className="text-xs font-medium text-muted-foreground">Preferred skills</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {preferredSkills.map((skill, idx) => (
+                <span
+                  key={idx}
+                  className="inline-flex items-center gap-1 rounded-full border border-dashed border-border/60 px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
+                >
+                  {skill}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
