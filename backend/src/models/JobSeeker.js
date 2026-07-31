@@ -194,6 +194,10 @@ const jobSeekerSchema = new mongoose.Schema(
     resumesGeneratedToday: { type: Number, default: 0 },
     lastResumeResetDate: Date,
     hiddenRoles: { type: [String], select: false, default: [] },
+    // Stable per-result keys (see activityStream key generation in ProSeekerDashboard.jsx) the
+    // seeker has dismissed from their AI Activity Stream view — the underlying AutoApplyRun
+    // documents are never touched, this only filters what's rendered.
+    dismissedActivityKeys: { type: [String], default: [] },
     subscriptionPlan: {
       type: String,
       enum: ["monthly", "yearly", null],

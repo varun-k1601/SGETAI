@@ -4,6 +4,7 @@ const ApiError = require("../utils/ApiError");
 const JobSeeker = require("../models/JobSeeker");
 const Job = require("../models/Job");
 const Organization = require("../models/Organization");
+const { computeCandidateMatch } = require("../services/matchService");
 
 async function attachOrganizations(jobs = []) {
   const organizationIds = [
@@ -30,7 +31,9 @@ const getRecommendedJobs = asyncHandler(async (req, res) => {
     throw new ApiError(403, "Only job seekers can access job recommendations.");
   }
 
-  const seeker = await JobSeeker.findById(req.user.id).select("+embedding skills preferredRoles");
+  // Full seeker document (not just skills/preferredRoles) is required below by
+  // computeCandidateMatch, which reads education/experience/projects/skillGroups/etc. too.
+  const seeker = await JobSeeker.findById(req.user.id).select("+embedding");
   if (!seeker) {
     throw new ApiError(404, "Job seeker not found.");
   }
@@ -89,6 +92,16 @@ const getRecommendedJobs = asyncHandler(async (req, res) => {
   }
 
   jobs = await attachOrganizations(jobs);
+
+  // `score` above is strategy-specific (Atlas vectorSearchScore for the vector path, an unbounded
+  // keyword-overlap count for the fallback path) — neither is a comparable 0-100 percentage, and
+  // mixing the two would make "match %" mean different things depending on which strategy ran.
+  // computeCandidateMatch is the same formula already used for ATS/auto-apply scoring elsewhere,
+  // so reusing it here keeps "match %" consistent everywhere it's shown in the app.
+  jobs = jobs.map((job) => ({
+    ...job,
+    matchScore: computeCandidateMatch(seeker, job).score
+  }));
 
   return sendSuccess(res, {
     message: "Job recommendations fetched successfully.",

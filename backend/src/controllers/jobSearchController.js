@@ -223,8 +223,13 @@ const searchJobs = asyncHandler(async (req, res) => {
 });
 
 const searchSeekers = asyncHandler(async (req, res) => {
-  if (req.user.role !== "seeker") {
-    throw new ApiError(403, "Only job seekers can search other seekers.");
+  // Seekers search other seekers to connect (ConnectionsPage.jsx); organizations search seekers to
+  // start a recruiter->candidate chat (RecruiterMessagesPage.jsx) — both are legitimate callers.
+  // The `connection` field below stays meaningful only for a seeker caller (Connection documents
+  // are only ever created between two seekers); for an organization caller it's simply always
+  // null, which is fine since that page doesn't use it.
+  if (!["seeker", "organization"].includes(req.user.role)) {
+    throw new ApiError(403, "Only job seekers and organizations can search other seekers.");
   }
 
   const { q, skill, role, currentStatus } = req.query;

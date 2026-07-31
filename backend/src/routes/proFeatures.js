@@ -11,12 +11,16 @@ const {
   draftLinkedInPost,
   writeRecruiterDm,
   listGeneratedArtifacts,
+  dismissGeneratedArtifact,
+  dismissAllGeneratedArtifacts,
   chatWithAgent,
   getCareerAgentDebugContext,
   getAutoApplyPreferences,
   updateAutoApplyPreferences,
   runAutoApplyTest,
   getAutoApplyRuns,
+  dismissActivityEntry,
+  dismissAllActivityEntries,
   connectLinkedIn,
   linkedinCallback,
   getLinkedInStatus,
@@ -48,11 +52,15 @@ router.post("/agent/match-jobs", requirePro, matchJobsToSeeker);
 router.post("/agent/linkedin-post", requirePro, draftLinkedInPost);
 router.post("/agent/recruiter-dm", requirePro, writeRecruiterDm);
 router.get("/agent/artifacts", requirePro, listGeneratedArtifacts);
+router.patch("/agent/artifacts/dismiss-all", requirePro, dismissAllGeneratedArtifacts);
+router.patch("/agent/artifacts/:artifactId/dismiss", requirePro, dismissGeneratedArtifact);
 router.post("/agent/debug-context", requirePro, getCareerAgentDebugContext);
 router.get("/auto-apply/preferences", requirePro, getAutoApplyPreferences);
 router.put("/auto-apply/preferences", requirePro, updateAutoApplyPreferences);
 router.get("/auto-apply/runs", requirePro, getAutoApplyRuns);
 router.post("/auto-apply/test-run", requirePro, runAutoApplyTest);
+router.patch("/agent/activity/dismiss-all", requirePro, dismissAllActivityEntries);
+router.patch("/agent/activity/dismiss", requirePro, dismissActivityEntry);
 router.get("/linkedin/status", getLinkedInStatus);
 router.post("/linkedin/disconnect", disconnectLinkedIn);
 router.post("/linkedin/posts/:artifactId/publish", requirePro, publishLinkedInPost);

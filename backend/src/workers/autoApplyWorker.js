@@ -515,8 +515,8 @@ async function runAutoApplyForJob(jobId, options = {}) {
 
       if (resumeAttachment.tailoredResume) {
         applicationPayload.tailoredResume = resumeAttachment.tailoredResume;
-        applicationPayload.atsScore = resumeAttachment.score ?? applicationPayload.atsScore;
-        applicationPayload.atsTag = resumeAttachment.tag ?? applicationPayload.atsTag;
+        applicationPayload.resumeMatchScore = resumeAttachment.score ?? null;
+        applicationPayload.resumeMatchTag = resumeAttachment.tag ?? null;
       }
 
       try {
@@ -741,8 +741,8 @@ async function runAutoApplyForSeeker(seekerId) {
 
     if (resumeAttachment.tailoredResume) {
       applicationPayload.tailoredResume = resumeAttachment.tailoredResume;
-      applicationPayload.atsScore = resumeAttachment.score ?? applicationPayload.atsScore;
-      applicationPayload.atsTag = resumeAttachment.tag ?? applicationPayload.atsTag;
+      applicationPayload.resumeMatchScore = resumeAttachment.score ?? null;
+      applicationPayload.resumeMatchTag = resumeAttachment.tag ?? null;
     }
 
     try {

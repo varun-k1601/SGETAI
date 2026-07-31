@@ -32,7 +32,7 @@ const ORGANIZATION_POST_TYPE_LABELS = {
 // utility class applied directly to a <button> (see AutomationSection.jsx's FeatureToggle for the
 // original diagnosis). Every ghost/flat button below needs these specific properties reset inline;
 // layout classes (flex, gap, flex-1, text size, etc.) are unaffected and stay as Tailwind classes.
-const ghostButtonStyle = {
+export const ghostButtonStyle = {
   border: "none",
   background: "transparent",
   boxShadow: "none",
@@ -42,7 +42,7 @@ const ghostButtonStyle = {
   transition: "none",
 };
 
-const pillTriggerStyle = {
+export const pillTriggerStyle = {
   ...ghostButtonStyle,
   borderRadius: "9999px",
   padding: "0.625rem 1rem",
@@ -51,10 +51,22 @@ const pillTriggerStyle = {
   textAlign: "left",
 };
 
-const actionButtonStyle = {
+export const actionButtonStyle = {
   ...ghostButtonStyle,
   borderRadius: "0.5rem",
   padding: "0.5rem 0.75rem",
+};
+
+const dismissIconButtonStyle = {
+  border: "1px solid var(--border)",
+  borderRadius: "9999px",
+  background: "var(--surface)",
+  boxShadow: "none",
+  color: "var(--text-muted)",
+  fontWeight: 500,
+  padding: "0.3rem",
+  transform: "none",
+  transition: "none",
 };
 
 function formatRelativeTime(dateValue) {
@@ -137,7 +149,7 @@ function PostMedia({ media }) {
   );
 }
 
-function PostCard({ post, session, commentValue, onCommentChange, isMutating, onLike, onComment, onDelete, isDeleting }) {
+export function PostCard({ post, session, commentValue, onCommentChange, isMutating, onLike, onComment, onDelete, isDeleting }) {
   const [showComments, setShowComments] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const isOrganization = post.authorModel === "Organization";
@@ -147,8 +159,10 @@ function PostCard({ post, session, commentValue, onCommentChange, isMutating, on
   const avatarUrl = getMediaUrl(post.author?.avatar);
   const hashtags = extractHashtags(post.content);
   // Mirrors the backend's own ownership check in deletePost (authorId === req.user.id) — this only
-  // controls whether the option is shown, the real enforcement lives server-side.
-  const isOwnPost = post.authorModel === "JobSeeker" && String(post.authorId) === String(session?.userId);
+  // controls whether the option is shown, the real enforcement lives server-side. Not scoped to
+  // JobSeeker authors only: this card is shared with RecruiterCompanyPostsPage.jsx, so an
+  // organization viewing its own post needs the same delete option.
+  const isOwnPost = String(post.authorId) === String(session?.userId);
 
   return (
     <article className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-xl shadow-elegant hover:shadow-xl transition">
@@ -442,6 +456,39 @@ export function ProSeekerDashboard() {
     },
   });
 
+  // Activity rows are computed from AutoApplyRun.results[], not their own documents, so there's
+  // nothing to soft-delete server-side — dismissing just records the row's stable key so it gets
+  // filtered out of `activityStream` above. The underlying run history is never touched.
+  const dismissActivityMutation = useMutation({
+    mutationFn: (key) =>
+      apiRequest("/pro/agent/activity/dismiss", {
+        method: "PATCH",
+        token: session.accessToken,
+        body: { key },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["automations", "preferences"] });
+    },
+    onError: (error) => {
+      setFeedback({ type: "error", message: error.message });
+    },
+  });
+
+  const dismissAllActivityMutation = useMutation({
+    mutationFn: (keys) =>
+      apiRequest("/pro/agent/activity/dismiss-all", {
+        method: "PATCH",
+        token: session.accessToken,
+        body: { keys },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["automations", "preferences"] });
+    },
+    onError: (error) => {
+      setFeedback({ type: "error", message: error.message });
+    },
+  });
+
   const preferences = preferencesQuery.data?.preferences || {};
   const runs = runsQuery.data?.runs || [];
   const applications = applicationsQuery.data?.applications || [];
@@ -461,14 +508,27 @@ export function ProSeekerDashboard() {
     : null;
   const avgMatchDisplay = avgMatch === null ? "—" : `${avgMatch}%`;
 
+  const dismissedActivityKeys = preferencesQuery.data?.dismissedActivityKeys || [];
+  const dismissedActivityKeySet = new Set(dismissedActivityKeys);
+  const hasAnyRawActivity = runs.some((run) => (run.results || []).length);
+
   const activityStream = runs
-    .flatMap((run) => (run.results || []).map((result) => ({ ...result, ranAt: run.ranAt || run.createdAt })))
+    .flatMap((run) =>
+      (run.results || []).map((result) => ({
+        ...result,
+        ranAt: run.ranAt || run.createdAt,
+        // Stable across refetches — unlike an array index, this doesn't shift if `runs` changes
+        // order or grows, so a dismissed entry can never silently re-attach to a different result.
+        key: `${run._id}-${result.jobId}-${result.status}`,
+      }))
+    )
     .sort((a, b) => new Date(b.ranAt) - new Date(a.ranAt))
+    .filter((result) => !dismissedActivityKeySet.has(result.key))
     .slice(0, 8)
-    .map((result, index) => {
+    .map((result) => {
       if (result.status === "applied") {
         return {
-          key: result.applicationId || `applied-${index}`,
+          key: result.key,
           icon: "💼",
           title: `Applied to ${result.title}`,
           subtitle: `${result.companyName || "Company"} · ${result.score}% match · tailored resume`,
@@ -477,7 +537,7 @@ export function ProSeekerDashboard() {
       }
 
       return {
-        key: `skipped-${result.jobId || index}-${index}`,
+        key: result.key,
         icon: "🚫",
         title: `Skipped: ${result.title}`,
         subtitle: `${result.companyName || "Company"} · ${
@@ -486,6 +546,21 @@ export function ProSeekerDashboard() {
         time: formatRelativeTime(result.ranAt),
       };
     });
+
+  function handleDismissActivity(key) {
+    dismissActivityMutation.mutate(key);
+  }
+
+  function handleDismissAllActivity() {
+    if (
+      !window.confirm(
+        "Close all activity entries? Your auto-apply history is still saved — this only clears them from this list."
+      )
+    ) {
+      return;
+    }
+    dismissAllActivityMutation.mutate(activityStream.map((activity) => activity.key));
+  }
 
   function handleToggleAutomation(featureId, nextEnabled) {
     if (updatePreferencesMutation.isPending) {
@@ -706,13 +781,26 @@ export function ProSeekerDashboard() {
               boxShadow: "0 18px 44px rgba(88, 109, 151, 0.08)",
             }}
           >
-            <h2 className="font-display text-lg font-bold text-foreground mb-4">AI Activity Stream</h2>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="font-display text-lg font-bold text-foreground">AI Activity Stream</h2>
+              {activityStream.length ? (
+                <button
+                  type="button"
+                  style={actionButtonStyle}
+                  className="text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={dismissAllActivityMutation.isPending}
+                  onClick={handleDismissAllActivity}
+                >
+                  {dismissAllActivityMutation.isPending ? "Closing…" : "Close all"}
+                </button>
+              ) : null}
+            </div>
             <div className="space-y-3">
               {activityStream.length ? (
                 activityStream.map((activity, index) => (
                   <div
                     key={activity.key}
-                    className="flex gap-4 pb-4"
+                    className="flex items-start gap-4 pb-4"
                     style={index < activityStream.length - 1 ? { borderBottom: "1px solid var(--border)" } : undefined}
                   >
                     <div className="text-2xl">{activity.icon}</div>
@@ -721,13 +809,41 @@ export function ProSeekerDashboard() {
                       <p className="text-sm text-muted-foreground">{activity.subtitle}</p>
                       <p className="text-xs text-muted-foreground/70 mt-1">{activity.time}</p>
                     </div>
+                    <button
+                      type="button"
+                      title="Dismiss"
+                      aria-label="Dismiss activity entry"
+                      style={dismissIconButtonStyle}
+                      className="grid h-6 w-6 shrink-0 place-items-center disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={dismissActivityMutation.isPending}
+                      onClick={() => handleDismissActivity(activity.key)}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-3 w-3"
+                        aria-hidden="true"
+                      >
+                        <path d="M18 6 6 18"></path>
+                        <path d="m6 6 12 12"></path>
+                      </svg>
+                    </button>
                   </div>
                 ))
               ) : (
                 <p className="text-sm text-muted-foreground">
                   {runsQuery.isLoading
                     ? "Loading activity…"
-                    : "No auto-apply activity yet. Enable auto-apply above to get started."}
+                    : hasAnyRawActivity
+                      ? "No activity to show — everything here has been closed."
+                      : "No auto-apply activity yet. Enable auto-apply above to get started."}
                 </p>
               )}
             </div>

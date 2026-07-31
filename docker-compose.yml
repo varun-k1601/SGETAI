@@ -7,6 +7,7 @@ volumes:
   ollama_data:
   caddy_data:
   caddy_config:
+  nginx_cache:
 
 services:
   mongo:
@@ -25,7 +26,7 @@ services:
     networks:
       - sgetai
 
-  backend:
+  backend_1:
     build:
       context: ./backend
     restart: unless-stopped
@@ -42,12 +43,52 @@ services:
     networks:
       - sgetai
 
-  frontend:
+  backend_2:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      PORT: 5001
+      MONGO_URI: mongodb://mongo:27017/getai
+      FRONTEND_URL: https://sgetai.com
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      - mongo
+      - ollama
+    networks:
+      - sgetai
+
+  frontend_1:
     build:
       context: ./frontend
       args:
         VITE_API_BASE_URL: https://api.sgetai.com/api
     restart: unless-stopped
+    networks:
+      - sgetai
+
+  frontend_2:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: https://api.sgetai.com/api
+    restart: unless-stopped
+    networks:
+      - sgetai
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx_cache:/var/cache/nginx
+    depends_on:
+      - frontend_1
+      - frontend_2
+      - backend_1
+      - backend_2
     networks:
       - sgetai
 
@@ -62,7 +103,6 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - frontend
-      - backend
+      - nginx
     networks:
       - sgetai

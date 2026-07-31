@@ -12,6 +12,7 @@ const { findUserByAuth, getModelForRole } = require("../utils/userModels");
 const { requireNonEmptyString } = require("../utils/validation");
 const { createNotification } = require("../services/notificationService");
 const { emitToUser } = require("../utils/socketServer");
+const { getSignedFileUrl } = require("../utils/supabaseService");
 
 function buildParticipantKey(a, b) {
   return [a, b].sort().join("|");
@@ -29,7 +30,24 @@ function getOtherParticipant(session, user) {
   });
 }
 
-function buildUserDisplay(role, user) {
+// Storage is a private bucket, so the stored `.url` (or the whole media subdocument) can't be
+// handed to the frontend directly — sign a fresh URL from `filePath` at request time, same as
+// Generated Artifacts' resume links. Swallow signing failures so one bad avatar never breaks the
+// whole chat-session response; the frontend's ChatAvatar already falls back to an initial letter
+// whenever `avatar` is falsy.
+async function resolveAvatarUrl(filePath) {
+  if (!filePath) {
+    return undefined;
+  }
+
+  try {
+    return (await getSignedFileUrl(filePath)) || undefined;
+  } catch (error) {
+    return undefined;
+  }
+}
+
+async function buildUserDisplay(role, user) {
   if (!user) {
     return {
       name: role === "organization" ? "Recruiter" : "Applicant",
@@ -41,14 +59,14 @@ function buildUserDisplay(role, user) {
     return {
       name: user.companyName || "Recruiter",
       subtitle: user.industry || user.email || "Organization",
-      avatar: user.logo
+      avatar: await resolveAvatarUrl(user.logo?.filePath)
     };
   }
 
   return {
     name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || "Applicant",
     subtitle: user.tagline || user.currentStatus || user.email || "Job seeker",
-    avatar: user.profilePicture?.url
+    avatar: await resolveAvatarUrl(user.profilePicture?.filePath)
   };
 }
 
@@ -151,23 +169,49 @@ async function decorateSessions(sessions, authUser) {
   const seekerMap = new Map(seekers.map((seeker) => [seeker._id.toString(), seeker]));
   const organizationMap = new Map(organizations.map((organization) => [organization._id.toString(), organization]));
 
-  return plainSessions.map((session) => {
-    const participant = getOtherParticipant(session, authUser);
-    const profile =
-      participant?.role === "organization"
-        ? organizationMap.get(participant.userId.toString())
-        : seekerMap.get(participant?.userId?.toString());
+  // Real match score for a recruiter viewing a candidate thread — sourced from that candidate's
+  // most recent real Application to one of this org's jobs, never fabricated. Only looked up when
+  // the viewer is an organization (a seeker's own chat list has no use for this).
+  const atsScoreBySeekerId = new Map();
+  if (authUser?.role === "organization" && seekerIds.length) {
+    const recentApplications = await Application.find({
+      organizationId: authUser.id,
+      jobSeekerId: { $in: seekerIds }
+    })
+      .sort({ createdAt: -1 })
+      .select("jobSeekerId atsScore");
 
-    return {
-      ...session,
-      otherParticipant: participant
-        ? {
-            ...participant,
-            display: buildUserDisplay(participant.role, profile)
-          }
-        : null
-    };
-  });
+    recentApplications.forEach((application) => {
+      const key = application.jobSeekerId.toString();
+      if (!atsScoreBySeekerId.has(key)) {
+        atsScoreBySeekerId.set(key, application.atsScore);
+      }
+    });
+  }
+
+  return Promise.all(
+    plainSessions.map(async (session) => {
+      const participant = getOtherParticipant(session, authUser);
+      const profile =
+        participant?.role === "organization"
+          ? organizationMap.get(participant.userId.toString())
+          : seekerMap.get(participant?.userId?.toString());
+
+      return {
+        ...session,
+        otherParticipant: participant
+          ? {
+              ...participant,
+              display: await buildUserDisplay(participant.role, profile),
+              atsScore:
+                participant.role === "seeker"
+                  ? atsScoreBySeekerId.get(participant.userId.toString()) ?? null
+                  : null
+            }
+          : null
+      };
+    })
+  );
 }
 
 const initiateChat = asyncHandler(async (req, res) => {

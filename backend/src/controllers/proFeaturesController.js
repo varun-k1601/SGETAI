@@ -784,7 +784,9 @@ const getAutoApplyPreferences = asyncHandler(async (req, res) => {
     throw new ApiError(403, "Only job seekers can view auto-apply preferences.");
   }
 
-  const seeker = await JobSeeker.findById(req.user.id).select("autoApplyPreferences autoApplyCountToday +hiddenRoles isPro");
+  const seeker = await JobSeeker.findById(req.user.id).select(
+    "autoApplyPreferences autoApplyCountToday +hiddenRoles isPro dismissedActivityKeys"
+  );
   if (!seeker) {
     throw new ApiError(404, "Job seeker not found.");
   }
@@ -801,6 +803,7 @@ const getAutoApplyPreferences = asyncHandler(async (req, res) => {
     platformPolicy,
     autoApplyCountToday: seeker.autoApplyCountToday,
     hiddenRoles: seeker.hiddenRoles || [],
+    dismissedActivityKeys: seeker.dismissedActivityKeys || [],
     readiness: {
       isPro: Boolean(seeker.isPro),
       enabled: Boolean(seeker.autoApplyPreferences?.enabled),
@@ -941,13 +944,54 @@ const getAutoApplyRuns = asyncHandler(async (req, res) => {
   });
 });
 
+// PATCH /api/pro/agent/activity/dismiss — hides a single AI Activity Stream row for this seeker.
+// Activity rows aren't their own documents (they're computed by flattening AutoApplyRun.results[]
+// on every render), so there's nothing to soft-delete — this just records the row's stable key so
+// the frontend can filter it out. The underlying AutoApplyRun history is never touched.
+const dismissActivityEntry = asyncHandler(async (req, res) => {
+  if (req.user.role !== "seeker") {
+    throw new ApiError(403, "Only job seekers can dismiss activity entries.");
+  }
+
+  const key = requireNonEmptyString(req.body.key, "key");
+
+  await JobSeeker.updateOne(
+    { _id: req.user.id },
+    { $addToSet: { dismissedActivityKeys: key } }
+  );
+
+  return sendSuccess(res, {
+    message: "Activity entry dismissed."
+  });
+});
+
+// PATCH /api/pro/agent/activity/dismiss-all — hides every currently-visible activity row in one
+// call. The frontend sends exactly the keys it's currently rendering (the activity stream is
+// capped/paginated client-side), same non-destructive semantics as dismissActivityEntry above.
+const dismissAllActivityEntries = asyncHandler(async (req, res) => {
+  if (req.user.role !== "seeker") {
+    throw new ApiError(403, "Only job seekers can dismiss activity entries.");
+  }
+
+  const keys = requireArrayOfStrings(req.body.keys, "keys", { max: 50 });
+
+  await JobSeeker.updateOne(
+    { _id: req.user.id },
+    { $addToSet: { dismissedActivityKeys: { $each: keys } } }
+  );
+
+  return sendSuccess(res, {
+    message: "All visible activity entries dismissed."
+  });
+});
+
 const listGeneratedArtifacts = asyncHandler(async (req, res) => {
   if (req.user.role !== "seeker") {
     throw new ApiError(403, "Only job seekers can view generated artifacts.");
   }
 
   const limit = req.query.limit ? Number(req.query.limit) : 20;
-  const artifacts = await GeneratedArtifact.find({ userId: req.user.id })
+  const artifacts = await GeneratedArtifact.find({ userId: req.user.id, dismissedAt: null })
     .sort({ createdAt: -1 })
     .limit(limit);
 
@@ -988,6 +1032,45 @@ const listGeneratedArtifacts = asyncHandler(async (req, res) => {
   return sendSuccess(res, {
     message: "Generated artifacts fetched successfully.",
     artifacts: results
+  });
+});
+
+// PATCH /api/pro/agent/artifacts/:artifactId/dismiss — hides a single artifact from the seeker's
+// "Generated artifacts" list. This never touches the underlying content (resume file, LinkedIn/DM
+// text, job matches) — it only sets dismissedAt, which listGeneratedArtifacts filters on.
+const dismissGeneratedArtifact = asyncHandler(async (req, res) => {
+  if (req.user.role !== "seeker") {
+    throw new ApiError(403, "Only job seekers can dismiss generated artifacts.");
+  }
+
+  const artifact = await GeneratedArtifact.findById(req.params.artifactId);
+
+  if (!artifact || artifact.userId.toString() !== req.user.id) {
+    throw new ApiError(404, "Generated artifact not found.");
+  }
+
+  artifact.dismissedAt = new Date();
+  await artifact.save();
+
+  return sendSuccess(res, {
+    message: "Artifact dismissed."
+  });
+});
+
+// PATCH /api/pro/agent/artifacts/dismiss-all — hides every currently-visible artifact for this
+// seeker in one action. Same non-destructive semantics as dismissGeneratedArtifact above.
+const dismissAllGeneratedArtifacts = asyncHandler(async (req, res) => {
+  if (req.user.role !== "seeker") {
+    throw new ApiError(403, "Only job seekers can dismiss generated artifacts.");
+  }
+
+  await GeneratedArtifact.updateMany(
+    { userId: req.user.id, dismissedAt: null },
+    { dismissedAt: new Date() }
+  );
+
+  return sendSuccess(res, {
+    message: "All artifacts dismissed."
   });
 });
 
@@ -1325,12 +1408,16 @@ module.exports = {
   draftLinkedInPost,
   writeRecruiterDm,
   listGeneratedArtifacts,
+  dismissGeneratedArtifact,
+  dismissAllGeneratedArtifacts,
   chatWithAgent,
   getCareerAgentDebugContext,
   getAutoApplyPreferences,
   updateAutoApplyPreferences,
   runAutoApplyTest,
   getAutoApplyRuns,
+  dismissActivityEntry,
+  dismissAllActivityEntries,
   connectLinkedIn,
   linkedinCallback,
   getLinkedInStatus,

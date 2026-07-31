@@ -13,6 +13,7 @@ const {
 const {
   requireNonEmptyString,
   requireArrayOfStrings,
+  requireArrayOfCustomFields,
   optionalString
 } = require("../utils/validation");
 
@@ -150,14 +151,17 @@ const createJob = asyncHandler(async (req, res) => {
     organizationId: organization._id,
     location: optionalString(req.body.location),
     industry: optionalString(req.body.industry),
-    type: req.body.type,
-    salary: req.body.salary,
+    type: req.body.type || undefined,
+    salary: req.body.salary || undefined,
     requirements: req.body.requirements
       ? requireArrayOfStrings(req.body.requirements, "requirements", { max: 50 })
       : [],
     skills: req.body.skills ? requireArrayOfStrings(req.body.skills, "skills", { max: 50 }) : [],
     skillsRequired: req.body.skillsRequired
       ? requireArrayOfStrings(req.body.skillsRequired, "skillsRequired", { max: 50 })
+      : [],
+    customFields: req.body.customFields
+      ? requireArrayOfCustomFields(req.body.customFields, "customFields", { max: 20 })
       : [],
     status,
     isActive: status === "Active",
@@ -196,7 +200,7 @@ const updateJob = asyncHandler(async (req, res) => {
     ...(req.body.description !== undefined ? { description: optionalString(req.body.description) } : {}),
     ...(req.body.location !== undefined ? { location: optionalString(req.body.location) } : {}),
     ...(req.body.industry !== undefined ? { industry: optionalString(req.body.industry) } : {}),
-    ...(req.body.type !== undefined ? { type: req.body.type } : {}),
+    ...(req.body.type !== undefined ? { type: req.body.type || undefined } : {}),
     ...(req.body.salary !== undefined ? { salary: req.body.salary } : {}),
     ...(req.body.requirements !== undefined
       ? { requirements: requireArrayOfStrings(req.body.requirements, "requirements", { max: 50 }) }
@@ -206,6 +210,9 @@ const updateJob = asyncHandler(async (req, res) => {
       : {}),
     ...(req.body.skillsRequired !== undefined
       ? { skillsRequired: requireArrayOfStrings(req.body.skillsRequired, "skillsRequired", { max: 50 }) }
+      : {}),
+    ...(req.body.customFields !== undefined
+      ? { customFields: requireArrayOfCustomFields(req.body.customFields, "customFields", { max: 20 }) }
       : {}),
     ...(() => {
       const fields = getAutoApplyFields(req.body, job);
@@ -345,6 +352,135 @@ const getMyJobs = asyncHandler(async (req, res) => {
       applicationCount: countByJobId.get(job._id.toString()) || 0
     })),
     avgTimeToFillDays
+  });
+});
+
+// GET /api/jobs/mine/overview — a single cross-job summary for the recruiter Overview page.
+// Composed from the same Job/Application/VerificationRequest data getMyJobs/getJobApplications
+// already expose, just aggregated across every job this org owns instead of one job at a time —
+// avoids the frontend firing one /jobs/:jobId/applications request per posting to build one page.
+const getMyJobsOverview = asyncHandler(async (req, res) => {
+  if (req.user.role !== "organization") {
+    throw new ApiError(403, "Only organizations can view their jobs overview.");
+  }
+
+  const organizationId = req.user.id;
+  const now = Date.now();
+  const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+  const fourteenDaysAgo = new Date(now - 14 * 24 * 60 * 60 * 1000);
+  const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
+
+  const jobs = await Job.find({ organizationId }).select("status createdAt").lean();
+  const activePostings = jobs.filter((job) => job.status === "Active").length;
+  const postingsThisWeek = jobs.filter((job) => new Date(job.createdAt) >= sevenDaysAgo).length;
+
+  const [
+    newApplicantsThisWeek,
+    newApplicantsPrevWeek,
+    funnelApplications,
+    verificationReadyForReview,
+    backgroundChecks
+  ] = await Promise.all([
+    Application.countDocuments({ organizationId, createdAt: { $gte: sevenDaysAgo } }),
+    Application.countDocuments({
+      organizationId,
+      createdAt: { $gte: fourteenDaysAgo, $lt: sevenDaysAgo }
+    }),
+    Application.find({ organizationId, createdAt: { $gte: thirtyDaysAgo } })
+      .select("status atsScore")
+      .lean(),
+    VerificationRequest.countDocuments({ organizationId, status: "Submitted" }),
+    VerificationRequest.find({ organizationId })
+      .sort({ requestedAt: -1 })
+      .limit(5)
+      .populate("jobSeekerId", "firstName lastName")
+      .lean()
+  ]);
+
+  const newApplicantsChangePct =
+    newApplicantsPrevWeek > 0
+      ? Math.round(((newApplicantsThisWeek - newApplicantsPrevWeek) / newApplicantsPrevWeek) * 100)
+      : newApplicantsThisWeek > 0
+        ? 100
+        : 0;
+
+  const atsScoresLast30Days = funnelApplications
+    .map((application) => application.atsScore)
+    .filter((score) => typeof score === "number");
+  const avgMatchLast30Days = atsScoresLast30Days.length
+    ? Math.round(atsScoresLast30Days.reduce((sum, score) => sum + score, 0) / atsScoresLast30Days.length)
+    : null;
+
+  const funnel = {
+    windowDays: 30,
+    applied: funnelApplications.length,
+    underReview: funnelApplications.filter((application) => application.status === "UnderReview").length,
+    interview: funnelApplications.filter((application) => application.status === "Interview").length,
+    offer: funnelApplications.filter((application) => application.status === "Accepted").length,
+    rejectedOrWithdrawn: funnelApplications.filter((application) =>
+      ["Rejected", "Withdrawn"].includes(application.status)
+    ).length
+  };
+
+  const topCandidateApplications = await Application.find({
+    organizationId,
+    createdAt: { $gte: sevenDaysAgo }
+  })
+    .sort({ atsScore: -1, createdAt: 1 })
+    .limit(5)
+    .populate("jobId", "title")
+    .populate("jobSeekerId", "firstName lastName tagline currentStatus skills locationPreferences")
+    .lean();
+
+  const topCandidateVerifications = await VerificationRequest.find({
+    applicationId: { $in: topCandidateApplications.map((application) => application._id) }
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+  const latestVerificationByApplicationId = new Map();
+  topCandidateVerifications.forEach((verificationRequest) => {
+    const applicationId = verificationRequest.applicationId.toString();
+    if (!latestVerificationByApplicationId.has(applicationId)) {
+      latestVerificationByApplicationId.set(applicationId, verificationRequest);
+    }
+  });
+
+  const topCandidates = topCandidateApplications.map((application) => {
+    const seeker = application.jobSeekerId || {};
+    const verification = latestVerificationByApplicationId.get(application._id.toString());
+
+    return {
+      applicationId: application._id,
+      name: `${seeker.firstName || ""} ${seeker.lastName || ""}`.trim() || "Unknown candidate",
+      title: application.jobId?.title || seeker.currentStatus || "Applicant",
+      location: seeker.locationPreferences?.[0] || "Not specified",
+      skills: seeker.skills || [],
+      atsScore: application.atsScore ?? 0,
+      verificationStatus: verification?.status || "NotStarted"
+    };
+  });
+
+  return sendSuccess(res, {
+    message: "Recruiter overview fetched successfully.",
+    overview: {
+      activePostings,
+      postingsThisWeek,
+      newApplicantsThisWeek,
+      newApplicantsChangePct,
+      avgMatchLast30Days,
+      funnel,
+      topCandidates,
+      verificationReadyForReview,
+      backgroundChecks: backgroundChecks.map((verificationRequest) => ({
+        id: verificationRequest._id,
+        name:
+          `${verificationRequest.jobSeekerId?.firstName || ""} ${verificationRequest.jobSeekerId?.lastName || ""}`.trim() ||
+          "Unknown candidate",
+        status: verificationRequest.status,
+        requestedAt: verificationRequest.requestedAt,
+        submittedAt: verificationRequest.submittedAt
+      }))
+    }
   });
 });
 
@@ -656,6 +792,7 @@ module.exports = {
   createJob,
   updateJob,
   getMyJobs,
+  getMyJobsOverview,
   closeJob,
   publishJob,
   deleteJob,

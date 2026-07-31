@@ -1,118 +1,115 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "../../context/AuthContext";
+import { apiRequest } from "../../services/api";
+import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
+
+function getInitials(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  const initials = `${parts[0]?.[0] || ""}${parts[1]?.[0] || ""}`;
+  return initials.toUpperCase() || "?";
+}
+
+function formatBubbleTime(value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return parsed.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+}
 
 export function RecruiterMessagesPage() {
-  const [selectedThreadId, setSelectedThreadId] = useState("ar");
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
+  const [selectedThreadId, setSelectedThreadId] = useState("");
   const [newMessage, setNewMessage] = useState("");
-
-  const threads = [
-    {
-      id: "ar",
-      initials: "AR",
-      name: "Alex Rivera",
-      status: "online",
-      title: "Sr. Frontend",
-      match: "96%",
-      lastMessage: "Yes, Thursday at 2pm works!",
-      messages: [
-        {
-          id: 1,
-          sender: "recruiter",
-          text: "Hi Alex — your profile is a strong match for our Sr. Frontend role. Open to a 20m intro chat?",
-          time: "10:02",
-        },
-        {
-          id: 2,
-          sender: "candidate",
-          text: "Hey! Thanks for reaching out. Yes, happy to chat.",
-          time: "10:14",
-        },
-        {
-          id: 3,
-          sender: "recruiter",
-          text: "Great — does Thursday at 2pm PT work?",
-          time: "10:16",
-        },
-        {
-          id: 4,
-          sender: "candidate",
-          text: "Yes, Thursday at 2pm works!",
-          time: "10:22",
-        },
-      ],
-    },
-    {
-      id: "jt",
-      initials: "JT",
-      name: "Jamie Tanaka",
-      status: "offline",
-      title: "Full-Stack Engineer",
-      match: "92%",
-      lastMessage: "Sending portfolio shortly.",
-      messages: [
-        {
-          id: 1,
-          sender: "recruiter",
-          text: "Hi Jamie, interested in discussing the full-stack role?",
-          time: "09:45",
-        },
-        {
-          id: 2,
-          sender: "candidate",
-          text: "Sounds great! Sending portfolio shortly.",
-          time: "09:52",
-        },
-      ],
-    },
-    {
-      id: "sp",
-      initials: "SP",
-      name: "Sasha Patel",
-      status: "online",
-      title: "Staff Engineer",
-      match: "89%",
-      lastMessage: "Open to chatting about the role.",
-      messages: [
-        {
-          id: 1,
-          sender: "recruiter",
-          text: "Sasha, we'd love to chat about the Staff Engineer position.",
-          time: "11:00",
-        },
-        {
-          id: 2,
-          sender: "candidate",
-          text: "Open to chatting about the role. What are the details?",
-          time: "11:15",
-        },
-      ],
-    },
-    {
-      id: "ob",
-      initials: "OB",
-      name: "Olivia Brooks",
-      status: "offline",
-      title: "Senior Engineer",
-      match: "84%",
-      lastMessage: "Currently in interview loop elsewhere.",
-      messages: [
-        {
-          id: 1,
-          sender: "recruiter",
-          text: "Hi Olivia, interested in exploring the Senior Engineer role?",
-          time: "08:30",
-        },
-        {
-          id: 2,
-          sender: "candidate",
-          text: "Currently in interview loop elsewhere, but happy to hear more.",
-          time: "08:45",
-        },
-      ],
-    },
-  ];
-
   const [searchQuery, setSearchQuery] = useState("");
-  const selectedThread = threads.find((t) => t.id === selectedThreadId);
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+  const [feedback, setFeedback] = useState({ type: "", message: "" });
+
+  // Debounce the directory search network calls (300ms) — the existing-thread filter below stays
+  // instant since it's just a client-side array filter, no request involved. Mirrors the identical
+  // fix already applied to ChatPage.jsx.
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearchQuery(searchQuery.trim()), 300);
+    return () => clearTimeout(handle);
+  }, [searchQuery]);
+
+  const sessionsQuery = useQuery({
+    queryKey: ["chat", "sessions"],
+    queryFn: () =>
+      apiRequest("/chat/sessions", {
+        token: session.accessToken,
+      }),
+    enabled: Boolean(session?.accessToken),
+    refetchInterval: 10000,
+  });
+
+  const sessions = sessionsQuery.data?.sessions || [];
+
+  // Maps the real session shape onto the exact local field names this file's JSX already expects
+  // (thread.id/initials/name/status/title/match/lastMessage) so the JSX itself doesn't change.
+  const threads = sessions.map((item) => {
+    const display = item.otherParticipant?.display || {};
+    const atsScore = item.otherParticipant?.atsScore;
+
+    return {
+      id: item._id,
+      initials: getInitials(display.name),
+      name: display.name || "Conversation",
+      // No real-time presence/online-status system exists anywhere in this backend — showing an
+      // "online" dot would be a fabricated signal about someone's real availability, so every
+      // thread stays in the "offline" (no dot) visual state.
+      status: "offline",
+      // Same subtitle chatController.js's buildUserDisplay already computes server-side for the
+      // seeker-facing chat page (tagline/currentStatus) — reused as-is, not re-derived here.
+      title: display.subtitle || "",
+      // Real atsScore from this candidate's most recent Application to one of this org's jobs
+      // (added server-side in decorateSessions); if no application exists between this org and
+      // this candidate, there's nothing real to show, so a neutral placeholder is used instead of
+      // fabricating a number.
+      match: typeof atsScore === "number" ? `${atsScore}%` : "—",
+      lastMessage: item.lastMessage || "Start the conversation.",
+    };
+  });
+
+  const selectedSession = sessions.find((item) => item._id === selectedThreadId) || null;
+  const activeSessionId = selectedSession?._id || "";
+
+  // Auto-select the first conversation once, on initial load, purely as a convenience — but only
+  // once. Without the ref guard, this would re-fire every time selectedThreadId is "" (including
+  // right after "Close chat" deliberately clears it) and immediately re-select the same session,
+  // making "Close chat" a no-op whenever there's only one conversation. Mirrors ChatPage.jsx's
+  // identical fix.
+  const hasAutoSelectedRef = useRef(false);
+  useEffect(() => {
+    if (!hasAutoSelectedRef.current && !selectedThreadId && sessions.length) {
+      hasAutoSelectedRef.current = true;
+      setSelectedThreadId(sessions[0]._id);
+    }
+  }, [sessions, selectedThreadId]);
+
+  const messagesQuery = useQuery({
+    queryKey: ["chat", activeSessionId, "messages"],
+    queryFn: () =>
+      apiRequest(`/chat/${activeSessionId}/messages`, {
+        token: session.accessToken,
+      }),
+    enabled: Boolean(session?.accessToken && activeSessionId),
+    refetchInterval: 5000,
+  });
+
+  const selectedThread = selectedSession
+    ? {
+        ...threads.find((thread) => thread.id === selectedSession._id),
+        messages: (messagesQuery.data?.messages || []).map((message) => ({
+          id: message._id,
+          sender: String(message.senderId) === String(session.userId) ? "recruiter" : "candidate",
+          text: message.content,
+          time: formatBubbleTime(message.createdAt),
+        })),
+      }
+    : null;
 
   const filteredThreads = threads.filter(
     (thread) =>
@@ -120,12 +117,91 @@ export function RecruiterMessagesPage() {
       thread.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleSendMessage = () => {
-    if (newMessage.trim() && selectedThread) {
-      // Handle message sending here
+  const isDirectorySearchActive = debouncedSearchQuery.length >= 2;
+
+  // Mirrors ChatPage.jsx's identical fix (same endpoint, same query-param shape, same "merge
+  // find-someone with start-a-chat" approach). Organization search is intentionally NOT included
+  // here: GET /search/organizations is seeker-only server-side (searchOrganizations in
+  // jobSearchController.js), and even if it weren't, assertCanStartChat unconditionally rejects
+  // organization-to-organization chat — surfacing org results would only ever produce a
+  // guaranteed 403 on click, exactly why ChatPage.jsx's own fix skips this for org viewers too.
+  // GET /search/seekers was previously seeker-only as well; that role gate was loosened
+  // specifically to support this recruiter search (see jobSearchController.js's searchSeekers).
+  const seekerDirectoryQuery = useQuery({
+    queryKey: ["chat", "directory", "seekers", debouncedSearchQuery],
+    queryFn: () =>
+      apiRequest(`/search/seekers?q=${encodeURIComponent(debouncedSearchQuery)}&limit=6`, {
+        token: session.accessToken,
+      }),
+    enabled: Boolean(session?.accessToken && isDirectorySearchActive),
+    retry: false,
+  });
+
+  const seekerDirectoryResults = seekerDirectoryQuery.data?.seekers || [];
+  const isSearchingDirectory = isDirectorySearchActive && seekerDirectoryQuery.isLoading;
+
+  const invalidateChat = () => {
+    queryClient.invalidateQueries({ queryKey: ["chat"] });
+    queryClient.invalidateQueries({ queryKey: ["notifications"] });
+  };
+
+  const initiateMutation = useMutation({
+    mutationFn: ({ recipientRole, recipientIdentifier }) =>
+      apiRequest("/chat/initiate", {
+        method: "POST",
+        token: session.accessToken,
+        body: {
+          recipientRole,
+          recipientIdentifier,
+        },
+      }),
+    onSuccess: (response) => {
+      setFeedback({ type: "success", message: response.message || "Chat session ready." });
+      setSelectedThreadId(response.session?._id || "");
+      setSearchQuery("");
+      invalidateChat();
+    },
+    onError: (error) => setFeedback({ type: "error", message: error.message }),
+  });
+
+  function handleStartChatWithSeeker(seeker) {
+    setFeedback({ type: "", message: "" });
+    initiateMutation.mutate({ recipientRole: "seeker", recipientIdentifier: seeker._id });
+  }
+
+  const sendMessageMutation = useMutation({
+    mutationFn: () =>
+      apiRequest(`/chat/${activeSessionId}/messages`, {
+        method: "POST",
+        token: session.accessToken,
+        body: {
+          content: newMessage,
+        },
+      }),
+    onSuccess: () => {
       setNewMessage("");
+      queryClient.invalidateQueries({ queryKey: ["chat"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+
+  const handleSendMessage = () => {
+    if (newMessage.trim() && selectedThread && !sendMessageMutation.isPending) {
+      sendMessageMutation.mutate();
     }
   };
+
+  // "Close chat" only deselects the conversation and returns to the inbox empty state — it must
+  // NOT call DELETE /chat/:sessionId (that permanently wipes the session and all its messages,
+  // which is a real destructive action, not what this button should do). The session and its
+  // history stay untouched in the database and remain selectable from the sidebar afterward.
+  // Mirrors ChatPage.jsx's identical handleCloseChat.
+  function handleCloseChat() {
+    hasAutoSelectedRef.current = true;
+    setSelectedThreadId("");
+    setNewMessage("");
+    setFeedback({ type: "", message: "" });
+  }
 
   return (
     <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
@@ -149,6 +225,11 @@ export function RecruiterMessagesPage() {
           </div>
         </div>
       </div>
+
+      <AutoDismissFeedback
+        feedback={feedback}
+        onClear={() => setFeedback({ type: "", message: "" })}
+      />
 
       {/* Messages Container */}
       <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl shadow-elegant overflow-hidden">
@@ -185,6 +266,46 @@ export function RecruiterMessagesPage() {
 
             {/* Thread List */}
             <div className="space-y-2 p-2">
+              {isDirectorySearchActive ? (
+                <>
+                  <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Start a new conversation
+                  </p>
+                  {isSearchingDirectory ? (
+                    <p className="px-2 text-xs text-muted-foreground">Searching…</p>
+                  ) : null}
+                  {seekerDirectoryResults.map((seeker) => (
+                    <button
+                      key={`seeker-${seeker._id}`}
+                      onClick={() => handleStartChatWithSeeker(seeker)}
+                      disabled={initiateMutation.isPending}
+                      className="flex w-full items-center gap-3 rounded-lg p-3 text-left transition border border-gray-200 disabled:cursor-not-allowed disabled:opacity-60"
+                      style={{ backgroundColor: '#ffffff' }}
+                    >
+                      <div className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-teal-600 text-xs font-semibold text-white">
+                        {getInitials(`${seeker.firstName || ""} ${seeker.lastName || ""}`)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-foreground">
+                          {`${seeker.firstName || ""} ${seeker.lastName || ""}`.trim() || seeker.username || "Applicant"}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {seeker.tagline || seeker.currentStatus || "Job seeker"}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                  {!isSearchingDirectory && !seekerDirectoryResults.length ? (
+                    <p className="px-2 text-xs text-muted-foreground">
+                      No matching people found for "{debouncedSearchQuery}".
+                    </p>
+                  ) : null}
+                  <p className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Conversations
+                  </p>
+                </>
+              ) : null}
+
               {filteredThreads.map((thread) => (
                 <button
                   key={thread.id}
@@ -204,6 +325,14 @@ export function RecruiterMessagesPage() {
                   </div>
                 </button>
               ))}
+              {!sessionsQuery.isLoading && threads.length && !filteredThreads.length ? (
+                <p className="px-2 text-xs text-muted-foreground">No conversations match "{searchQuery}".</p>
+              ) : null}
+              {!sessionsQuery.isLoading && !threads.length && !isDirectorySearchActive ? (
+                <p className="px-2 text-xs text-muted-foreground">
+                  No conversations yet. Search above to start one.
+                </p>
+              ) : null}
             </div>
           </aside>
 
@@ -212,11 +341,20 @@ export function RecruiterMessagesPage() {
             {selectedThread ? (
               <>
                 {/* Chat Header */}
-                <div className="border-b border-border/60 p-4">
-                  <p className="font-display text-base font-semibold">{selectedThread.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedThread.title} · {selectedThread.match} match
-                  </p>
+                <div className="border-b border-border/60 p-4 flex items-center justify-between">
+                  <div>
+                    <p className="font-display text-base font-semibold">{selectedThread.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedThread.title} · {selectedThread.match} match
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCloseChat}
+                    className="rounded-full border border-border/60 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface/70 transition"
+                  >
+                    Close chat
+                  </button>
                 </div>
 
                 {/* Messages */}

@@ -1,34 +1,80 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest } from "../../services/api";
 import { formatSalary } from "../../utils/formatSalary";
+import { CompanyLogo } from "../../components/CompanyLogo";
 
 export function JobsPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlQuery = searchParams.get("q") || "";
+  const [searchQuery, setSearchQuery] = useState(urlQuery);
   const [bookmarked, setBookmarked] = useState(new Set());
+  const [activeCompanyId, setActiveCompanyId] = useState("");
 
-  const jobsQuery = useQuery({
+  // Keep the input in sync if `q` changes from outside (e.g. the global header search
+  // navigating here again with a new query) without fighting the user's own typing.
+  useEffect(() => {
+    setSearchQuery(urlQuery);
+  }, [urlQuery]);
+
+  const trimmedQuery = searchQuery.trim();
+
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (trimmedQuery) {
+      next.set("q", trimmedQuery);
+    } else {
+      next.delete("q");
+    }
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trimmedQuery]);
+
+  const isSearchMode = Boolean(trimmedQuery);
+
+  const recommendedJobsQuery = useQuery({
     queryKey: ["jobs", "recommended"],
     queryFn: () =>
       apiRequest("/recommendations/jobs?limit=10", {
         token: session.accessToken,
       }),
-    enabled: Boolean(session?.accessToken),
+    enabled: Boolean(session?.accessToken) && !isSearchMode,
   });
 
+  const searchJobsQuery = useQuery({
+    queryKey: ["jobs", "search", trimmedQuery],
+    queryFn: () =>
+      apiRequest(`/search/jobs?q=${encodeURIComponent(trimmedQuery)}&limit=20`, {
+        token: session?.accessToken,
+      }),
+    enabled: isSearchMode,
+  });
+
+  const companiesQuery = useQuery({
+    queryKey: ["jobs", "search-companies", trimmedQuery],
+    queryFn: () =>
+      apiRequest(`/search/organizations?q=${encodeURIComponent(trimmedQuery)}&limit=6`, {
+        token: session.accessToken,
+      }),
+    enabled: isSearchMode && Boolean(session?.accessToken) && session?.role === "seeker",
+    retry: false,
+  });
+
+  const jobsQuery = isSearchMode ? searchJobsQuery : recommendedJobsQuery;
   const jobs = jobsQuery.data?.jobs || [];
+  const companies = companiesQuery.data?.organizations || [];
 
   const filteredJobs = jobs.filter(
-    (job) =>
-      !searchQuery.trim() ||
-      job.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      job.organizationId?.companyName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      job.location?.toLowerCase().includes(searchQuery.toLowerCase())
+    (job) => !activeCompanyId || String(job.organizationId?._id || job.organizationId) === activeCompanyId
   );
+
+  function handleSelectCompany(company) {
+    setActiveCompanyId((current) => (current === company._id ? "" : company._id));
+  }
 
   const toggleBookmark = (jobId) => {
     const newBookmarked = new Set(bookmarked);
@@ -67,7 +113,9 @@ export function JobsPage() {
                 Find your next role
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-muted-foreground lg:text-base">
-                {filteredJobs.length} jobs · ranked by match to your profile.
+                {isSearchMode
+                  ? `${filteredJobs.length} jobs matching "${trimmedQuery}".`
+                  : `${filteredJobs.length} jobs · ranked by match to your profile.`}
               </p>
             </div>
           </div>
@@ -99,6 +147,61 @@ export function JobsPage() {
           className="flex-1 bg-transparent text-sm outline-none"
         />
       </div>
+
+      {/* Companies matching the search — surfaces a real company by name even when it currently
+          has zero active postings, since /search/organizations doesn't require any. */}
+      {isSearchMode && companies.length ? (
+        <div className="mb-5">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Companies matching &quot;{trimmedQuery}&quot;
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {companies.map((company) => (
+              <div
+                key={company._id}
+                onClick={() => handleSelectCompany(company)}
+                className="flex cursor-pointer items-center gap-3 rounded-2xl border p-3 backdrop-blur transition"
+                style={{
+                  borderColor: activeCompanyId === company._id ? "var(--color-primary, #2f80ff)" : undefined,
+                  backgroundColor: activeCompanyId === company._id ? "rgba(47,128,255,0.08)" : undefined,
+                }}
+              >
+                <CompanyLogo organization={company} size="sm" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{company.companyName}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {company.industry || "Company"}
+                  </p>
+                </div>
+                <Link
+                  to={`/organizations/${company._id}`}
+                  onClick={(event) => event.stopPropagation()}
+                  className="ml-2 shrink-0 text-xs font-semibold text-primary hover:underline"
+                >
+                  View profile
+                </Link>
+              </div>
+            ))}
+          </div>
+          {activeCompanyId ? (
+            <button
+              type="button"
+              onClick={() => setActiveCompanyId("")}
+              className="mt-2 text-xs font-semibold hover:underline"
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                color: "var(--muted-foreground, inherit)",
+                fontWeight: 600,
+                boxShadow: "none",
+              }}
+            >
+              Clear company filter
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Jobs List */}
       <div className="space-y-3">

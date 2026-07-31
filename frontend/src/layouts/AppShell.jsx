@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../context/AuthContext";
@@ -173,6 +173,7 @@ const seekerNavItems = [
 
 const proOnlyNavItems = [
   { to: "/pro/automations", label: "Automations", icon: "zap" },
+  { to: "/chat", label: "Messages", icon: "message-square" },
   { to: "/pro/notifications", label: "Notifications", icon: "bell" },
 ];
 
@@ -208,6 +209,7 @@ export function AppShell() {
   const { session, logout } = useAuth();
   const { isDark, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
   const [globalSearch, setGlobalSearch] = useState("");
   const [navAvatarUrl, setNavAvatarUrl] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -293,11 +295,10 @@ export function AppShell() {
       return;
     }
 
-    const looksLikeJobSearch =
-      /\b(job|jobs|developer|engineer|intern|role|python|java|react|node|qa|tester|manager|analyst|remote|full.?stack|backend|frontend)\b/i.test(query);
-    const targetPath = looksLikeJobSearch ? "/jobs" : "/connections";
-
-    navigate(`${targetPath}?q=${encodeURIComponent(query)}`);
+    // Jobs is the natural landing page for an ambiguous "find a company or a role" search — it
+    // now shows both matching jobs and matching companies (see JobsPage.jsx). People/Connections
+    // search is still reachable on its own page, just no longer guessed at from here.
+    navigate(`/jobs?q=${encodeURIComponent(query)}`);
   }
 
   return (
@@ -391,18 +392,13 @@ export function AppShell() {
                   {isAdmin ? "Admin dashboard" : "View profile"}
                 </NavLink>
                 {session?.role === "seeker" ? (
-                  <NavLink to="/pro/applied" onClick={() => setProfileMenuOpen(false)}>
-                    My applications
+                  <NavLink to="/connections" onClick={() => setProfileMenuOpen(false)}>
+                    Connection requests
                   </NavLink>
                 ) : null}
                 {session?.role === "seeker" && !session?.isPro ? (
                   <NavLink to="/upgrade" onClick={() => setProfileMenuOpen(false)}>
                     Upgrade
-                  </NavLink>
-                ) : null}
-                {session?.role === "seeker" && session?.isPro ? (
-                  <NavLink to="/pro/tools" onClick={() => setProfileMenuOpen(false)}>
-                    Pro tools
                   </NavLink>
                 ) : null}
                 <div className="profile-dropdown__divider"></div>
@@ -422,7 +418,9 @@ export function AppShell() {
           <Outlet />
         </main>
 
-        {session?.accessToken ? <CareerAgentWidget /> : null}
+        {/* Hidden on /chat — a second floating chat launcher stacked in the same corner as a real
+            chat interface's own Send button is redundant UX on top of the visual collision. */}
+        {session?.accessToken && location.pathname !== "/chat" ? <CareerAgentWidget /> : null}
       </div>
 
       {/* Mobile Profile Menu */}
@@ -443,9 +441,8 @@ export function AppShell() {
           </NavLink>
           <div className="linkedin-me-menu__dropdown">
             <NavLink to={profilePath}>{isAdmin ? "Admin dashboard" : "View profile"}</NavLink>
-            {session?.role === "seeker" ? <NavLink to="/pro/applied">My applications</NavLink> : null}
+            {session?.role === "seeker" ? <NavLink to="/connections">Connection requests</NavLink> : null}
             {session?.role === "seeker" && !session?.isPro ? <NavLink to="/upgrade">Upgrade</NavLink> : null}
-            {session?.role === "seeker" && session?.isPro ? <NavLink to="/pro/tools">Pro tools</NavLink> : null}
             <button type="button" onClick={logout}>Sign out</button>
           </div>
         </div>

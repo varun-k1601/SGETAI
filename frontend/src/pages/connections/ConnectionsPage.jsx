@@ -1,12 +1,65 @@
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest } from "../../services/api";
 import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
-import { CompanyLogo, getMediaUrl } from "../../components/CompanyLogo";
+import { getMediaUrl } from "../../components/CompanyLogo";
 
 const responseOptions = ["Accepted", "Rejected", "Ignored"];
+
+// This app's global `button { background, border-radius, padding, border, box-shadow, color,
+// font-weight, transform, transition }` rule in styles.css is unlayered, so it silently wins over
+// any Tailwind utility class applied directly to a <button> (see AIGeneratorPage.jsx's
+// PostToLinkedInButton for the original diagnosis, and confirmed again here by inspecting computed
+// styles — every button on this page was rendering the global blue gradient/white-text/12px-radius
+// regardless of className). Resetting those specific properties inline is the established
+// workaround; layout/spacing/font-size classes are unaffected and stay as Tailwind classes.
+const neutralPillStyle = {
+  border: "1px solid var(--border)",
+  borderRadius: "9999px",
+  background: "var(--surface)",
+  boxShadow: "none",
+  color: "var(--text-muted)",
+  fontWeight: 500,
+  padding: "0.4rem 0.9rem",
+  transform: "none",
+  transition: "none",
+};
+
+const brandOutlinePillStyle = {
+  border: "1px solid var(--brand)",
+  borderRadius: "9999px",
+  background: "var(--surface)",
+  boxShadow: "none",
+  color: "var(--brand)",
+  fontWeight: 600,
+  padding: "0.4rem 0.9rem",
+  transform: "none",
+  transition: "none",
+};
+
+const solidBrandPillStyle = {
+  border: "1px solid transparent",
+  borderRadius: "9999px",
+  background: "linear-gradient(180deg, var(--brand), var(--brand-deep))",
+  boxShadow: "none",
+  color: "#ffffff",
+  fontWeight: 600,
+  padding: "0.4rem 0.9rem",
+  transform: "none",
+  transition: "none",
+};
+
+const dismissButtonStyle = {
+  border: "none",
+  borderRadius: "9999px",
+  background: "#1f2937",
+  boxShadow: "none",
+  color: "#ffffff",
+  padding: 0,
+  transform: "none",
+  transition: "none",
+};
 
 function getSeekerInitial(seeker) {
   const name = `${seeker?.firstName || ""} ${seeker?.lastName || ""}`.trim();
@@ -19,7 +72,11 @@ function SeekerAvatar({ seeker, size = "sm" }) {
 
   return (
     <span className={`seeker-avatar seeker-avatar--${size}`} aria-hidden="true">
-      {profilePictureUrl ? <img src={profilePictureUrl} alt="" /> : <span>{initial}</span>}
+      {profilePictureUrl ? (
+        <img src={profilePictureUrl} alt="" />
+      ) : (
+        <span style={{ color: "var(--text-muted)" }}>{initial}</span>
+      )}
     </span>
   );
 }
@@ -44,17 +101,23 @@ function formatDate(value) {
 
 function PersonSummary({ person }) {
   return (
-    <div>
-      <strong>
+    <div className="min-w-0">
+      <strong className="block truncate font-semibold text-foreground">
         {person?.firstName || "Unknown"} {person?.lastName || "seeker"}
       </strong>
-      <p>
+      <p className="truncate text-xs text-muted-foreground">
         {person?.username ? `@${person.username}` : person?.email || person?.tagline || "Profile summary not available"}
       </p>
-      {person?.username && person?.email ? <p>{person.email}</p> : null}
-      {person?.bio ? <p>{person.bio}</p> : null}
+      {person?.username && person?.email ? <p className="truncate text-xs text-muted-foreground">{person.email}</p> : null}
+      {person?.bio ? <p className="mt-1 text-xs text-muted-foreground">{person.bio}</p> : null}
     </div>
   );
+}
+
+// The most representative single line for a compact suggestion card — tagline is the seeker's
+// own summary if they wrote one, otherwise fall back to their most specific structured fields.
+function getSeekerSubtitle(seeker) {
+  return seeker?.tagline || seeker?.preferredRoles?.[0] || seeker?.currentStatus || "Job seeker";
 }
 
 function getConnectionActionLabel(connection) {
@@ -77,23 +140,56 @@ function getConnectionActionLabel(connection) {
   return "Connect again";
 }
 
-function getConnectionStatusLabel(connection) {
-  if (!connection?.status) {
-    return "";
-  }
-
-  if (connection.status === "Pending") {
-    return "Pending";
-  }
-
-  return connection.direction ? `${connection.status} ${connection.direction}` : connection.status;
+function UserPlusIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      <path d="M2 21a8 8 0 0 1 13.292-6"></path>
+      <circle cx="10" cy="8" r="5"></circle>
+      <path d="M19 16v6"></path>
+      <path d="M22 19h-6"></path>
+    </svg>
+  );
 }
 
-function SeekerDiscoveryCard({
+function DismissIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      <path d="M18 6 6 18"></path>
+      <path d="m6 6 12 12"></path>
+    </svg>
+  );
+}
+
+function SeekerSuggestionCard({
   seeker,
   onConnect,
   onRespond,
   onRemove,
+  onDismiss,
   isSending,
   isResponding,
   isRemoving,
@@ -110,172 +206,124 @@ function SeekerDiscoveryCard({
       !(connection.status === "Pending" && connection.direction === "received"));
 
   return (
-    <article className="connection-card">
-      <div className="connection-card__header">
-        <div className="seeker-line">
-          <SeekerAvatar seeker={seeker} size="sm" />
-          <PersonSummary person={seeker} />
+    <div className="relative flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/70 shadow-elegant backdrop-blur-xl">
+      <button
+        type="button"
+        title="Dismiss suggestion"
+        onClick={(event) => {
+          event.stopPropagation();
+          onDismiss(seeker._id);
+        }}
+        style={dismissButtonStyle}
+        className="absolute right-2 top-2 z-10 grid h-6 w-6 place-items-center"
+      >
+        <DismissIcon />
+      </button>
+
+      {/* Muted, desaturated cover strip — this app's own surface/border tokens, not the vivid
+          purple-to-blue brand gradient reserved for primary CTAs. */}
+      <div
+        className="h-14 shrink-0"
+        style={{ background: "linear-gradient(135deg, var(--surface-muted), var(--surface-soft))" }}
+      ></div>
+
+      <div className="flex flex-1 flex-col items-center px-4 pb-4 text-center">
+        <div className="-mt-8 rounded-full border-4" style={{ borderColor: "var(--surface)" }}>
+          <SeekerAvatar seeker={seeker} size="lg" />
         </div>
-        <span className="pill">{seeker.currentStatus || "Seeker"}</span>
-      </div>
 
-      <div className="tag-row">
-        {(seeker.skills || []).slice(0, 5).map((skill) => (
-          <span key={skill} className="tag-pill">
-            {skill}
-          </span>
-        ))}
-        {!seeker.skills?.length ? (
-          <span className="tag-pill muted-tag">No skills listed</span>
-        ) : null}
-      </div>
-
-      {seeker.preferredRoles?.length ? (
-        <p className="detail-summary">
-          Interested in {seeker.preferredRoles.slice(0, 3).join(", ")}
+        <p className="mt-3 w-full truncate text-sm font-semibold text-foreground">
+          {seeker.firstName || "Unknown"} {seeker.lastName || "seeker"}
         </p>
-      ) : null}
+        <p className="mt-0.5 w-full truncate text-xs text-muted-foreground">{getSeekerSubtitle(seeker)}</p>
 
-      <div className="connection-card__actions">
-        {isIncomingPending ? (
-          <>
-            <button
-              type="button"
-              disabled={isResponding}
-              onClick={() => onRespond(connection.id, "Accepted")}
+        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+          {(seeker.skills || []).slice(0, 3).map((skill) => (
+            <span
+              key={skill}
+              className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2 py-0.5 text-[10px] font-medium"
             >
-              {isResponding ? "Updating..." : "Accept"}
-            </button>
-            <button
-              type="button"
-              className="outline-button"
-              disabled={isResponding}
-              onClick={() => onRespond(connection.id, "Rejected")}
-            >
-              Delete
-            </button>
-          </>
-        ) : isOutgoingPending ? (
-          <button
-            type="button"
-            className="outline-button"
-            disabled={isRemoving}
-            onClick={() => onRemove(connection.id)}
-          >
-            {isRemoving ? "Cancelling..." : "Cancel request"}
-          </button>
-        ) : isAccepted ? (
-          <button
-            type="button"
-            className="outline-button"
-            disabled={isRemoving}
-            onClick={() => onRemove(connection.id)}
-          >
-            {isRemoving ? "Removing..." : "Unfollow"}
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={!canConnect || isSending}
-            onClick={() => onConnect(seeker._id)}
-          >
-            {isSending ? "Sending..." : actionLabel}
-          </button>
-        )}
-        {connection?.status ? (
-          <span className="pill">
-            {connection.status === "Pending" ? "◷ " : ""}
-            {getConnectionStatusLabel(connection)}
-          </span>
-        ) : null}
-      </div>
-    </article>
-  );
-}
-
-function OrganizationSearchCard({ organization, onFollow, onUnfollow, isUpdating }) {
-  const isFollowing = Boolean(organization.follow);
-
-  return (
-    <article className="connection-card">
-      <div className="connection-card__header">
-        <div className="company-line">
-          <CompanyLogo organization={organization} size="sm" />
-          <div>
-            <strong>{organization.companyName || "Organization"}</strong>
-            <p>{organization.username ? `@${organization.username}` : organization.email || "Username unavailable"}</p>
-            {organization.industry ? <p>{organization.industry}</p> : null}
-          </div>
+              {skill}
+            </span>
+          ))}
+          {!seeker.skills?.length ? (
+            <span className="text-[10px] text-muted-foreground">No skills listed</span>
+          ) : null}
         </div>
-        <span className="pill">{organization.verificationStatus || "Organization"}</span>
-      </div>
 
-      {organization.description ? (
-        <p className="detail-summary">{organization.description}</p>
-      ) : null}
-
-      <div className="connection-card__actions">
-        {isFollowing ? (
-          <button
-            type="button"
-            className="outline-button"
-            disabled={isUpdating}
-            onClick={() => onUnfollow(organization._id)}
-          >
-            {isUpdating ? "Updating..." : "Unfollow"}
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={isUpdating}
-            onClick={() => onFollow(organization._id)}
-          >
-            {isUpdating ? "Updating..." : "Follow"}
-          </button>
-        )}
-        <span className="pill">{isFollowing ? "Following" : "Company"}</span>
+        <div className="mt-3 w-full">
+          {isIncomingPending ? (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={isResponding}
+                onClick={() => onRespond(connection.id, "Accepted")}
+                style={solidBrandPillStyle}
+                className="flex-1 text-xs"
+              >
+                {isResponding ? "Updating..." : "Accept"}
+              </button>
+              <button
+                type="button"
+                disabled={isResponding}
+                onClick={() => onRespond(connection.id, "Rejected")}
+                style={neutralPillStyle}
+                className="flex-1 text-xs"
+              >
+                Delete
+              </button>
+            </div>
+          ) : isOutgoingPending ? (
+            <button
+              type="button"
+              disabled={isRemoving}
+              onClick={() => onRemove(connection.id)}
+              style={neutralPillStyle}
+              className="w-full text-xs"
+            >
+              {isRemoving ? "Cancelling..." : "Cancel request"}
+            </button>
+          ) : isAccepted ? (
+            <button
+              type="button"
+              disabled={isRemoving}
+              onClick={() => onRemove(connection.id)}
+              style={neutralPillStyle}
+              className="w-full text-xs"
+            >
+              {isRemoving ? "Removing..." : "Unfollow"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={!canConnect || isSending}
+              onClick={() => onConnect(seeker._id)}
+              style={brandOutlinePillStyle}
+              className="inline-flex w-full items-center justify-center gap-1.5 text-xs disabled:cursor-not-allowed"
+            >
+              <UserPlusIcon />
+              {isSending ? "Sending..." : actionLabel}
+            </button>
+          )}
+        </div>
       </div>
-    </article>
+    </div>
   );
 }
 
 export function ConnectionsPage() {
   const { session } = useAuth();
   const queryClient = useQueryClient();
-  const [searchParams] = useSearchParams();
-  const [directSearch, setDirectSearch] = useState(searchParams.get("q") || "");
-  const [filters, setFilters] = useState({
-    q: "",
-    skill: "",
-    role: "",
-    currentStatus: "",
-  });
   const [feedback, setFeedback] = useState({ type: "", message: "" });
-
-  useEffect(() => {
-    const query = searchParams.get("q") || "";
-    setDirectSearch((current) => (current === query ? current : query));
-  }, [searchParams]);
+  // Session-local only — there's no "dismissedSuggestions" concept on JobSeeker yet, so this
+  // resets on refresh. Persisting it for real would need a new field + endpoint, out of scope here.
+  const [dismissedSeekerIds, setDismissedSeekerIds] = useState(() => new Set());
 
   const seekerSearchQueryString = useMemo(() => {
     const params = new URLSearchParams();
-
-    Object.entries(filters).forEach(([key, value]) => {
-      if (String(value || "").trim()) {
-        params.set(key, String(value).trim());
-      }
-    });
-
     params.set("limit", "12");
     return params.toString();
-  }, [filters]);
-
-  const directSearchQueryString = useMemo(() => {
-    const params = new URLSearchParams();
-    params.set("q", directSearch.trim());
-    params.set("limit", "5");
-    return params.toString();
-  }, [directSearch]);
+  }, []);
 
   const pendingQuery = useQuery({
     queryKey: ["connections", "pending"],
@@ -304,37 +352,10 @@ export function ConnectionsPage() {
     enabled: Boolean(session?.accessToken && session?.role === "seeker"),
   });
 
-  const directSearchQuery = useQuery({
-    queryKey: ["search-seekers", "direct", directSearchQueryString],
-    queryFn: () =>
-      apiRequest(`/search/seekers?${directSearchQueryString}`, {
-        token: session.accessToken,
-      }),
-    enabled: Boolean(
-      session?.accessToken &&
-      session?.role === "seeker" &&
-      directSearch.trim().length >= 2
-    ),
-  });
-
-  const directOrganizationSearchQuery = useQuery({
-    queryKey: ["search-organizations", "direct", directSearchQueryString],
-    queryFn: () =>
-      apiRequest(`/search/organizations?${directSearchQueryString}`, {
-        token: session.accessToken,
-      }),
-    enabled: Boolean(
-      session?.accessToken &&
-      session?.role === "seeker" &&
-      directSearch.trim().length >= 2
-    ),
-  });
-
   const invalidateConnections = () => {
     queryClient.invalidateQueries({ queryKey: ["connections"] });
     queryClient.invalidateQueries({ queryKey: ["notifications"] });
     queryClient.invalidateQueries({ queryKey: ["search-seekers"] });
-    queryClient.invalidateQueries({ queryKey: ["search-organizations"] });
   };
 
   const sendRequestMutation = useMutation({
@@ -345,7 +366,6 @@ export function ConnectionsPage() {
       }),
     onSuccess: (response) => {
       setFeedback({ type: "success", message: response.message || "Connection request sent." });
-      setDirectSearch("");
       invalidateConnections();
     },
     onError: (error) => {
@@ -390,327 +410,131 @@ export function ConnectionsPage() {
     },
   });
 
-  const followOrganizationMutation = useMutation({
-    mutationFn: (organizationId) =>
-      apiRequest(`/follows/${organizationId}`, {
-        method: "POST",
-        token: session.accessToken,
-      }),
-    onSuccess: (response) => {
-      setFeedback({ type: "success", message: response.message || "Organization followed." });
-      queryClient.invalidateQueries({ queryKey: ["search-organizations"] });
-      queryClient.invalidateQueries({ queryKey: ["follows"] });
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
-    },
-    onError: (error) => {
-      setFeedback({ type: "error", message: error.message });
-    },
-  });
-
-  const unfollowOrganizationMutation = useMutation({
-    mutationFn: (organizationId) =>
-      apiRequest(`/follows/${organizationId}`, {
-        method: "DELETE",
-        token: session.accessToken,
-      }),
-    onSuccess: (response) => {
-      setFeedback({ type: "success", message: response.message || "Organization unfollowed." });
-      queryClient.invalidateQueries({ queryKey: ["search-organizations"] });
-      queryClient.invalidateQueries({ queryKey: ["follows"] });
-    },
-    onError: (error) => {
-      setFeedback({ type: "error", message: error.message });
-    },
-  });
-
   if (session?.role !== "seeker") {
     return (
-      <section className="info-card">
-        <h3>Connections are seeker-only</h3>
-        <p>This workspace is for job seekers building their professional network.</p>
-      </section>
+      <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
+        <div className="rounded-2xl border border-border/60 bg-card/70 p-8 text-center text-muted-foreground">
+          <h3 className="font-display text-lg font-semibold text-foreground">Connections are seeker-only</h3>
+          <p className="mt-1 text-sm">This workspace is for job seekers building their professional network.</p>
+        </div>
+      </main>
     );
   }
 
   const pendingConnections = pendingQuery.data?.connections || [];
   const acceptedConnections = acceptedQuery.data?.connections || [];
-  const discoveredSeekers = seekerDiscoveryQuery.data?.seekers || [];
-  const directSearchResults = directSearchQuery.data?.seekers || [];
-  const directOrganizationResults = directOrganizationSearchQuery.data?.organizations || [];
+  const discoveredSeekers = (seekerDiscoveryQuery.data?.seekers || []).filter(
+    (seeker) => !dismissedSeekerIds.has(seeker._id)
+  );
 
-  function handleFilterChange(field, value) {
-    setFilters((current) => ({
-      ...current,
-      [field]: value,
-    }));
+  function handleDismissSuggestion(seekerId) {
+    setDismissedSeekerIds((current) => {
+      const next = new Set(current);
+      next.add(seekerId);
+      return next;
+    });
   }
 
   return (
-    <section className="dashboard-stack">
-      <section className="stats-grid">
-        <article className="stat-surface">
-          <span>Pending requests</span>
-          <strong>{pendingConnections.length}</strong>
-          <small>Requests waiting for your response</small>
-        </article>
-        <article className="stat-surface">
-          <span>Accepted connections</span>
-          <strong>{acceptedConnections.length}</strong>
-          <small>People in your seeker network</small>
-        </article>
-        <article className="stat-surface">
-          <span>Discovery results</span>
-          <strong>{discoveredSeekers.length}</strong>
-          <small>Seekers matching your current filters</small>
-        </article>
-        <article className="stat-surface">
-          <span>Privacy</span>
-          <strong>Public</strong>
-          <small>Private profiles stay out of discovery</small>
-        </article>
-      </section>
-
+    <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
       <AutoDismissFeedback
         feedback={feedback}
         onClear={() => setFeedback({ type: "", message: "" })}
       />
 
-      <section className="connections-layout">
-        <div className="connections-main">
-          <article className="info-card">
-            <div className="section-head">
-              <div>
-                <h3>Discover seekers</h3>
-                <p>Find people by name, skill, preferred role, or current status.</p>
-              </div>
-              <span className="pill">{discoveredSeekers.length} shown</span>
+      <div className="mt-6 space-y-5">
+        {/* Pending Requests — first, per the reference layout */}
+        <div className="rounded-2xl border border-border/60 bg-card/70 p-5 shadow-elegant backdrop-blur-xl">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Inbox
+              </p>
+              <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Pending requests</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Accept, reject, or ignore incoming seeker connection requests.
+              </p>
             </div>
+            <span className="shrink-0 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
+              {pendingConnections.length} pending
+            </span>
+          </div>
 
-            <section className="connections-filter-grid">
-              <label className="form-field">
-                <span>Name or keyword</span>
-                <input
-                  type="text"
-                  value={filters.q}
-                  onChange={(event) => handleFilterChange("q", event.target.value)}
-                  placeholder="Aarav, frontend, AI..."
-                />
-              </label>
-
-              <label className="form-field">
-                <span>Skill</span>
-                <input
-                  type="text"
-                  value={filters.skill}
-                  onChange={(event) => handleFilterChange("skill", event.target.value)}
-                  placeholder="React, Python..."
-                />
-              </label>
-
-              <label className="form-field">
-                <span>Preferred role</span>
-                <input
-                  type="text"
-                  value={filters.role}
-                  onChange={(event) => handleFilterChange("role", event.target.value)}
-                  placeholder="Frontend Developer"
-                />
-              </label>
-
-              <label className="form-field">
-                <span>Status</span>
-                <select
-                  value={filters.currentStatus}
-                  onChange={(event) => handleFilterChange("currentStatus", event.target.value)}
+          {pendingQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading pending requests...</p>
+          ) : pendingConnections.length ? (
+            <div className="space-y-3">
+              {pendingConnections.map((connection) => (
+                <div
+                  key={connection.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-surface/40 p-3"
                 >
-                  <option value="">Any status</option>
-                  <option value="Student">Student</option>
-                  <option value="Professional">Professional</option>
-                  <option value="Unemployed">Unemployed</option>
-                </select>
-              </label>
-            </section>
-
-            {seekerDiscoveryQuery.isLoading ? (
-              <p>Searching seekers...</p>
-            ) : discoveredSeekers.length ? (
-              <div className="connection-list">
-                {discoveredSeekers.map((seeker) => (
-                  <SeekerDiscoveryCard
-                    key={seeker._id}
-                    seeker={seeker}
-                    isSending={sendRequestMutation.isPending}
-                    isResponding={respondMutation.isPending}
-                    isRemoving={removeConnectionMutation.isPending}
-                    onRemove={(connectionId) => removeConnectionMutation.mutate(connectionId)}
-                    onRespond={(connectionId, status) =>
-                      respondMutation.mutate({
-                        connectionId,
-                        status,
-                      })
-                    }
-                    onConnect={(targetSeekerId) => {
-                      setFeedback({ type: "", message: "" });
-                      sendRequestMutation.mutate(targetSeekerId);
-                    }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state-card">
-                <h4>No seekers found</h4>
-                <p>Try a broader keyword or remove one of the filters.</p>
-              </div>
-            )}
-          </article>
-
-          <article className="info-card">
-            <div className="section-head">
-              <div>
-                <h3>Pending requests</h3>
-                <p>Accept, reject, or ignore incoming seeker connection requests.</p>
-              </div>
-              <span className="pill">{pendingConnections.length} pending</span>
-            </div>
-
-            {pendingQuery.isLoading ? (
-              <p>Loading pending requests...</p>
-            ) : pendingConnections.length ? (
-              <div className="connection-list">
-                {pendingConnections.map((connection) => (
-                  <article key={connection.id} className="connection-card">
-                    <PersonSummary person={connection.requester} />
-                    <div className="connection-card__actions">
-                      {responseOptions.map((status) => (
-                        <button
-                          key={status}
-                          type="button"
-                          className={status === "Accepted" ? "" : "outline-button"}
-                          disabled={respondMutation.isPending}
-                          onClick={() =>
-                            respondMutation.mutate({
-                              connectionId: connection.id,
-                              status,
-                            })
-                          }
-                        >
-                          {status}
-                        </button>
-                      ))}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state-card">
-                <h4>No pending requests</h4>
-                <p>Incoming connection invites will appear here.</p>
-              </div>
-            )}
-          </article>
-
-          <article className="info-card">
-            <div className="section-head">
-              <div>
-                <h3>Accepted connections</h3>
-                <p>Your active seeker network, sorted by most recent response.</p>
-              </div>
-              <span className="pill">{acceptedConnections.length} connected</span>
-            </div>
-
-            {acceptedQuery.isLoading ? (
-              <p>Loading accepted connections...</p>
-            ) : acceptedConnections.length ? (
-              <div className="connection-list">
-                {acceptedConnections.map((connection) => (
-                  <article key={connection.id} className="connection-card">
-                    <PersonSummary person={connection.counterpart} />
-                    <div className="connection-card__meta">
-                      <span className="pill">{connection.direction}</span>
-                      <span>Connected {formatDate(connection.respondedAt || connection.updatedAt)}</span>
-                    </div>
-                    <div className="connection-card__actions">
+                  <PersonSummary person={connection.requester} />
+                  <div className="flex flex-wrap gap-2">
+                    {responseOptions.map((status) => (
                       <button
+                        key={status}
                         type="button"
-                        className="outline-button"
-                        disabled={removeConnectionMutation.isPending}
-                        onClick={() => removeConnectionMutation.mutate(connection.id)}
+                        disabled={respondMutation.isPending}
+                        onClick={() =>
+                          respondMutation.mutate({
+                            connectionId: connection.id,
+                            status,
+                          })
+                        }
+                        style={status === "Accepted" ? solidBrandPillStyle : neutralPillStyle}
+                        className="text-xs"
                       >
-                        {removeConnectionMutation.isPending ? "Removing..." : "Unfollow"}
+                        {status}
                       </button>
-                    </div>
-                    {connection.counterpart?.skills?.length ? (
-                      <div className="tag-row">
-                        {connection.counterpart.skills.slice(0, 6).map((skill) => (
-                          <span key={skill} className="tag-pill">
-                            {skill}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state-card">
-                <h4>No accepted connections yet</h4>
-                <p>Send a request or accept one to start building your network.</p>
-              </div>
-            )}
-          </article>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border/40 bg-surface/40 p-6 text-center text-muted-foreground">
+              <p className="font-semibold text-foreground">No pending requests</p>
+              <p className="mt-1 text-sm">Incoming connection invites will appear here.</p>
+            </div>
+          )}
         </div>
 
-        <aside className="info-card">
-          <h3>Find people or companies</h3>
-          <p>Search by username or email. Connect with people or follow organizations.</p>
-          <form
-            className="auth-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!directSearch.trim()) {
-                setFeedback({ type: "error", message: "Enter a username or email to search." });
-              }
-            }}
-          >
-            <label className="form-field">
-              <span>Username or email</span>
-              <input
-                type="text"
-                value={directSearch}
-                onChange={(event) => setDirectSearch(event.target.value)}
-                placeholder="varunraj or varun@example.com"
-              />
-            </label>
-          </form>
-
-          {directSearch.trim().length < 2 ? (
-            <div className="detail-list">
-              <div className="detail-list__item">
-                <strong>Tip</strong>
-                <span>Type at least 2 characters from a username or email.</span>
-              </div>
+        {/* People You May Know — card grid */}
+        <div className="rounded-2xl border border-border/60 bg-card/70 p-5 shadow-elegant backdrop-blur-xl">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Discover
+              </p>
+              <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">People you may know</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Seekers you might want to connect with.
+              </p>
             </div>
-          ) : directSearchQuery.isLoading || directOrganizationSearchQuery.isLoading ? (
-            <p>Searching...</p>
-          ) : directSearchResults.length || directOrganizationResults.length ? (
-            <div className="connection-list compact-list">
-              {directOrganizationResults.map((organization) => (
-                <OrganizationSearchCard
-                  key={organization._id}
-                  organization={organization}
-                  isUpdating={followOrganizationMutation.isPending || unfollowOrganizationMutation.isPending}
-                  onFollow={(organizationId) => followOrganizationMutation.mutate(organizationId)}
-                  onUnfollow={(organizationId) => unfollowOrganizationMutation.mutate(organizationId)}
-                />
-              ))}
-              {directSearchResults.map((seeker) => (
-                <SeekerDiscoveryCard
+            <span className="shrink-0 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
+              {discoveredSeekers.length} shown
+            </span>
+          </div>
+
+          {/* No real mutual-connections data source exists yet (discovering another seeker's
+              own connections isn't exposed by any endpoint, and building one is beyond this
+              restyle's scope) — that line from the reference design is intentionally omitted
+              rather than faked. */}
+
+          {seekerDiscoveryQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Searching seekers...</p>
+          ) : discoveredSeekers.length ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {discoveredSeekers.map((seeker) => (
+                <SeekerSuggestionCard
                   key={seeker._id}
                   seeker={seeker}
                   isSending={sendRequestMutation.isPending}
                   isResponding={respondMutation.isPending}
                   isRemoving={removeConnectionMutation.isPending}
                   onRemove={(connectionId) => removeConnectionMutation.mutate(connectionId)}
+                  onDismiss={handleDismissSuggestion}
                   onRespond={(connectionId, status) =>
                     respondMutation.mutate({
                       connectionId,
@@ -725,13 +549,79 @@ export function ConnectionsPage() {
               ))}
             </div>
           ) : (
-            <div className="empty-state-card">
-              <h4>No match found</h4>
-              <p>Check the username/email spelling or ask them for their SGETAI username.</p>
+            <div className="rounded-xl border border-border/40 bg-surface/40 p-6 text-center text-muted-foreground">
+              <p className="font-semibold text-foreground">No seekers found</p>
+              <p className="mt-1 text-sm">Check back later for new suggestions.</p>
             </div>
           )}
-        </aside>
-      </section>
-    </section>
+        </div>
+
+        {/* Accepted Connections */}
+        <div className="rounded-2xl border border-border/60 bg-card/70 p-5 shadow-elegant backdrop-blur-xl">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Network
+              </p>
+              <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Accepted connections</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Your active seeker network, sorted by most recent response.
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
+              {acceptedConnections.length} connected
+            </span>
+          </div>
+
+          {acceptedQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading accepted connections...</p>
+          ) : acceptedConnections.length ? (
+            <div className="space-y-3">
+              {acceptedConnections.map((connection) => (
+                <div key={connection.id} className="rounded-xl border border-border/40 bg-surface/40 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <PersonSummary person={connection.counterpart} />
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                        {connection.direction}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        Connected {formatDate(connection.respondedAt || connection.updatedAt)}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={removeConnectionMutation.isPending}
+                        onClick={() => removeConnectionMutation.mutate(connection.id)}
+                        style={neutralPillStyle}
+                        className="text-xs"
+                      >
+                        {removeConnectionMutation.isPending ? "Removing..." : "Unfollow"}
+                      </button>
+                    </div>
+                  </div>
+                  {connection.counterpart?.skills?.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {connection.counterpart.skills.slice(0, 6).map((skill) => (
+                        <span
+                          key={skill}
+                          className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border/40 bg-surface/40 p-6 text-center text-muted-foreground">
+              <p className="font-semibold text-foreground">No accepted connections yet</p>
+              <p className="mt-1 text-sm">Send a request or accept one to start building your network.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </main>
   );
 }

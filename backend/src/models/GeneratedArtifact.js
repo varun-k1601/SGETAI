@@ -22,7 +22,8 @@ const generatedArtifactSchema = new mongoose.Schema(
     textContent: { type: String, trim: true },
     fileUrl: { type: String, trim: true },
     filePath: { type: String, trim: true },
-    metadata: { type: mongoose.Schema.Types.Mixed, default: {} }
+    metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
+    dismissedAt: { type: Date, default: null }
   },
   { timestamps: true }
 );

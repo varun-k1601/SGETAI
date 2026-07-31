@@ -30,7 +30,8 @@ function buildJobText(job) {
     `Type: ${job.type || ""}`,
     `Requirements: ${(job.requirements || []).join(", ")}`,
     `Skills: ${(job.skills || []).join(", ")}`,
-    `Skills Required: ${(job.skillsRequired || []).join(", ")}`
+    `Skills Required: ${(job.skillsRequired || []).join(", ")}`,
+    (job.customFields || []).map((field) => `${field.label}: ${field.value || ""}`).join("\n")
   ]);
 }
 

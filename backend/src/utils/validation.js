@@ -38,6 +38,27 @@ function requireArrayOfStrings(value, fieldName, { min = 0, max = Infinity } = {
   return normalized;
 }
 
+// Validates an array of { label, value } pairs — used for recruiter-defined custom job fields.
+// label is required (mirrors requireNonEmptyString per-item); value is optional free text.
+function requireArrayOfCustomFields(value, fieldName, { max = Infinity } = {}) {
+  if (!Array.isArray(value)) {
+    throw new ApiError(400, `${fieldName} must be an array of { label, value } items.`);
+  }
+
+  const normalized = value
+    .map((item) => ({
+      label: isNonEmptyString(item?.label) ? item.label.trim() : "",
+      value: optionalString(item?.value) || ""
+    }))
+    .filter((item) => item.label);
+
+  if (normalized.length > max) {
+    throw new ApiError(400, `${fieldName} must contain at most ${max} item(s).`);
+  }
+
+  return normalized;
+}
+
 function requireBoolean(value, fieldName) {
   if (typeof value !== "boolean") {
     throw new ApiError(400, `${fieldName} must be a boolean.`);
@@ -75,6 +96,7 @@ module.exports = {
   requireNonEmptyString,
   optionalString,
   requireArrayOfStrings,
+  requireArrayOfCustomFields,
   requireBoolean,
   requireNumberInRange,
   normalizePagination

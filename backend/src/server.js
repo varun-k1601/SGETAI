@@ -10,7 +10,7 @@ const { ensureSuperAdmin } = require("./utils/adminBootstrap");
 const { verifyEmailConnection } = require("./utils/email");
 const {
   verifySupabaseConnection,
-  getSupabaseHealthStatus
+  getSupabaseHealthStatus,
 } = require("./utils/supabaseService");
 const { initSocket } = require("./utils/socketServer");
 const { startVerificationCron } = require("./workers/verificationCron");
@@ -40,21 +40,24 @@ const resumeRoutes = require("./routes/resume");
 const resumeRagRoutes = require("./routes/resumeRag");
 const adminRoutes = require("./routes/admin");
 const dashboardRoutes = require("./routes/dashboard");
+const feedbackRoutes = require("./routes/feedback");
 
 function createApp() {
   const app = express();
 
   app.use(helmet());
-  app.use(cors({
-    origin(origin, callback) {
-      if (!origin || process.env.NODE_ENV !== "production") {
-        return callback(null, true);
-      }
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin || process.env.NODE_ENV !== "production") {
+          return callback(null, true);
+        }
 
-      return callback(null, origin === process.env.FRONTEND_URL);
-    },
-    exposedHeaders: ["Content-Disposition", "Content-Length", "Content-Type"]
-  }));
+        return callback(null, origin === process.env.FRONTEND_URL);
+      },
+      exposedHeaders: ["Content-Disposition", "Content-Length", "Content-Type"],
+    }),
+  );
   app.use(express.json({ limit: "2mb" }));
 
   app.get("/health", (req, res) => {
@@ -62,11 +65,16 @@ function createApp() {
       message: "SGETAI backend foundation is healthy.",
       environment: process.env.NODE_ENV || "development",
       services: {
-        database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
-        ai: (process.env.GEMINI_API_KEY || "").includes("replace_me") ? "fallback" : "configured",
-        email: (process.env.EMAIL_PASS || "").includes("replace_me") ? "dev-fallback" : "configured",
-        supabase: getSupabaseHealthStatus()
-      }
+        database:
+          mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+        ai: (process.env.GEMINI_API_KEY || "").includes("replace_me")
+          ? "fallback"
+          : "configured",
+        email: (process.env.EMAIL_PASS || "").includes("replace_me")
+          ? "dev-fallback"
+          : "configured",
+        supabase: getSupabaseHealthStatus(),
+      },
     });
   });
 
@@ -91,6 +99,7 @@ function createApp() {
   app.use("/api/resume-rag", resumeRagRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/dashboard", dashboardRoutes);
+  app.use("/api/feedback", feedbackRoutes);
 
   app.use(notFound);
   app.use(errorHandler);
@@ -102,8 +111,18 @@ async function bootstrap() {
   validateEnv();
   await connectToDatabase();
   await ensureSuperAdmin();
-  await verifyEmailConnection();
-  await verifySupabaseConnection();
+
+  try {
+    await verifyEmailConnection();
+  } catch (error) {
+    console.warn("Email bootstrap warning:", error.message);
+  }
+
+  try {
+    await verifySupabaseConnection();
+  } catch (error) {
+    console.warn("Supabase bootstrap warning:", error.message);
+  }
 
   const app = createApp();
   const httpServer = http.createServer(app);
@@ -139,5 +158,5 @@ if (require.main === module) {
 
 module.exports = {
   bootstrap,
-  createApp
+  createApp,
 };

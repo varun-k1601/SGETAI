@@ -53,6 +53,16 @@ const applicationSchema = new mongoose.Schema(
       default: 0
     },
     atsTag: { type: String, trim: true },
+    // The tailored resume's own score against the job description (scoreResumeAgainstJob) — a
+    // different formula from atsScore (the seeker-profile-vs-job composite that actually gated
+    // an auto-apply decision against the threshold). Kept separate so atsScore is never
+    // overwritten by an unrelated scorer after the threshold check has already passed.
+    resumeMatchScore: {
+      type: Number,
+      min: 0,
+      max: 100
+    },
+    resumeMatchTag: { type: String, trim: true },
     trustScore: { type: Number, default: 0 },
     trustScoreTag: { type: String, trim: true },
     verificationStatus: {

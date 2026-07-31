@@ -95,7 +95,10 @@ function ApplicationListCard({ application, selected, onSelect }) {
           selected ? "opacity-80" : "text-muted-foreground"
         }`}
       >
-        <span>ATS {application.atsScore ?? 0}</span>
+        <span>Match {application.atsScore ?? 0}</span>
+        {Number.isFinite(application.resumeMatchScore) && (
+          <span>Resume score {application.resumeMatchScore}</span>
+        )}
         <span>{verificationLabel}</span>
         {hasResume && <span>Resume attached</span>}
       </div>
@@ -391,7 +394,7 @@ export function RecruiterJobApplicantsPage() {
                     <p className="mt-0.5 truncate text-sm font-semibold">{seeker.email || "Not available"}</p>
                   </div>
                   <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
-                    <p className="text-xs text-muted-foreground">ATS score</p>
+                    <p className="text-xs text-muted-foreground">Match score</p>
                     <p className="mt-0.5 text-sm font-semibold">{selectedApplication.atsScore ?? 0}</p>
                   </div>
                   <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
@@ -402,6 +405,12 @@ export function RecruiterJobApplicantsPage() {
                     <p className="text-xs text-muted-foreground">Trust score</p>
                     <p className="mt-0.5 text-sm font-semibold">{selectedApplication.trustScore ?? 0}</p>
                   </div>
+                  {Number.isFinite(selectedApplication.resumeMatchScore) && (
+                    <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
+                      <p className="text-xs text-muted-foreground">Resume score</p>
+                      <p className="mt-0.5 text-sm font-semibold">{selectedApplication.resumeMatchScore}</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-5">

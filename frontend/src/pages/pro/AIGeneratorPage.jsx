@@ -259,6 +259,40 @@ export function AIGeneratorPage() {
 
   const [publishError, setPublishError] = useState("");
 
+  const dismissArtifactMutation = useMutation({
+    mutationFn: (artifactId) =>
+      apiRequest(`/pro/agent/artifacts/${artifactId}/dismiss`, {
+        method: "PATCH",
+        token: session.accessToken
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["career-copilot", "artifacts"] });
+    }
+  });
+
+  const dismissAllArtifactsMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("/pro/agent/artifacts/dismiss-all", {
+        method: "PATCH",
+        token: session.accessToken
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["career-copilot", "artifacts"] });
+    }
+  });
+
+  function handleDismissArtifact(event, artifactId) {
+    event.stopPropagation();
+    dismissArtifactMutation.mutate(artifactId);
+  }
+
+  function handleDismissAllArtifacts() {
+    if (!window.confirm("Close all generated artifacts? Your resumes, posts, and messages will still be saved — this only clears them from this list.")) {
+      return;
+    }
+    dismissAllArtifactsMutation.mutate();
+  }
+
   const publishLinkedInPostMutation = useMutation({
     mutationFn: (artifactId) =>
       apiRequest(`/pro/linkedin/posts/${artifactId}/publish`, {
@@ -800,17 +834,50 @@ export function AIGeneratorPage() {
               Generated artifacts
             </h2>
           </div>
+          {artifacts.length ? (
+            <button
+              type="button"
+              onClick={handleDismissAllArtifacts}
+              disabled={dismissAllArtifactsMutation.isPending}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface/70 px-3 py-1.5 text-xs font-medium hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {dismissAllArtifactsMutation.isPending ? "Closing…" : "Close all"}
+            </button>
+          ) : null}
         </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {artifacts.length ? (
             artifacts.map((artifact) => (
-              <button
+              <div
                 key={artifact.id}
-                type="button"
                 onClick={() => handleArtifactClick(artifact)}
-                className="rounded-xl border border-border/40 bg-surface/40 p-3 text-left transition hover:bg-surface/70 hover:shadow-sm"
+                className="relative cursor-pointer rounded-xl border border-border/40 bg-surface/40 p-3 text-left transition hover:bg-surface/70 hover:shadow-sm"
               >
-                <p className="text-sm font-semibold">{artifact.title}</p>
+                <button
+                  type="button"
+                  onClick={(event) => handleDismissArtifact(event, artifact.id)}
+                  aria-label="Dismiss artifact"
+                  title="Dismiss"
+                  className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border border-border/60 bg-surface/80 p-0! text-muted-foreground hover:bg-surface"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-3 w-3"
+                    aria-hidden="true"
+                  >
+                    <path d="M18 6 6 18"></path>
+                    <path d="m6 6 12 12"></path>
+                  </svg>
+                </button>
+                <p className="pr-6 text-sm font-semibold">{artifact.title}</p>
                 <div className="mt-2 flex items-center gap-2">
                   <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
                     {formatRelativeTime(artifact.createdAt)}
@@ -819,11 +886,11 @@ export function AIGeneratorPage() {
                     {artifact.status}
                   </span>
                 </div>
-              </button>
+              </div>
             ))
           ) : (
             <p className="text-sm text-muted-foreground">
-              {artifactsQuery.isLoading ? "Loading your generated artifacts…" : "Nothing generated yet — try one of the quick actions above."}
+              {artifactsQuery.isLoading ? "Loading your generated artifacts…" : "No generated artifacts yet — try one of the quick actions above."}
             </p>
           )}
         </div>

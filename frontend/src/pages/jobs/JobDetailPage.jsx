@@ -94,6 +94,7 @@ export function JobDetailPage() {
   const organization = job.organizationId || {};
   const skills = job.skillsRequired || job.skills || [];
   const requirements = job.requirements || [];
+  const customFields = job.customFields || [];
   const currentStatus = successResult ? "Pending" : applicationStatus;
   const showApplyForm = !alreadyApplied || currentStatus === "Withdrawn";
 
@@ -151,6 +152,20 @@ export function JobDetailPage() {
                 <li key={idx}>{requirement}</li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {customFields.length > 0 && (
+          <div className="mt-6">
+            <h2 className="font-display text-lg font-semibold">Additional details</h2>
+            <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+              {customFields.map((field, idx) => (
+                <div key={idx} className="rounded-lg border border-border/60 bg-surface/50 px-3 py-2">
+                  <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                  <dd className="text-sm font-medium">{field.value || "—"}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
         )}
 

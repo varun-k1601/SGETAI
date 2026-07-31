@@ -42,6 +42,8 @@ function getNotificationIcon(type) {
       return "🤝";
     case "auto_dm":
       return "💬";
+    case "connection_request":
+      return "👥";
     case "connection_accepted":
     case "recruiter_response":
       return "✨";
@@ -58,6 +60,8 @@ function getNotificationTypeLabel(type) {
       return "Auto-connect";
     case "auto_dm":
       return "Auto-DM";
+    case "connection_request":
+      return "Connection request";
     case "connection_accepted":
     case "recruiter_response":
       return "Response";
@@ -66,9 +70,19 @@ function getNotificationTypeLabel(type) {
   }
 }
 
-function NotificationItem({ notification, onMarkRead, onClear, isUpdating }) {
+function NotificationItem({
+  notification,
+  onMarkRead,
+  onClear,
+  isUpdating,
+  onRespondConnection,
+  isRespondingConnection,
+  connectionResponseStatus,
+}) {
   const typeLabel = getNotificationTypeLabel(notification.type);
   const icon = getNotificationIcon(notification.type);
+  const isConnectionRequest = notification.type === "connection_request";
+  const connectionId = notification.metadata?.connectionId;
 
   return (
     <div className={`group relative flex items-start gap-3 rounded-xl border p-3 transition ${
@@ -96,6 +110,70 @@ function NotificationItem({ notification, onMarkRead, onClear, isUpdating }) {
         </div>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">{notification.message}</p>
         <p className="mt-1 text-[11px] text-muted-foreground/70">{formatDate(notification.createdAt)}</p>
+
+        {isConnectionRequest && connectionId ? (
+          connectionResponseStatus ? (
+            <span
+              className={`mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                connectionResponseStatus === "Accepted"
+                  ? "bg-success/15 text-success"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {connectionResponseStatus === "Accepted" ? "Accepted" : "Declined"}
+            </span>
+          ) : (
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                title="Accept"
+                disabled={isRespondingConnection}
+                onClick={() => onRespondConnection(connectionId, "Accepted", notification._id)}
+                className="grid h-7 w-7 place-items-center rounded-full border border-success/40 bg-success/15 p-0! text-success hover:bg-success/25 disabled:opacity-50"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="lucide h-3.5 w-3.5"
+                  aria-hidden="true"
+                >
+                  <path d="M20 6 9 17l-5-5"></path>
+                </svg>
+              </button>
+              <button
+                type="button"
+                title="Decline"
+                disabled={isRespondingConnection}
+                onClick={() => onRespondConnection(connectionId, "Rejected", notification._id)}
+                className="grid h-7 w-7 place-items-center rounded-full border border-border/60 bg-surface p-0! text-muted-foreground hover:bg-surface/80 hover:text-foreground disabled:opacity-50"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="lucide h-3.5 w-3.5"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18"></path>
+                  <path d="m6 6 12 12"></path>
+                </svg>
+              </button>
+            </div>
+          )
+        ) : null}
       </div>
 
       <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
@@ -157,6 +235,12 @@ export function NotificationsPage() {
   const queryClient = useQueryClient();
   const [typeFilter, setTypeFilter] = useState("All");
   const [feedback, setFeedback] = useState({ type: "", message: "" });
+  // The Notification document itself is just a point-in-time snapshot (metadata.connectionId),
+  // not a live reflection of the Connection's current status, so there's nothing on the
+  // notification to check after a response — track which ones this session has resolved locally,
+  // mirroring the same approach ConnectionsPage relies on (refetching the pending list after
+  // respondMutation succeeds) but scoped to this page's own notification cards.
+  const [connectionResponses, setConnectionResponses] = useState({});
 
   const notificationsQuery = useQuery({
     queryKey: ["notifications", session?.role, "page"],
@@ -232,6 +316,45 @@ export function NotificationsPage() {
     },
   });
 
+  const clearAllNotificationsMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("/notifications", {
+        method: "DELETE",
+        token: session.accessToken,
+      }),
+    onSuccess: (response) => {
+      setFeedback({ type: "success", message: response.message || "All notifications cleared." });
+      invalidateNotifications();
+    },
+    onError: (error) => {
+      setFeedback({ type: "error", message: error.message });
+    },
+  });
+
+  // Mirrors ConnectionsPage.jsx's own respondMutation exactly (same endpoint/body shape) so
+  // accepting/declining from a notification behaves identically to doing it from the Connections
+  // page's Pending Requests list.
+  const respondConnectionMutation = useMutation({
+    mutationFn: ({ connectionId, status }) =>
+      apiRequest(`/connections/respond/${connectionId}`, {
+        method: "PUT",
+        token: session.accessToken,
+        body: { status },
+      }),
+    onSuccess: (response, variables) => {
+      setFeedback({ type: "success", message: response.message || "Connection request updated." });
+      setConnectionResponses((current) => ({
+        ...current,
+        [variables.notificationId]: variables.status,
+      }));
+      invalidateNotifications();
+      queryClient.invalidateQueries({ queryKey: ["connections"] });
+    },
+    onError: (error) => {
+      setFeedback({ type: "error", message: error.message });
+    },
+  });
+
   return (
     <main className="flex-1 overflow-y-auto px-6 py-6 lg:px-8 lg:py-8 bg-muted/30">
       <AutoDismissFeedback
@@ -301,8 +424,17 @@ export function NotificationsPage() {
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Activity</p>
             <h2 className="mt-1 text-xl font-bold tracking-tight text-foreground">AI events & responses</h2>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            🔽 {filteredNotifications.length} shown
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => clearAllNotificationsMutation.mutate()}
+              disabled={!notifications.length || clearAllNotificationsMutation.isPending}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface/80 hover:text-foreground disabled:opacity-50 transition"
+            >
+              Close all
+            </button>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              🔽 {filteredNotifications.length} shown
+            </div>
           </div>
         </div>
 
@@ -345,6 +477,12 @@ export function NotificationsPage() {
                 isUpdating={markReadMutation.isPending || clearNotificationMutation.isPending}
                 onMarkRead={(id) => markReadMutation.mutate(id)}
                 onClear={(id) => clearNotificationMutation.mutate(id)}
+                isRespondingConnection={respondConnectionMutation.isPending}
+                connectionResponseStatus={connectionResponses[notification._id]}
+                onRespondConnection={(connectionId, status, notificationId) => {
+                  setFeedback({ type: "", message: "" });
+                  respondConnectionMutation.mutate({ connectionId, status, notificationId });
+                }}
               />
             ))
           ) : (

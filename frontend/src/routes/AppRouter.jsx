@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { ProtectedRoute, ProRoute } from "./ProtectedRoute";
+import { ProtectedRoute, ProRoute, RoleRoute } from "./ProtectedRoute";
 import { AppShell } from "../layouts/AppShell";
 import { useAuth } from "../context/AuthContext";
 import { getHomePathForRole } from "../utils/roleHome";
@@ -60,12 +60,12 @@ export function AppRouter() {
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/verification" element={<VerificationSubmitPage />} />
 
-      <Route element={<ProtectedRoute />}>
+      {/* Seeker-only routes */}
+      <Route element={<RoleRoute allowedRoles={["seeker"]} />}>
         <Route element={<AppShell />}>
           {/* Pro Features */}
           <Route path="/pro" element={<Navigate to="/pro/tools" replace />} />
           <Route path="/pro/tools" element={<ProToolsPage />} />
-          <Route path="/pro/profile" element={<ProfilePage />} />
           <Route path="/pro/ai" element={<AIGeneratorPage />} />
           <Route path="/pro/jobs" element={<JobsPage />} />
           <Route path="/pro/jobs/:jobId" element={<JobDetailPage />} />
@@ -74,21 +74,43 @@ export function AppRouter() {
           <Route path="/pro/help" element={<HelpPage />} />
           <Route path="/pro/settings" element={<SettingsPage />} />
 
-          {/* Other Features */}
-          <Route path="/home" element={<FeedPage />} />
-          <Route path="/posts/create" element={<CreatePostPage />} />
-          <Route path="/chat" element={<ChatPage />} />
           <Route path="/upgrade" element={<UpgradePage />} />
           <Route path="/resume-builder" element={<ResumeBuilderPage />} />
           <Route path="/ats-checker" element={<ResumeAtsCheckerPage />} />
           <Route path="/following" element={<FollowsPage />} />
-          <Route path="/connections" element={<ConnectionsPage />} />
-          <Route path="/organizations/:id" element={<OrganizationPage />} />
-          <Route
-            path="/dashboard/recruiter"
-            element={<RecruiterDashboardPage />}
-          />
-          <Route path="/dashboard/admin" element={<AdminDashboardPage />} />
+
+          {/* Legacy Routes (for backward compatibility) */}
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/applications" element={<ApplicationsPage />} />
+          <Route path="/learn" element={<LearnPage />} />
+          <Route path="/help" element={<HelpPage />} />
+        </Route>
+      </Route>
+
+      {/* ProfilePage is shared — it already branches internally on session.role to render either a
+          seeker or an organization profile (companyName/industry/companySize fields), so it isn't
+          seeker-only like the rest of the /pro group above. */}
+      <Route element={<RoleRoute allowedRoles={["seeker", "organization"]} />}>
+        <Route element={<AppShell />}>
+          <Route path="/pro/profile" element={<ProfilePage />} />
+        </Route>
+      </Route>
+
+      {/* Routes shared by seekers and admins — AppShell's admin sidebar (adminNavItems) links
+          directly to /home, /jobs, and /jobs/:jobId, so admins are a legitimate audience here
+          too, not just seekers. */}
+      <Route element={<RoleRoute allowedRoles={["seeker", "SuperAdmin", "Moderator"]} />}>
+        <Route element={<AppShell />}>
+          <Route path="/home" element={<FeedPage />} />
+          <Route path="/jobs" element={<JobsPage />} />
+          <Route path="/jobs/:jobId" element={<JobDetailPage />} />
+        </Route>
+      </Route>
+
+      {/* Recruiter-only routes */}
+      <Route element={<RoleRoute allowedRoles={["organization"]} />}>
+        <Route element={<AppShell />}>
+          <Route path="/dashboard/recruiter" element={<RecruiterDashboardPage />} />
           <Route path="/recruiter/overview" element={<RecruiterOverviewPage />} />
           <Route path="/recruiter/job-postings" element={<RecruiterJobPostingsPage />} />
           <Route path="/recruiter/job-postings/new" element={<RecruiterJobFormPage />} />
@@ -102,23 +124,42 @@ export function AppRouter() {
           <Route path="/recruiter/applications" element={<RecruiterApplicationsPage />} />
           <Route path="/recruiter/applications/:jobId" element={<RecruiterJobApplicantsPage />} />
           <Route path="/recruiter/jobs" element={<RecruiterJobsPage />} />
-
-          {/* Legacy Routes (for backward compatibility) */}
-          <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/applications" element={<ApplicationsPage />} />
-          <Route path="/jobs" element={<JobsPage />} />
-          <Route path="/jobs/:jobId" element={<JobDetailPage />} />
-          <Route path="/learn" element={<LearnPage />} />
-          <Route path="/help" element={<HelpPage />} />
         </Route>
       </Route>
 
-      {/* Pro-Only Routes */}
+      {/* Admin-only routes */}
+      <Route element={<RoleRoute allowedRoles={["SuperAdmin", "Moderator"]} />}>
+        <Route element={<AppShell />}>
+          <Route path="/dashboard/admin" element={<AdminDashboardPage />} />
+        </Route>
+      </Route>
+
+      {/* Shared/role-agnostic routes — genuinely meant for more than one role, so they keep the
+          plain isAuthenticated-only guard rather than an allowlist. */}
+      <Route element={<ProtectedRoute />}>
+        <Route element={<AppShell />}>
+          <Route path="/posts/create" element={<CreatePostPage />} />
+          <Route path="/chat" element={<ChatPage />} />
+          <Route path="/connections" element={<ConnectionsPage />} />
+          <Route path="/organizations/:id" element={<OrganizationPage />} />
+        </Route>
+      </Route>
+
+      {/* Pro-Only Routes (seeker Pro-tier gate) */}
+      <Route element={<RoleRoute allowedRoles={["seeker"]} />}>
+        <Route element={<ProRoute />}>
+          <Route element={<AppShell />}>
+            <Route path="/pro/automations" element={<AutomationsPage />} />
+            <Route path="/pro/linkedin/callback" element={<LinkedInConnectCallbackPage />} />
+            <Route path="/pro/notifications" element={<NotificationsPage />} />
+          </Route>
+        </Route>
+      </Route>
+
+      {/* /notifications is intentionally shared across roles (admins link to it too via
+          adminNavItems) — same ProRoute Pro-tier gate, no role allowlist. */}
       <Route element={<ProRoute />}>
         <Route element={<AppShell />}>
-          <Route path="/pro/automations" element={<AutomationsPage />} />
-          <Route path="/pro/linkedin/callback" element={<LinkedInConnectCallbackPage />} />
-          <Route path="/pro/notifications" element={<NotificationsPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
         </Route>
       </Route>

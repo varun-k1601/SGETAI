@@ -33,6 +33,18 @@ const jobSchema = new mongoose.Schema(
     requirements: { type: [String], default: [] },
     skills: { type: [String], default: [] },
     skillsRequired: { type: [String], default: [] },
+    // Recruiter-defined key/value pairs (e.g. "Visa sponsorship: Yes") — kept separate from the
+    // typed fields above rather than shoehorned into them. Included in buildJobText() so this
+    // content actually participates in embeddings/matching, not just cosmetic storage.
+    customFields: {
+      type: [
+        {
+          label: { type: String, required: true, trim: true },
+          value: { type: String, trim: true }
+        }
+      ],
+      default: []
+    },
     isActive: { type: Boolean, default: true },
     status: {
       type: String,

@@ -17,6 +17,30 @@ const emptyForm = {
   requirements: "",
   skills: "",
   skillsRequired: "",
+  customFields: [],
+};
+
+// Only optional, fixed fields — nothing downstream (search index, embeddings, matching,
+// auto-apply) strictly requires these, unlike title/description/skills/skillsRequired, which stay
+// mandatory and are never offered a "Remove" control.
+const OPTIONAL_FIELD_LABELS = {
+  location: "Location",
+  industry: "Industry",
+  type: "Type",
+  salary: "Salary",
+  requirements: "Requirements",
+};
+
+// This app's global `button{}` rule in styles.css is unlayered, so it silently wins over any
+// Tailwind utility class applied directly to a <button> — small ghost controls here use inline
+// styles to opt out, same workaround used elsewhere (see ProSeekerDashboard.jsx's ghostButtonStyle).
+const ghostButtonStyle = {
+  border: "none",
+  background: "transparent",
+  boxShadow: "none",
+  color: "inherit",
+  fontWeight: 500,
+  padding: 0,
 };
 
 function splitCsv(value) {
@@ -37,6 +61,7 @@ export function RecruiterJobFormPage() {
   const queryClient = useQueryClient();
   const isEditing = Boolean(jobId);
   const [form, setForm] = useState(emptyForm);
+  const [hiddenFields, setHiddenFields] = useState([]);
   const [error, setError] = useState("");
 
   const jobQuery = useQuery({
@@ -61,7 +86,24 @@ export function RecruiterJobFormPage() {
         requirements: joinList(job.requirements),
         skills: joinList(job.skills),
         skillsRequired: joinList(job.skillsRequired),
+        customFields: (job.customFields || []).map((field) => ({
+          label: field.label || "",
+          value: field.value || "",
+        })),
       });
+      // A previously-saved job with no value for an optional field starts hidden on the form too,
+      // so editing doesn't suddenly resurface a field the recruiter deliberately left blank.
+      setHiddenFields(
+        Object.keys(OPTIONAL_FIELD_LABELS).filter((key) => {
+          if (key === "salary") {
+            return job.salary?.min == null && job.salary?.max == null;
+          }
+          if (key === "requirements") {
+            return !(job.requirements || []).length;
+          }
+          return !job[key];
+        })
+      );
     }
   }, [job]);
 
@@ -69,21 +111,57 @@ export function RecruiterJobFormPage() {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
+  function hideField(key) {
+    setHiddenFields((current) => (current.includes(key) ? current : [...current, key]));
+  }
+
+  function restoreField(key) {
+    setHiddenFields((current) => current.filter((item) => item !== key));
+  }
+
+  function handleCustomFieldChange(index, key, value) {
+    setForm((current) => ({
+      ...current,
+      customFields: current.customFields.map((field, itemIndex) =>
+        itemIndex === index ? { ...field, [key]: value } : field
+      ),
+    }));
+  }
+
+  function addCustomField() {
+    setForm((current) => ({
+      ...current,
+      customFields: [...current.customFields, { label: "", value: "" }],
+    }));
+  }
+
+  function removeCustomField(index) {
+    setForm((current) => ({
+      ...current,
+      customFields: current.customFields.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  }
+
   function buildBody() {
+    const isHidden = (key) => hiddenFields.includes(key);
+
     return {
       title: form.title,
       description: form.description,
-      location: form.location,
-      industry: form.industry,
-      type: form.type,
-      salary: {
-        min: form.salaryMin === "" ? undefined : Number(form.salaryMin),
-        max: form.salaryMax === "" ? undefined : Number(form.salaryMax),
-        currency: form.salaryCurrency,
-      },
-      requirements: splitCsv(form.requirements),
+      location: isHidden("location") ? null : form.location,
+      industry: isHidden("industry") ? null : form.industry,
+      type: isHidden("type") ? null : form.type,
+      salary: isHidden("salary")
+        ? null
+        : {
+            min: form.salaryMin === "" ? undefined : Number(form.salaryMin),
+            max: form.salaryMax === "" ? undefined : Number(form.salaryMax),
+            currency: form.salaryCurrency,
+          },
+      requirements: isHidden("requirements") ? [] : splitCsv(form.requirements),
       skills: splitCsv(form.skills),
       skillsRequired: splitCsv(form.skillsRequired),
+      customFields: form.customFields.filter((field) => field.label.trim()),
     };
   }
 
@@ -207,79 +285,132 @@ export function RecruiterJobFormPage() {
                 className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
               />
             </label>
-            <label className="block">
-              <span className="text-xs font-medium text-muted-foreground">Type</span>
-              <select
-                value={form.type}
-                onChange={(event) => handleChange("type", event.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-              >
-                <option value="Full-time">Full-time</option>
-                <option value="Part-time">Part-time</option>
-                <option value="Contract">Contract</option>
-                <option value="Internship">Internship</option>
-                <option value="Remote">Remote</option>
-              </select>
-            </label>
+            {!hiddenFields.includes("type") && (
+              <label className="block">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground">Type</span>
+                  <button
+                    type="button"
+                    onClick={() => hideField("type")}
+                    style={ghostButtonStyle}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Remove ×
+                  </button>
+                </div>
+                <select
+                  value={form.type}
+                  onChange={(event) => handleChange("type", event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                >
+                  <option value="Full-time">Full-time</option>
+                  <option value="Part-time">Part-time</option>
+                  <option value="Contract">Contract</option>
+                  <option value="Internship">Internship</option>
+                  <option value="Remote">Remote</option>
+                </select>
+              </label>
+            )}
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-xs font-medium text-muted-foreground">Location</span>
-              <input
-                type="text"
-                value={form.location}
-                onChange={(event) => handleChange("location", event.target.value)}
-                placeholder="Bangalore / Remote"
-                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-muted-foreground">Industry</span>
-              <input
-                type="text"
-                value={form.industry}
-                onChange={(event) => handleChange("industry", event.target.value)}
-                placeholder="SaaS"
-                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-              />
-            </label>
-          </div>
+          {(!hiddenFields.includes("location") || !hiddenFields.includes("industry")) && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {!hiddenFields.includes("location") && (
+                <label className="block">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">Location</span>
+                    <button
+                      type="button"
+                      onClick={() => hideField("location")}
+                      style={ghostButtonStyle}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Remove ×
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={form.location}
+                    onChange={(event) => handleChange("location", event.target.value)}
+                    placeholder="Bangalore / Remote"
+                    className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                  />
+                </label>
+              )}
+              {!hiddenFields.includes("industry") && (
+                <label className="block">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">Industry</span>
+                    <button
+                      type="button"
+                      onClick={() => hideField("industry")}
+                      style={ghostButtonStyle}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Remove ×
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={form.industry}
+                    onChange={(event) => handleChange("industry", event.target.value)}
+                    placeholder="SaaS"
+                    className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                  />
+                </label>
+              )}
+            </div>
+          )}
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <label className="block">
-              <span className="text-xs font-medium text-muted-foreground">Salary min</span>
-              <input
-                type="number"
-                value={form.salaryMin}
-                onChange={(event) => handleChange("salaryMin", event.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-muted-foreground">Salary max</span>
-              <input
-                type="number"
-                value={form.salaryMax}
-                onChange={(event) => handleChange("salaryMax", event.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-muted-foreground">Currency</span>
-              <select
-                value={form.salaryCurrency}
-                onChange={(event) => handleChange("salaryCurrency", event.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-              >
-                {SUPPORTED_CURRENCIES.map((currency) => (
-                  <option key={currency.code} value={currency.code}>
-                    {currency.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          {!hiddenFields.includes("salary") && (
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">Salary</span>
+                <button
+                  type="button"
+                  onClick={() => hideField("salary")}
+                  style={ghostButtonStyle}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Remove ×
+                </button>
+              </div>
+              <div className="mt-1 grid gap-4 sm:grid-cols-3">
+                <label className="block">
+                  <span className="text-xs font-medium text-muted-foreground">Min</span>
+                  <input
+                    type="number"
+                    value={form.salaryMin}
+                    onChange={(event) => handleChange("salaryMin", event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-muted-foreground">Max</span>
+                  <input
+                    type="number"
+                    value={form.salaryMax}
+                    onChange={(event) => handleChange("salaryMax", event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-muted-foreground">Currency</span>
+                  <select
+                    value={form.salaryCurrency}
+                    onChange={(event) => handleChange("salaryCurrency", event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                  >
+                    {SUPPORTED_CURRENCIES.map((currency) => (
+                      <option key={currency.code} value={currency.code}>
+                        {currency.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+          )}
 
           <label className="block">
             <span className="text-xs font-medium text-muted-foreground">Description</span>
@@ -312,16 +443,85 @@ export function RecruiterJobFormPage() {
             />
           </label>
 
-          <label className="block">
-            <span className="text-xs font-medium text-muted-foreground">Requirements</span>
-            <textarea
-              rows={4}
-              value={form.requirements}
-              onChange={(event) => handleChange("requirements", event.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-            />
-            <span className="mt-1 block text-xs text-muted-foreground">One requirement per line, or comma-separated.</span>
-          </label>
+          {!hiddenFields.includes("requirements") && (
+            <label className="block">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">Requirements</span>
+                <button
+                  type="button"
+                  onClick={() => hideField("requirements")}
+                  style={ghostButtonStyle}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Remove ×
+                </button>
+              </div>
+              <textarea
+                rows={4}
+                value={form.requirements}
+                onChange={(event) => handleChange("requirements", event.target.value)}
+                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
+              />
+              <span className="mt-1 block text-xs text-muted-foreground">One requirement per line, or comma-separated.</span>
+            </label>
+          )}
+
+          {hiddenFields.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">Removed fields:</span>
+              {hiddenFields.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => restoreField(key)}
+                  className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-surface/80 hover:text-foreground"
+                >
+                  + Add {OPTIONAL_FIELD_LABELS[key]} back
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Custom fields — recruiter-defined label/value pairs stored on the job and included in
+              the matching embedding (see backend/src/utils/textBuilders.js). */}
+          <div>
+            <span className="text-xs font-medium text-muted-foreground">Custom fields</span>
+            <div className="mt-2 space-y-2">
+              {form.customFields.map((field, index) => (
+                <div key={index} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
+                  <input
+                    type="text"
+                    value={field.label}
+                    onChange={(event) => handleCustomFieldChange(index, "label", event.target.value)}
+                    placeholder="Label (e.g. Visa sponsorship)"
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                  />
+                  <input
+                    type="text"
+                    value={field.value}
+                    onChange={(event) => handleCustomFieldChange(index, "value", event.target.value)}
+                    placeholder="Value (e.g. Yes)"
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeCustomField(index)}
+                    style={ghostButtonStyle}
+                    className="justify-self-start text-xs text-muted-foreground hover:text-foreground sm:justify-self-center"
+                  >
+                    Remove ×
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={addCustomField}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-surface/80"
+            >
+              + Add custom field
+            </button>
+          </div>
 
           {error && <p className="text-xs font-medium text-red-500">{error}</p>}
 
