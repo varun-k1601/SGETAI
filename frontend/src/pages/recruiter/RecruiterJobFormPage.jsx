@@ -280,7 +280,6 @@ export function RecruiterJobFormPage() {
                 type="text"
                 value={form.title}
                 onChange={(event) => handleChange("title", event.target.value)}
-                placeholder="Senior Frontend Engineer"
                 required
                 className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
               />
@@ -332,7 +331,6 @@ export function RecruiterJobFormPage() {
                     type="text"
                     value={form.location}
                     onChange={(event) => handleChange("location", event.target.value)}
-                    placeholder="Bangalore / Remote"
                     className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
                   />
                 </label>
@@ -354,7 +352,6 @@ export function RecruiterJobFormPage() {
                     type="text"
                     value={form.industry}
                     onChange={(event) => handleChange("industry", event.target.value)}
-                    placeholder="SaaS"
                     className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
                   />
                 </label>
