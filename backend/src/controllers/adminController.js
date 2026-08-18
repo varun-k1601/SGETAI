@@ -12,7 +12,9 @@ const { fireAndForget } = require("../services/aiSyncService");
 const { runAutoApplyForJob } = require("../workers/autoApplyWorker");
 const {
   getProAutoApplyPolicy,
-  updateProAutoApplyPolicy
+  getProRecruiterIntroPolicy,
+  updateProAutoApplyPolicy,
+  updateProRecruiterIntroPolicy
 } = require("../services/platformSettingsService");
 
 function toCountMap(rows, key = "_id") {
@@ -44,7 +46,8 @@ async function getAdminOverview(req, res, next) {
       recentApplications,
       recentPayments,
       recentVerificationRequests,
-      proAutoApplyPolicy
+      proAutoApplyPolicy,
+      proRecruiterIntroPolicy
     ] = await Promise.all([
       JobSeeker.countDocuments(),
       JobSeeker.countDocuments({ isPro: true }),
@@ -113,7 +116,8 @@ async function getAdminOverview(req, res, next) {
         .populate("organizationId", "companyName username email")
         .populate("jobSeekerId", "firstName lastName username email")
         .lean(),
-      getProAutoApplyPolicy()
+      getProAutoApplyPolicy(),
+      getProRecruiterIntroPolicy()
     ]);
 
     const recruiterStatuses = toCountMap(recruiterStatusRows);
@@ -162,7 +166,8 @@ async function getAdminOverview(req, res, next) {
       applications: recentApplications,
       payments: recentPayments,
       verificationRequests: recentVerificationRequests,
-      proAutoApplyPolicy
+      proAutoApplyPolicy,
+      proRecruiterIntroPolicy
     });
   } catch (error) {
     return next(error);
@@ -196,6 +201,53 @@ async function updateAdminProPolicy(req, res, next) {
     return sendSuccess(res, {
       message: "Global Pro auto-apply policy updated successfully.",
       proAutoApplyPolicy
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function updateAdminRecruiterIntroPolicy(req, res, next) {
+  try {
+    // Each cap is optional: an omitted field keeps its current value (see
+    // updateProRecruiterIntroPolicy), so a partial update can't silently reset a tightened limit
+    // back to the default.
+    const maxIntroductionsPerJobPerRecruiter =
+      req.body.maxIntroductionsPerJobPerRecruiter === undefined
+        ? undefined
+        : requireNumberInRange(
+            req.body.maxIntroductionsPerJobPerRecruiter,
+            "maxIntroductionsPerJobPerRecruiter",
+            { min: 1, max: 50, integer: true }
+          );
+    const maxIntroductionsPerRecruiterPerDay =
+      req.body.maxIntroductionsPerRecruiterPerDay === undefined
+        ? undefined
+        : requireNumberInRange(
+            req.body.maxIntroductionsPerRecruiterPerDay,
+            "maxIntroductionsPerRecruiterPerDay",
+            { min: 1, max: 100, integer: true }
+          );
+    const maxDailyIntroductionsPerSeeker =
+      req.body.maxDailyIntroductionsPerSeeker === undefined
+        ? undefined
+        : requireNumberInRange(
+            req.body.maxDailyIntroductionsPerSeeker,
+            "maxDailyIntroductionsPerSeeker",
+            { min: 1, max: 25, integer: true }
+          );
+
+    const proRecruiterIntroPolicy = await updateProRecruiterIntroPolicy({
+      enabled: req.body.enabled,
+      maxIntroductionsPerJobPerRecruiter,
+      maxIntroductionsPerRecruiterPerDay,
+      maxDailyIntroductionsPerSeeker,
+      updatedBy: req.user.id
+    });
+
+    return sendSuccess(res, {
+      message: "Global recruiter introduction policy updated successfully.",
+      proRecruiterIntroPolicy
     });
   } catch (error) {
     return next(error);
@@ -246,5 +298,6 @@ async function updateJobThreshold(req, res, next) {
 module.exports = {
   getAdminOverview,
   updateAdminProPolicy,
+  updateAdminRecruiterIntroPolicy,
   updateJobThreshold
 };

@@ -200,7 +200,16 @@ async function ensureRecruiterNetwork(seeker, job) {
   ]);
 }
 
-function buildSkillFallbackQuery(job) {
+// The eligibility filter every candidate search starts from. Callers that want a different
+// opt-in gate (e.g. the recruiter-introduction worker, which keys off
+// autoApplyPreferences.autoIntroduceToRecruiters) pass their own; omitting it keeps the exact
+// auto-apply behavior this module has always had.
+const AUTO_APPLY_CANDIDATE_FILTER = {
+  isPro: true,
+  "autoApplyPreferences.enabled": true
+};
+
+function buildSkillFallbackQuery(job, candidateFilter = AUTO_APPLY_CANDIDATE_FILTER) {
   const tokens = [
     ...(job.hiddenRoles || []),
     ...(job.skillsRequired || []),
@@ -209,10 +218,7 @@ function buildSkillFallbackQuery(job) {
   ].map(normalizeValue).filter(Boolean);
 
   if (!tokens.length) {
-    return {
-      isPro: true,
-      "autoApplyPreferences.enabled": true
-    };
+    return { ...candidateFilter };
   }
 
   const regexPatterns = tokens.map((token) => {
@@ -221,8 +227,7 @@ function buildSkillFallbackQuery(job) {
   });
 
   return {
-    isPro: true,
-    "autoApplyPreferences.enabled": true,
+    ...candidateFilter,
     $or: [
       { hiddenRoles: { $in: regexPatterns } },
       { skills: { $in: regexPatterns } },
@@ -233,7 +238,7 @@ function buildSkillFallbackQuery(job) {
   };
 }
 
-async function findCandidatesForJob(job, warnings) {
+async function findCandidatesForJob(job, warnings, candidateFilter = AUTO_APPLY_CANDIDATE_FILTER) {
   if (Array.isArray(job.embedding) && job.embedding.length) {
     try {
       const rows = await JobSeeker.aggregate([
@@ -244,10 +249,11 @@ async function findCandidatesForJob(job, warnings) {
             queryVector: job.embedding,
             numCandidates: 500,
             limit: 200,
-            filter: {
-              isPro: true,
-              "autoApplyPreferences.enabled": true
-            }
+            // Atlas only honors paths declared as filter fields in the vector index definition. A
+            // caller-supplied filter on a field that isn't declared makes Atlas reject the stage,
+            // which lands in the catch below and falls back to the text query — callers must still
+            // re-verify their own eligibility gate per candidate rather than trusting this filter.
+            filter: candidateFilter
           }
         },
         {
@@ -265,7 +271,7 @@ async function findCandidatesForJob(job, warnings) {
     warnings.push("Job embedding missing; used text-based skill fallback.");
   }
 
-  return JobSeeker.find(buildSkillFallbackQuery(job))
+  return JobSeeker.find(buildSkillFallbackQuery(job, candidateFilter))
     .select("+hiddenRoles +embedding")
     .limit(200);
 }
@@ -857,5 +863,17 @@ async function runAutoApplyForSeeker(seekerId) {
 
 module.exports = {
   runAutoApplyForJob,
-  runAutoApplyForSeeker
+  runAutoApplyForSeeker,
+  // Exported so recruiterIntroductionWorker.js can run the identical candidate-selection and
+  // guardrail logic instead of re-deriving it. Exporting changes nothing about how any of these
+  // behave for the auto-apply paths above.
+  AUTO_APPLY_CANDIDATE_FILTER,
+  findCandidatesForJob,
+  computePairVectorScore,
+  hasLocationMatch,
+  hasSalaryMatch,
+  isExcludedCompany,
+  ensureRecruiterNetwork,
+  buildParticipantKey,
+  incrementReason
 };

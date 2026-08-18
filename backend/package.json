@@ -9,6 +9,7 @@
     "smoke:test": "node src/scripts/smokeCheck.js",
     "seed:jobs": "node src/scripts/seedRecruiterJobs.js",
     "organizations:verify-matched": "node src/scripts/verifyMatchedOrganizations.js",
+    "migrate:introduction-channels": "node src/scripts/backfillIntroductionChannels.js",
     "agent:evaluate": "node src/scripts/evaluateCareerAgent.js",
     "cleanup:jobs-applications": "node src/scripts/cleanupJobsAndApplications.js"
   },

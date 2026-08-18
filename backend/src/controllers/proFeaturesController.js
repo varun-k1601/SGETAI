@@ -47,7 +47,10 @@ const {
 } = require("../services/careerAgentMemoryService");
 const { compileLatexToPdf } = require("../services/latexCompilerService");
 const { runAutoApplyForSeeker } = require("../workers/autoApplyWorker");
-const { getProAutoApplyPolicy } = require("../services/platformSettingsService");
+const {
+  getProAutoApplyPolicy,
+  getProRecruiterIntroPolicy
+} = require("../services/platformSettingsService");
 const {
   requireArrayOfStrings,
   requireNonEmptyString
@@ -785,12 +788,15 @@ const getAutoApplyPreferences = asyncHandler(async (req, res) => {
   }
 
   const seeker = await JobSeeker.findById(req.user.id).select(
-    "autoApplyPreferences autoApplyCountToday +hiddenRoles isPro dismissedActivityKeys"
+    "autoApplyPreferences autoApplyCountToday recruiterIntroCountToday +hiddenRoles isPro dismissedActivityKeys"
   );
   if (!seeker) {
     throw new ApiError(404, "Job seeker not found.");
   }
-  const platformPolicy = await getProAutoApplyPolicy();
+  const [platformPolicy, recruiterIntroPolicy] = await Promise.all([
+    getProAutoApplyPolicy(),
+    getProRecruiterIntroPolicy()
+  ]);
   const preferences = {
     ...(seeker.autoApplyPreferences?.toObject?.() || seeker.autoApplyPreferences || {}),
     matchThreshold: platformPolicy.matchThreshold,
@@ -801,7 +807,11 @@ const getAutoApplyPreferences = asyncHandler(async (req, res) => {
     message: "Auto-apply preferences fetched successfully.",
     preferences,
     platformPolicy,
+    // Separate object, not merged into platformPolicy — the introduction caps are governed by
+    // their own admin-controlled policy and shouldn't look like auto-apply settings.
+    recruiterIntroPolicy,
     autoApplyCountToday: seeker.autoApplyCountToday,
+    recruiterIntroCountToday: seeker.recruiterIntroCountToday || 0,
     hiddenRoles: seeker.hiddenRoles || [],
     dismissedActivityKeys: seeker.dismissedActivityKeys || [],
     readiness: {
@@ -810,6 +820,25 @@ const getAutoApplyPreferences = asyncHandler(async (req, res) => {
       hasHiddenRoles: Boolean((seeker.hiddenRoles || []).length),
       hasDailyCapacity:
         (seeker.autoApplyCountToday || 0) < platformPolicy.maxDailyApplications
+    },
+    // Why the master switch alone doesn't tell the UI whether anything will happen: it also needs
+    // a channel. These mirror recruiterIntroductionWorker's own per-candidate gates exactly, so the
+    // settings screen can explain an inert configuration (master on, both channels off; or auto-DM
+    // on with auto-connect off) instead of leaving the seeker to infer it from silence.
+    recruiterIntroReadiness: {
+      isPro: Boolean(seeker.isPro),
+      optedIn: Boolean(seeker.autoApplyPreferences?.autoIntroduceToRecruiters),
+      autoConnectEnabled: Boolean(seeker.autoApplyPreferences?.autoConnectEnabled),
+      autoDMEnabled: Boolean(seeker.autoApplyPreferences?.autoDMEnabled),
+      platformEnabled: recruiterIntroPolicy.enabled !== false,
+      hasDailyCapacity:
+        (seeker.recruiterIntroCountToday || 0) <
+        recruiterIntroPolicy.maxDailyIntroductionsPerSeeker,
+      // autoDM without autoConnect authorizes nothing — surfaced explicitly because it looks
+      // enabled in the UI while producing no introductions at all.
+      dmBlockedByMissingConnect:
+        Boolean(seeker.autoApplyPreferences?.autoDMEnabled) &&
+        !seeker.autoApplyPreferences?.autoConnectEnabled
     }
   });
 });
@@ -841,6 +870,13 @@ const updateAutoApplyPreferences = asyncHandler(async (req, res) => {
   }
   if (req.body.autoDMEnabled !== undefined) {
     seeker.autoApplyPreferences.autoDMEnabled = Boolean(req.body.autoDMEnabled);
+  }
+  // Unlike the two LinkedIn-intent flags above, this one authorizes real outbound contact with a
+  // named recruiter, so it is set only from an explicit request and never inferred from `enabled`.
+  if (req.body.autoIntroduceToRecruiters !== undefined) {
+    seeker.autoApplyPreferences.autoIntroduceToRecruiters = Boolean(
+      req.body.autoIntroduceToRecruiters
+    );
   }
   if (req.body.safetyGuardrailsEnabled !== undefined) {
     seeker.autoApplyPreferences.safetyGuardrailsEnabled = Boolean(req.body.safetyGuardrailsEnabled);

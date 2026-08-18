@@ -26,6 +26,14 @@ const chatMessageSchema = new mongoose.Schema(
     readBy: {
       type: [mongoose.Schema.Types.ObjectId],
       default: []
+    },
+    // Additive and empty for every message the existing composer sends. Currently only set by the
+    // recruiter-introduction worker, which stamps { aiAssisted, autoSent, source, ... } so both
+    // chat UIs can label a message the seeker did not personally type — never send something on a
+    // user's behalf that they cannot see and identify as automated.
+    metadata: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
     }
   },
   { timestamps: true }

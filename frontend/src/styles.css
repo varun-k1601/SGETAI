@@ -6354,6 +6354,30 @@ body.career-agent-resizing {
   color: rgba(255, 255, 255, 0.75);
 }
 
+/* Marks a message this user did not personally type — currently only auto-sent recruiter
+   introductions. Selector is two classes deep so it beats `.message-bubble span` above, which
+   would otherwise flatten it into the same muted timestamp styling. */
+.message-bubble .message-bubble__auto-tag {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--border-soft);
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+
+.message-bubble.mine .message-bubble__auto-tag {
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
 .chat-compose {
   display: flex;
   gap: 0.6rem;

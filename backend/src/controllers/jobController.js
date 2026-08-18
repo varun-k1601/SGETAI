@@ -26,6 +26,7 @@ const Follow = require("../models/Follow");
 const VerificationRequest = require("../models/VerificationRequest");
 const { createNotification } = require("../services/notificationService");
 const { runAutoApplyForJob } = require("../workers/autoApplyWorker");
+const { runRecruiterIntroductionsForJob } = require("../workers/recruiterIntroductionWorker");
 
 function toApplicationResponse(application, latestVerificationRequest) {
   return {
@@ -119,23 +120,42 @@ function getAutoApplyFields(body, existing = {}) {
 function runLiveJobSideEffects(job, organization, source) {
   fireAndForget(async () => {
     console.log(`[Auto-Apply] Starting sync for job ${job._id} (${job.title})`);
+    let embeddingReady = false;
+
     try {
       await syncJobAiFields(job._id);
+      embeddingReady = true;
       console.log(`[Auto-Apply] ✓ Embedding generated for job ${job._id}`);
     } catch (error) {
       console.error(`[Auto-Apply] ✗ Embedding failed for job ${job._id}:`, error?.message);
-      return;
     }
 
-    const syncedJob = await Job.findById(job._id).select("autoApplyEnabled");
-    console.log(`[Auto-Apply] Job ${job._id} autoApplyEnabled: ${syncedJob?.autoApplyEnabled}`);
+    // Unchanged auto-apply behavior: a failed embedding still skips auto-apply entirely.
+    if (embeddingReady) {
+      const syncedJob = await Job.findById(job._id).select("autoApplyEnabled");
+      console.log(`[Auto-Apply] Job ${job._id} autoApplyEnabled: ${syncedJob?.autoApplyEnabled}`);
 
-    if (syncedJob?.autoApplyEnabled) {
-      console.log(`[Auto-Apply] ✓ Triggering auto-apply for job ${job._id} (${job.title})`);
-      const result = await runAutoApplyForJob(job._id, { source });
-      console.log(`[Auto-Apply] ✓ Auto-apply completed. Applications created: ${result.applicationsCreated}`);
-    } else {
-      console.log(`[Auto-Apply] ✗ Auto-apply disabled for job ${job._id}`);
+      if (syncedJob?.autoApplyEnabled) {
+        console.log(`[Auto-Apply] ✓ Triggering auto-apply for job ${job._id} (${job.title})`);
+        const result = await runAutoApplyForJob(job._id, { source });
+        console.log(`[Auto-Apply] ✓ Auto-apply completed. Applications created: ${result.applicationsCreated}`);
+      } else {
+        console.log(`[Auto-Apply] ✗ Auto-apply disabled for job ${job._id}`);
+      }
+    }
+
+    // Introductions are a separate feature from auto-apply, so they are NOT gated on
+    // job.autoApplyEnabled and run even when the embedding failed (the worker's candidate search
+    // falls back to keyword matching and every guardrail still applies). Wrapped in its own
+    // try/catch so a failure here can neither surface to the publish request — already impossible
+    // inside fireAndForget — nor mask the auto-apply result above.
+    try {
+      const introRun = await runRecruiterIntroductionsForJob(job._id, { source });
+      console.log(
+        `[RecruiterIntro] Job ${job._id} — evaluated ${introRun.candidatesEvaluated}, introduced ${introRun.introductionsCreated}`
+      );
+    } catch (error) {
+      console.error(`[RecruiterIntro] ✗ Introductions failed for job ${job._id}:`, error?.message);
     }
   }, "jobCreation");
 

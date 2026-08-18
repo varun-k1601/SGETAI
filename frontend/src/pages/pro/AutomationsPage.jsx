@@ -88,6 +88,10 @@ export function AutomationsPage() {
 
   const preferences = preferencesQuery.data?.preferences || {};
   const runs = runsQuery.data?.runs || [];
+  // Admin-controlled caps for recruiter introductions — shown alongside the toggle so turning it
+  // on is an informed choice about how much outreach it can actually produce.
+  const recruiterIntroPolicy = preferencesQuery.data?.recruiterIntroPolicy || {};
+  const recruiterIntroCountToday = preferencesQuery.data?.recruiterIntroCountToday || 0;
 
   function handleToggleAutomation(featureId, nextEnabled) {
     if (updatePreferencesMutation.isPending) {
@@ -96,6 +100,8 @@ export function AutomationsPage() {
 
     if (featureId === "autoApply") {
       updatePreferencesMutation.mutate({ enabled: nextEnabled });
+    } else if (featureId === "recruiterIntro") {
+      updatePreferencesMutation.mutate({ autoIntroduceToRecruiters: nextEnabled });
     } else if (featureId === "autoConnect") {
       updatePreferencesMutation.mutate({ autoConnectEnabled: nextEnabled });
     } else if (featureId === "autoDM") {
@@ -114,6 +120,23 @@ export function AutomationsPage() {
       name: "Auto-apply to jobs",
       description: "Apply automatically when match is above threshold.",
       enabled: Boolean(preferences.enabled),
+    },
+    // In-platform only, and unrelated to the LinkedIn block below it: when an organization
+    // publishes a job you match, this introduces you to the individual recruiter who posted it
+    // and delivers an AI-drafted first message into your own chat thread — where you can read
+    // exactly what was sent.
+    {
+      id: "recruiterIntro",
+      icon: "user-plus",
+      name: "Auto-introduce to recruiters",
+      description:
+        "On a strong match, connect with the recruiter who posted the job and send an AI-drafted intro in chat.",
+      note: recruiterIntroPolicy.maxDailyIntroductionsPerSeeker
+        ? `Up to ${recruiterIntroPolicy.maxDailyIntroductionsPerSeeker}/day · ${recruiterIntroCountToday} sent today · you can read every message in Chat.`
+        : "Every message is visible to you in Chat.",
+      enabled: Boolean(preferences.autoIntroduceToRecruiters),
+      disabled: recruiterIntroPolicy.enabled === false,
+      badge: recruiterIntroPolicy.enabled === false ? "Paused by admin" : undefined,
     },
     {
       id: "autoConnect",

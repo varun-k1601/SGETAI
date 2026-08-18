@@ -43,7 +43,12 @@ const organizationMemberSchema = new mongoose.Schema(
     invitedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "OrganizationMember"
-    }
+    },
+    // Per-person kill switch for automatic candidate introductions on jobs this member posts (see
+    // recruiterIntroductionWorker.js). Opt-OUT rather than opt-in because the receiving side is
+    // identified individually and can always stop it; the sending side is opt-in
+    // (autoApplyPreferences.autoIntroduceToRecruiters) because it acts on someone's behalf.
+    recruiterIntroOptOut: { type: Boolean, default: false }
   },
   { timestamps: true }
 );

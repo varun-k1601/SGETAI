@@ -104,8 +104,23 @@ function DirectoryResultCard({ name, subtitle, onSelect, disabled }) {
 }
 
 function MessageBubble({ message, mine }) {
+  // Stamped server-side by the recruiter-introduction worker (ChatMessage.metadata). Every other
+  // message in the app has an empty metadata object, so this never renders for anything a person
+  // actually typed — and an introduction sent under this seeker's name always says so, in their
+  // own thread, with the exact text that was delivered.
+  const isAutoSent = Boolean(message.metadata?.autoSent);
+  const introJobTitle = message.metadata?.jobTitle;
+  const introRecruiterName = message.metadata?.hrMemberName;
+
   return (
     <article className={mine ? "message-bubble mine" : "message-bubble theirs"}>
+      {isAutoSent ? (
+        <span className="message-bubble__auto-tag" title="Drafted by AI and sent automatically by your Auto-introduce agent.">
+          AI intro · auto-sent
+          {introRecruiterName ? ` to ${introRecruiterName}` : ""}
+          {introJobTitle ? ` · ${introJobTitle}` : ""}
+        </span>
+      ) : null}
       <p>{message.content}</p>
       <span>{formatBubbleTime(message.createdAt)}</span>
     </article>

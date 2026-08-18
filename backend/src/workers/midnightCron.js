@@ -10,6 +10,7 @@ async function runMidnightReset(now = new Date()) {
       $set: {
         resumesGeneratedToday: 0,
         autoApplyCountToday: 0,
+        recruiterIntroCountToday: 0,
         lastResumeResetDate: now
       }
     }

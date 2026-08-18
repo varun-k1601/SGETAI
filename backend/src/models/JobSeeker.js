@@ -54,11 +54,25 @@ const autoApplyPreferencesSchema = new mongoose.Schema(
     enabled: { type: Boolean, default: false },
     tailoredResume: { type: Boolean, default: false },
     matchThreshold: { type: Number, default: 70, min: 0, max: 100 },
-    // Pure stored preferences — no execution behind them yet. LinkedIn's public API doesn't grant
-    // third-party apps the ability to send connection requests or messages (see linkedinConnection
-    // below), so these only persist the seeker's intent for whenever that capability exists.
+    // The two channels a recruiter introduction can use, consented to independently — see
+    // recruiterIntroductionWorker.js, which reads both per candidate.
+    //
+    // These are IN-PLATFORM ONLY and always have been: they do not touch LinkedIn, and no amount
+    // of scope on linkedinConnection below would let them. LinkedIn's public API grants third-party
+    // apps no ability to send connection requests or messages at all, so the only thing these can
+    // ever mean is this app's own connections and chat.
+    //
+    // autoConnectEnabled authorizes the introduction itself (the RecruiterIntroduction request to
+    // the HR member, plus the Follow/ChatSession that makes them reachable). autoDMEnabled
+    // additionally authorizes an AI-drafted first message sent under the seeker's own name, and is
+    // meaningless without the former — "send a first message AFTER connecting".
     autoConnectEnabled: { type: Boolean, default: false },
     autoDMEnabled: { type: Boolean, default: false },
+    // The master switch for the same feature: whether a published job may trigger an introduction
+    // at all. Kept separate from the two channel flags so turning the feature off is one action
+    // rather than two, and so a seeker's channel choices survive toggling it back on. Defaults to
+    // false — outreach is never opted into on a seeker's behalf.
+    autoIntroduceToRecruiters: { type: Boolean, default: false },
     maxDailyApplications: { type: Number, default: 10, min: 1, max: 50 },
     preferredLocations: { type: [String], default: [] },
     excludedCompanies: { type: [String], default: [] },
@@ -215,6 +229,10 @@ const jobSeekerSchema = new mongoose.Schema(
       default: () => ({})
     },
     autoApplyCountToday: { type: Number, default: 0 },
+    // Separate budget from autoApplyCountToday — an auto-application and an unsolicited message to
+    // a named person are different kinds of spend against a seeker's reputation, so exhausting one
+    // must not silently consume the other. Reset by the same midnight cron.
+    recruiterIntroCountToday: { type: Number, default: 0 },
     linkedinConnection: linkedinConnectionSchema
   },
   { timestamps: true }

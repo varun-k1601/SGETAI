@@ -6,6 +6,8 @@ const {
   MANAGER_ROLES,
   inviteMember,
   completeInvite,
+  getMyMemberSettings,
+  updateMyMemberSettings,
   listMembers,
   updateMemberRole,
   removeMember
@@ -19,6 +21,9 @@ router.post("/complete-invite", completeInvite);
 router.use(requireAuth, requireRole(["organization"]));
 
 router.get("/", listMembers);
+// Declared before the "/:id" routes below so "me" is never parsed as a member id.
+router.get("/me/settings", getMyMemberSettings);
+router.put("/me/settings", updateMyMemberSettings);
 router.post("/invite", requireOrgMemberRole(MANAGER_ROLES), inviteMember);
 router.put("/:id/role", requireOrgMemberRole(["Owner"]), updateMemberRole);
 router.delete("/:id", requireOrgMemberRole(MANAGER_ROLES), removeMember);

@@ -82,6 +82,32 @@ export function RecruiterSettingsPage() {
     onError: (error) => setTeamFeedback({ type: "error", message: error.message }),
   });
 
+  // This member's own settings, scoped server-side to req.user.memberId — no member id is sent,
+  // so this can only ever read or change the signed-in person's own opt-out.
+  const memberSettingsQuery = useQuery({
+    queryKey: ["organization", "member", "settings"],
+    queryFn: () => apiRequest("/organization/members/me/settings", { token: session.accessToken }),
+    enabled: Boolean(session?.accessToken),
+    retry: false,
+  });
+
+  const memberSettingsMutation = useMutation({
+    mutationFn: (patch) =>
+      apiRequest("/organization/members/me/settings", {
+        method: "PUT",
+        token: session.accessToken,
+        body: patch,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["organization", "member", "settings"] });
+    },
+    onError: (error) => setTeamFeedback({ type: "error", message: error.message }),
+  });
+
+  // Rendered as "receiving introductions is ON", the inverse of the stored opt-OUT flag — the
+  // toggle reads as a capability the member has, not as a negation they have to parse.
+  const introductionsEnabled = !memberSettingsQuery.data?.member?.recruiterIntroOptOut;
+
   function handleInviteSubmit(event) {
     event.preventDefault();
     setTeamFeedback({ type: "", message: "" });
@@ -291,6 +317,50 @@ export function RecruiterSettingsPage() {
             ) : (
               <p className="text-sm text-muted-foreground">No team members yet.</p>
             )}
+          </div>
+        </div>
+
+        {/* Candidate introductions — unlike the notification toggles below (local-state mock),
+            this one is backed by a real persisted flag on this member's own account. */}
+        <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Candidate outreach
+              </p>
+              <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">
+                Automatic introductions
+              </h2>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 rounded-xl border border-border/40 bg-surface/40 p-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold">Receive candidate introductions</p>
+              <p className="text-xs text-muted-foreground">
+                When you publish a job, strongly-matched Pro candidates who opted in can be
+                introduced to you with an AI-drafted first message. Turn this off to stop
+                receiving them on jobs you post.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={memberSettingsMutation.isPending || memberSettingsQuery.isLoading}
+              onClick={() =>
+                memberSettingsMutation.mutate({ recruiterIntroOptOut: introductionsEnabled })
+              }
+              aria-pressed={introductionsEnabled}
+              aria-label="Toggle automatic candidate introductions"
+              className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-60 ${
+                introductionsEnabled ? "bg-gradient-recruiter" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${
+                  introductionsEnabled ? "left-[22px]" : "left-0.5"
+                }`}
+              ></span>
+            </button>
           </div>
         </div>
 

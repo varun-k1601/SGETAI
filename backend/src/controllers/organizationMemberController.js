@@ -59,9 +59,55 @@ function toMemberResponse(member) {
     email: member.email,
     role: member.role,
     status: member.status,
+    recruiterIntroOptOut: Boolean(member.recruiterIntroOptOut),
     createdAt: member.createdAt
   };
 }
+
+// The acting member's own settings — deliberately not routed through requireOrgMemberRole, since
+// every Active member (Recruiter included) must be able to stop automatic candidate
+// introductions to themselves without needing Owner/Admin rights. Resolved from req.user.memberId
+// only: no member id is accepted from the body or params, so this can never toggle someone else.
+async function loadActingMember(req) {
+  if (!req.user.memberId) {
+    throw new ApiError(401, "Please sign in again to refresh your account permissions.");
+  }
+
+  const member = await OrganizationMember.findOne({
+    _id: req.user.memberId,
+    organizationId: req.user.id
+  });
+
+  if (!member || member.status !== "Active") {
+    throw new ApiError(403, "You do not have permission to access this resource.");
+  }
+
+  return member;
+}
+
+const getMyMemberSettings = asyncHandler(async (req, res) => {
+  const member = await loadActingMember(req);
+
+  return sendSuccess(res, {
+    message: "Member settings fetched successfully.",
+    member: toMemberResponse(member)
+  });
+});
+
+const updateMyMemberSettings = asyncHandler(async (req, res) => {
+  const member = await loadActingMember(req);
+
+  if (req.body.recruiterIntroOptOut !== undefined) {
+    member.recruiterIntroOptOut = Boolean(req.body.recruiterIntroOptOut);
+  }
+
+  await member.save();
+
+  return sendSuccess(res, {
+    message: "Member settings updated.",
+    member: toMemberResponse(member)
+  });
+});
 
 const inviteMember = asyncHandler(async (req, res) => {
   const email = normalizeEmail(req.body.email);
@@ -256,6 +302,8 @@ module.exports = {
   MANAGER_ROLES,
   inviteMember,
   completeInvite,
+  getMyMemberSettings,
+  updateMyMemberSettings,
   listMembers,
   updateMemberRole,
   removeMember

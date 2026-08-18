@@ -107,6 +107,11 @@ export function RecruiterMessagesPage() {
           sender: String(message.senderId) === String(session.userId) ? "recruiter" : "candidate",
           text: message.content,
           time: formatBubbleTime(message.createdAt),
+          // Server-stamped on ChatMessage.metadata by the recruiter-introduction worker. Shown so
+          // an inbound introduction is never mistaken for a message the candidate hand-wrote —
+          // the recruiter deserves to know what was automated before they reply to it.
+          autoSent: Boolean(message.metadata?.autoSent),
+          introJobTitle: message.metadata?.jobTitle || "",
         })),
       }
     : null;
@@ -371,6 +376,19 @@ export function RecruiterMessagesPage() {
                             : "rounded-bl-md border border-border/60 bg-surface text-foreground"
                         }`}
                       >
+                        {message.autoSent ? (
+                          <p
+                            className={`mb-1 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                              message.sender === "recruiter"
+                                ? "border-white/40 bg-white/20 text-white"
+                                : "border-border/60 bg-card text-muted-foreground"
+                            }`}
+                            title="Drafted by AI and sent automatically when this candidate matched your posting."
+                          >
+                            AI intro · auto-sent
+                            {message.introJobTitle ? ` · ${message.introJobTitle}` : ""}
+                          </p>
+                        ) : null}
                         <p>{message.text}</p>
                         <p
                           className={`mt-1 text-[10px] ${
