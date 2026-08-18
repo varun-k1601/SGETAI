@@ -41,6 +41,7 @@ const resumeRagRoutes = require("./routes/resumeRag");
 const adminRoutes = require("./routes/admin");
 const dashboardRoutes = require("./routes/dashboard");
 const feedbackRoutes = require("./routes/feedback");
+const supportRoutes = require("./routes/support");
 const organizationMemberRoutes = require("./routes/organizationMembers");
 
 function createApp() {
@@ -61,7 +62,7 @@ function createApp() {
   );
   app.use(express.json({ limit: "2mb" }));
 
-  app.get("/health", (req, res) => {
+  const reportHealth = (req, res) => {
     return sendSuccess(res, {
       message: "SGETAI backend foundation is healthy.",
       environment: process.env.NODE_ENV || "development",
@@ -77,7 +78,14 @@ function createApp() {
         supabase: getSupabaseHealthStatus(),
       },
     });
-  });
+  };
+
+  // Root path stays exactly as it was — uptime probes and deploy checks point at it. The /api
+  // alias exists purely so in-app callers can reach the same report through VITE_API_BASE_URL
+  // (which already ends in /api) instead of string-surgery on the base URL. Same handler, so the
+  // two can never report different things. Both are deliberately unauthenticated, as before.
+  app.get("/health", reportHealth);
+  app.get("/api/health", reportHealth);
 
   app.use("/api/auth", authRoutes);
   app.use("/api/profile", profileRoutes);
@@ -101,6 +109,7 @@ function createApp() {
   app.use("/api/admin", adminRoutes);
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/feedback", feedbackRoutes);
+  app.use("/api/support", supportRoutes);
   app.use("/api/organization/members", organizationMemberRoutes);
 
   app.use(notFound);

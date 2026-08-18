@@ -70,6 +70,26 @@ const proRecruiterIntroPolicySchema = new mongoose.Schema(
   { _id: false }
 );
 
+// The support desk's service-level target, stored once platform-wide rather than typed onto each
+// ticket. SupportTicket copies the value in force at creation onto the row, so changing this
+// later cannot retroactively rewrite whether historical tickets met their SLA.
+const supportPolicySchema = new mongoose.Schema(
+  {
+    slaTargetMinutes: {
+      type: Number,
+      min: 1,
+      max: 10080,
+      default: 240
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin"
+    },
+    updatedAt: Date
+  },
+  { _id: false }
+);
+
 const platformSettingSchema = new mongoose.Schema(
   {
     key: {
@@ -84,6 +104,10 @@ const platformSettingSchema = new mongoose.Schema(
     },
     proRecruiterIntroPolicy: {
       type: proRecruiterIntroPolicySchema,
+      default: () => ({})
+    },
+    supportPolicy: {
+      type: supportPolicySchema,
       default: () => ({})
     }
   },

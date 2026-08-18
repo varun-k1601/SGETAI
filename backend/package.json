@@ -11,7 +11,8 @@
     "organizations:verify-matched": "node src/scripts/verifyMatchedOrganizations.js",
     "migrate:introduction-channels": "node src/scripts/backfillIntroductionChannels.js",
     "agent:evaluate": "node src/scripts/evaluateCareerAgent.js",
-    "cleanup:jobs-applications": "node src/scripts/cleanupJobsAndApplications.js"
+    "cleanup:jobs-applications": "node src/scripts/cleanupJobsAndApplications.js",
+    "migrate:support-tickets": "node src/scripts/migrateFeedbackToSupportTickets.js"
   },
   "engines": {
     "node": ">=18.0.0"

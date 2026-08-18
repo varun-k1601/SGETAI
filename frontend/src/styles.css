@@ -11203,3 +11203,1590 @@ body.career-agent-resizing {
     font-size: 0.85rem;
   }
 }
+
+/* =============================================================================
+   ADMIN CONSOLE
+   Every rule below is scoped under .admin-console so this page can own a warm,
+   light, editorial palette without touching the blue app chrome that AppShell
+   shares with seekers and recruiters. The palette is declared as custom
+   properties on the root class (not hardcoded per rule) so the dark variant at
+   the end is a pure token swap rather than a second copy of the layout.
+   ============================================================================= */
+
+.admin-console {
+  --adm-canvas: #f7f6f3;
+  --adm-surface: #ffffff;
+  --adm-surface-sunk: #faf9f7;
+  --adm-border: #e7e5e1;
+  --adm-ink: #1c1917;
+  --adm-muted: #78716c;
+  --adm-rail: #1e2a44;
+  --adm-rail-ink: #ffffff;
+  --adm-rail-muted: rgba(255, 255, 255, 0.66);
+  --adm-rail-line: rgba(255, 255, 255, 0.16);
+  --adm-accent: #e0522c;
+  --adm-accent-soft: rgba(224, 82, 44, 0.1);
+  --adm-link: #2563eb;
+
+  --adm-pos: #15803d;
+  --adm-pos-bg: rgba(21, 128, 61, 0.1);
+  --adm-neg: #b91c1c;
+  --adm-neg-bg: rgba(185, 28, 28, 0.1);
+  --adm-info: #1d4ed8;
+  --adm-info-bg: rgba(29, 78, 216, 0.1);
+  --adm-warn: #b45309;
+  --adm-warn-bg: rgba(180, 83, 9, 0.1);
+  --adm-neutral: #57534e;
+  --adm-neutral-bg: rgba(87, 83, 78, 0.1);
+
+  --adm-radius-card: 8px;
+  --adm-radius-control: 6px;
+  --adm-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  /* System stack only — styles.css ships no monospace family and the brief forbids new font
+     files. Matches the stack Tailwind font-mono resolves to, already rendered elsewhere here. */
+  --adm-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Cancels the 1.5rem padding on .main-panel so the canvas colour reaches the shell edges, then
+     re-applies its own. Without the bleed the warm canvas sits in a blue-white frame. */
+  margin: -1.5rem;
+  padding: 2rem 1.5rem 3rem;
+  background: var(--adm-canvas);
+  color: var(--adm-ink);
+  min-height: calc(100% + 3rem);
+}
+
+.admin-console__inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.admin-console__section {
+  margin-bottom: 32px;
+}
+
+.admin-console__section:last-child {
+  margin-bottom: 0;
+}
+
+/* Every numeral on the page — KPI values, percentages, axis ticks, timestamps. */
+.admin-console .adm-num {
+  font-family: var(--adm-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.admin-console .adm-eyebrow {
+  font-family: var(--adm-mono);
+  font-size: 10px;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--adm-muted);
+  margin: 0;
+}
+
+/* ---------- Header ---------- */
+
+.admin-console .adm-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.admin-console .adm-h1 {
+  font-size: 30px;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--adm-ink);
+  margin: 10px 0 0;
+}
+
+.admin-console .adm-sub {
+  font-size: 13px;
+  color: var(--adm-muted);
+  margin: 6px 0 0;
+  max-width: 52ch;
+}
+
+.admin-console .adm-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The global button/input rules in this stylesheet sit outside the Tailwind layers and would
+   otherwise override padding, radius and background here, so each control restates them. */
+.admin-console .adm-control,
+.admin-console .adm-btn {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 9px 12px;
+  border-radius: var(--adm-radius-control);
+  border: 1px solid var(--adm-border);
+  background: var(--adm-surface);
+  color: var(--adm-ink);
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.admin-console .adm-control:disabled,
+.admin-console .adm-btn:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.admin-console select.adm-control {
+  appearance: none;
+  padding-right: 28px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--adm-muted) 50%),
+    linear-gradient(135deg, var(--adm-muted) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 11px) 50%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  color: var(--adm-muted);
+}
+
+.admin-console .adm-btn--accent {
+  background: var(--adm-accent);
+  border-color: var(--adm-accent);
+  color: #ffffff;
+}
+
+.admin-console .adm-btn--accent:hover {
+  background: #c9451f;
+  border-color: #c9451f;
+}
+
+.admin-console .adm-btn:focus-visible,
+.admin-console .adm-control:focus-visible,
+.admin-console .adm-linkish:focus-visible {
+  outline: 2px solid var(--adm-accent);
+  outline-offset: 2px;
+}
+
+/* ---------- Cards ---------- */
+
+.admin-console .adm-card {
+  background: var(--adm-surface);
+  border: 1px solid var(--adm-border);
+  border-radius: var(--adm-radius-card);
+  box-shadow: var(--adm-shadow);
+  padding: 16px;
+}
+
+.admin-console .adm-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.admin-console .adm-card__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--adm-ink);
+  margin: 6px 0 0;
+  line-height: 1.3;
+}
+
+.admin-console .adm-linkish {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--adm-accent);
+  background: none;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.admin-console .adm-note {
+  font-size: 12px;
+  color: var(--adm-muted);
+  white-space: nowrap;
+}
+
+.admin-console .adm-empty {
+  font-size: 13px;
+  color: var(--adm-muted);
+  padding: 18px 0;
+  margin: 0;
+  text-align: center;
+}
+
+/* ---------- KPI grid: 4 -> 2 -> 1 ---------- */
+
+.admin-console .adm-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.admin-console .adm-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.admin-console .adm-kpi__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.admin-console .adm-kpi__value {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.05;
+  color: var(--adm-ink);
+  overflow-wrap: anywhere;
+}
+
+.admin-console .adm-kpi__bottom {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-console .adm-kpi__helper {
+  font-size: 12px;
+  color: var(--adm-muted);
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.admin-console .adm-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--adm-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.admin-console .adm-delta--up {
+  color: var(--adm-pos);
+  background: var(--adm-pos-bg);
+}
+
+.admin-console .adm-delta--down {
+  color: var(--adm-neg);
+  background: var(--adm-neg-bg);
+}
+
+.admin-console .adm-delta--flat {
+  color: var(--adm-neutral);
+  background: var(--adm-neutral-bg);
+}
+
+.admin-console .adm-spark {
+  display: block;
+  flex-shrink: 0;
+  color: var(--adm-rail);
+}
+
+/* No screen-reader utility exists in this stylesheet; scoped so it stays this page's concern. */
+.admin-console .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Two-column rows ---------- */
+
+.admin-console .adm-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+/* ---------- Area chart ---------- */
+
+.admin-console .adm-segmented {
+  display: inline-flex;
+  border: 1px solid var(--adm-border);
+  border-radius: var(--adm-radius-control);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.admin-console .adm-segmented button {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 0;
+  background: var(--adm-surface);
+  color: var(--adm-muted);
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+.admin-console .adm-segmented button + button {
+  border-left: 1px solid var(--adm-border);
+}
+
+.admin-console .adm-segmented button[aria-pressed="true"] {
+  background: var(--adm-ink);
+  color: #ffffff;
+}
+
+.admin-console .adm-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.admin-console .adm-chart__grid {
+  stroke: var(--adm-border);
+  stroke-width: 1;
+}
+
+.admin-console .adm-chart__axis {
+  font-family: var(--adm-mono);
+  font-size: 10px;
+  fill: var(--adm-muted);
+}
+
+.admin-console .adm-chart__line {
+  fill: none;
+  stroke: var(--adm-rail);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.admin-console .adm-chart__fill {
+  fill: var(--adm-rail);
+  opacity: 0.1;
+  stroke: none;
+}
+
+.admin-console .adm-chart__dot {
+  fill: var(--adm-rail);
+}
+
+.admin-console .adm-chart__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--adm-border);
+}
+
+.admin-console .adm-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.admin-console .adm-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--adm-muted);
+}
+
+.admin-console .adm-legend__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--adm-rail);
+  flex-shrink: 0;
+}
+
+.admin-console .adm-legend__dot--accent {
+  background: var(--adm-accent);
+}
+
+/* ---------- AI brief (navy) ---------- */
+
+.admin-console .adm-brief {
+  background: var(--adm-rail);
+  border-color: var(--adm-rail);
+  color: var(--adm-rail-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.admin-console .adm-brief__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-console .adm-brief__mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--adm-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--adm-rail-muted);
+}
+
+.admin-console .adm-brief__chip {
+  font-family: var(--adm-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--adm-rail-line);
+  color: var(--adm-rail-ink);
+  white-space: nowrap;
+}
+
+.admin-console .adm-brief__headline {
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0;
+  color: var(--adm-rail-ink);
+}
+
+.admin-console .adm-brief__body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--adm-rail-muted);
+  margin: 0;
+}
+
+.admin-console .adm-brief__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--adm-rail-line);
+  border-bottom: 1px solid var(--adm-rail-line);
+}
+
+.admin-console .adm-brief__stat {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.admin-console .adm-brief__stat-value {
+  font-family: var(--adm-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--adm-rail-ink);
+  flex-shrink: 0;
+}
+
+.admin-console .adm-brief__stat-label {
+  font-size: 12px;
+  color: var(--adm-rail-muted);
+  line-height: 1.35;
+}
+
+.admin-console .adm-brief__link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--adm-accent);
+  background: none;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+  transform: none;
+  text-align: left;
+}
+
+.admin-console .adm-brief__foot {
+  font-family: var(--adm-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--adm-rail-muted);
+  margin: 0;
+}
+
+/* ---------- Candidate table ---------- */
+
+.admin-console .adm-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.admin-console input.adm-search {
+  flex: 1;
+  min-width: 160px;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: var(--adm-radius-control);
+  border: 1px solid var(--adm-border);
+  background: var(--adm-surface);
+  color: var(--adm-ink);
+  box-shadow: none;
+}
+
+.admin-console input.adm-search::placeholder {
+  color: var(--adm-muted);
+}
+
+.admin-console input.adm-search:focus-visible {
+  outline: 2px solid var(--adm-accent);
+  outline-offset: 1px;
+}
+
+/* The table — never the page — is what scrolls sideways on a narrow viewport. */
+.admin-console .adm-table-wrap {
+  overflow-x: auto;
+  margin: 0 -16px -16px;
+  padding: 0 16px 16px;
+}
+
+.admin-console .adm-table {
+  width: 100%;
+  min-width: 660px;
+  border-collapse: collapse;
+}
+
+.admin-console .adm-table th {
+  font-family: var(--adm-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--adm-muted);
+  text-align: left;
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--adm-border);
+  white-space: nowrap;
+}
+
+.admin-console .adm-table td {
+  padding: 12px 12px 12px 0;
+  border-bottom: 1px solid var(--adm-border);
+  font-size: 13px;
+  color: var(--adm-ink);
+  vertical-align: middle;
+}
+
+.admin-console .adm-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-console .adm-candidate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.admin-console .adm-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--adm-accent-soft);
+  color: var(--adm-accent);
+  font-family: var(--adm-mono);
+  font-size: 11px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.admin-console .adm-candidate__name {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--adm-ink);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-console .adm-candidate__meta {
+  display: block;
+  font-size: 11px;
+  color: var(--adm-muted);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-console .adm-match {
+  font-family: var(--adm-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--adm-link);
+}
+
+.admin-console .adm-dash {
+  font-family: var(--adm-mono);
+  color: var(--adm-muted);
+}
+
+/* Status pills carry their own text label and a shaped dot, so state is never signalled by
+   colour alone. */
+.admin-console .adm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--adm-neutral-bg);
+  color: var(--adm-neutral);
+}
+
+.admin-console .adm-pill::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.admin-console .adm-pill--pos {
+  background: var(--adm-pos-bg);
+  color: var(--adm-pos);
+}
+
+.admin-console .adm-pill--info {
+  background: var(--adm-info-bg);
+  color: var(--adm-info);
+}
+
+.admin-console .adm-pill--warn {
+  background: var(--adm-warn-bg);
+  color: var(--adm-warn);
+}
+
+.admin-console .adm-pill--neg {
+  background: var(--adm-neg-bg);
+  color: var(--adm-neg);
+}
+
+/* ---------- Live pulse timeline ---------- */
+
+.admin-console .adm-pulse {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+.admin-console .adm-pulse__item {
+  position: relative;
+  padding: 0 0 16px 20px;
+}
+
+.admin-console .adm-pulse__item::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 14px;
+  bottom: 0;
+  width: 1px;
+  background: var(--adm-border);
+}
+
+.admin-console .adm-pulse__item:last-child {
+  padding-bottom: 0;
+}
+
+.admin-console .adm-pulse__item:last-child::before {
+  display: none;
+}
+
+.admin-console .adm-pulse__dot {
+  position: absolute;
+  left: 0;
+  top: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--adm-neutral);
+}
+
+.admin-console .adm-pulse__dot--job {
+  background: var(--adm-accent);
+}
+
+.admin-console .adm-pulse__dot--application {
+  background: var(--adm-info);
+}
+
+.admin-console .adm-pulse__dot--payment {
+  background: var(--adm-pos);
+}
+
+.admin-console .adm-pulse__dot--verification {
+  background: var(--adm-warn);
+}
+
+.admin-console .adm-pulse__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--adm-ink);
+  line-height: 1.35;
+}
+
+.admin-console .adm-pulse__desc {
+  font-size: 12px;
+  color: var(--adm-muted);
+  line-height: 1.4;
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-console .adm-pulse__time {
+  display: block;
+  font-family: var(--adm-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--adm-muted);
+  margin-top: 3px;
+}
+
+.admin-console .adm-pulse__foot {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--adm-border);
+}
+
+/* ---------- Policy form ---------- */
+
+.admin-console .adm-policy__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.admin-console .adm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.admin-console .adm-field > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--adm-ink);
+}
+
+.admin-console .adm-field small {
+  font-size: 11px;
+  color: var(--adm-muted);
+  line-height: 1.4;
+}
+
+.admin-console .adm-field input[type="number"] {
+  font-family: var(--adm-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: var(--adm-radius-control);
+  border: 1px solid var(--adm-border);
+  background: var(--adm-surface);
+  color: var(--adm-ink);
+  box-shadow: none;
+  width: 100%;
+}
+
+.admin-console .adm-field--check {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-console .adm-field--check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  accent-color: var(--adm-accent);
+  flex-shrink: 0;
+  box-shadow: none;
+}
+
+.admin-console .adm-field--check small {
+  flex-basis: 100%;
+}
+
+.admin-console .adm-policy__foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-console .adm-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-console .adm-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--adm-muted);
+  border: 1px solid var(--adm-border);
+  background: var(--adm-surface-sunk);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.admin-console .adm-chip strong {
+  font-family: var(--adm-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--adm-ink);
+}
+
+.admin-console .feedback-banner {
+  margin-bottom: 20px;
+}
+
+/* ---------- Range-switch pending state ----------
+   Sections carrying window-dependent data dim while the next range loads. Combined with
+   keepPreviousData on the query, the previous range stays legible underneath instead of the
+   page collapsing into its loading screen on every dropdown change. Interaction is deliberately
+   NOT blocked: the range select and the funnel toggle must stay usable mid-fetch. */
+
+.admin-console [data-pending] {
+  opacity: 0.5;
+  transition: opacity 180ms ease;
+}
+
+.admin-console .adm-control--pending {
+  border-color: var(--adm-accent);
+  color: var(--adm-accent);
+}
+
+/* A quiet breathing cue on the select itself, so the source of the pending state is obvious. */
+@media (prefers-reduced-motion: no-preference) {
+  .admin-console .adm-control--pending {
+    animation: adm-pending-pulse 1.1s ease-in-out infinite;
+  }
+}
+
+@keyframes adm-pending-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* ---------- "Not yet available" state ----------
+   Used by the two console pages whose data does not exist on the platform yet. Styled as a
+   deliberate statement rather than an error or a loading skeleton, so it never reads as a
+   transient failure that might resolve on refresh. */
+
+.admin-console .adm-unavailable {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 0;
+}
+
+.admin-console .adm-unavailable__badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--adm-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--adm-warn-bg);
+  color: var(--adm-warn);
+}
+
+.admin-console .adm-unavailable .adm-card__title {
+  margin: 0;
+  font-size: 17px;
+}
+
+.admin-console .adm-unavailable .adm-kpi__helper {
+  max-width: 68ch;
+  font-size: 13px;
+}
+
+.admin-console .adm-unavailable__needs-label {
+  margin-top: 6px;
+}
+
+.admin-console .adm-unavailable__list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 68ch;
+}
+
+.admin-console .adm-unavailable__list li {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--adm-muted);
+}
+
+/* ---------- Support inbox ----------
+   Reuses the .admin-console tokens established by the Overview page — no second visual language,
+   no new palette. Only the two-pane inbox, the tabs, the bubbles and the modal are new. */
+
+.admin-console .adm-kpi__value--muted {
+  color: var(--adm-muted);
+}
+
+/* --- Tabs --- */
+
+.admin-console .adm-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--adm-border);
+  margin: -4px -16px 0;
+  padding: 0 16px;
+}
+
+.admin-console .adm-tab {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--adm-muted);
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+.admin-console .adm-tab:hover {
+  color: var(--adm-ink);
+}
+
+.admin-console .adm-tab--active {
+  color: var(--adm-ink);
+  border-bottom-color: var(--adm-accent);
+}
+
+.admin-console .adm-tab:focus-visible {
+  outline: 2px solid var(--adm-accent);
+  outline-offset: -2px;
+}
+
+/* --- Two-pane split --- */
+
+.admin-console .adm-inbox {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.admin-console .adm-inbox__split {
+  display: grid;
+  grid-template-columns: 35% 65%;
+  min-height: 520px;
+  min-width: 0;
+}
+
+.admin-console .adm-inbox__list {
+  border-right: 1px solid var(--adm-border);
+  padding: 12px 12px 12px 0;
+  overflow-y: auto;
+  max-height: 620px;
+  min-width: 0;
+}
+
+.admin-console .adm-inbox__thread {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0 0 16px;
+  min-width: 0;
+  max-height: 620px;
+}
+
+/* --- Conversation list --- */
+
+.admin-console .adm-conv {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admin-console .adm-conv__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: var(--adm-radius-control);
+  background: none;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.admin-console .adm-conv__row:hover {
+  background: var(--adm-surface-sunk);
+}
+
+.admin-console .adm-conv__row--active {
+  background: var(--adm-accent-soft);
+  border-left-color: var(--adm-accent);
+}
+
+.admin-console .adm-conv__row:focus-visible {
+  outline: 2px solid var(--adm-accent);
+  outline-offset: -2px;
+}
+
+.admin-console .adm-conv__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.admin-console .adm-conv__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.admin-console .adm-conv__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--adm-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-console .adm-conv__time {
+  font-size: 10px;
+  color: var(--adm-muted);
+  flex-shrink: 0;
+}
+
+.admin-console .adm-conv__subject {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--adm-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-console .adm-conv__preview {
+  font-size: 11px;
+  color: var(--adm-muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Carries a visually-hidden "unread messages" label, so the badge never relies on colour alone. */
+.admin-console .adm-conv__badge {
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--adm-accent);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+/* --- Thread pane --- */
+
+.admin-console .adm-thread__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--adm-border);
+  flex-wrap: wrap;
+}
+
+.admin-console .adm-thread__identity {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admin-console .adm-thread__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-console .adm-thread__assign {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--adm-border);
+}
+
+/* The thread scrolls inside its own box — the page itself never grows to fit a long history. */
+.admin-console .adm-thread__scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 4px;
+  min-height: 0;
+}
+
+.admin-console .adm-bubble {
+  max-width: 76%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.admin-console .adm-bubble--in {
+  align-self: flex-start;
+  background: var(--adm-surface-sunk);
+  border: 1px solid var(--adm-border);
+  border-bottom-left-radius: 4px;
+}
+
+.admin-console .adm-bubble--out {
+  align-self: flex-end;
+  background: var(--adm-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--adm-accent) 30%, transparent);
+  border-bottom-right-radius: 4px;
+}
+
+.admin-console .adm-bubble--pending {
+  opacity: 0.6;
+}
+
+.admin-console .adm-bubble__label {
+  font-family: var(--adm-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--adm-accent);
+}
+
+.admin-console .adm-bubble__body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--adm-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.admin-console .adm-bubble__time {
+  font-size: 10px;
+  color: var(--adm-muted);
+  align-self: flex-end;
+}
+
+/* --- Composer --- */
+
+.admin-console .adm-composer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--adm-border);
+}
+
+.admin-console .adm-composer .adm-search {
+  flex: 1;
+}
+
+.admin-console .adm-textarea {
+  resize: vertical;
+  min-height: 84px;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+/* --- New-ticket modal --- */
+
+.admin-console .adm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(28, 25, 23, 0.45);
+  overflow-y: auto;
+}
+
+.admin-console .adm-modal__panel {
+  width: min(620px, 100%);
+  background: var(--adm-surface);
+  border: 1px solid var(--adm-border);
+  border-radius: var(--adm-radius-card);
+  padding: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16);
+}
+
+/* --- Responsive: the split stacks before the page would ever scroll sideways --- */
+
+@media (max-width: 1080px) {
+  .admin-console .adm-inbox__split {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .admin-console .adm-inbox__list {
+    border-right: none;
+    border-bottom: 1px solid var(--adm-border);
+    padding: 12px 0;
+    max-height: 320px;
+  }
+
+  .admin-console .adm-inbox__thread {
+    padding: 12px 0 0;
+    max-height: none;
+  }
+
+  .admin-console .adm-thread__scroll {
+    max-height: 420px;
+  }
+}
+
+/* ---------- Responsive: 4 -> 2 -> 1, rows stack ---------- */
+
+@media (max-width: 1080px) {
+  .admin-console .adm-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .admin-console .adm-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-console {
+    padding: 1.5rem 1rem 2.5rem;
+  }
+
+  .admin-console .adm-header {
+    align-items: flex-start;
+  }
+
+  .admin-console .adm-h1 {
+    font-size: 25px;
+  }
+}
+
+@media (max-width: 520px) {
+  .admin-console .adm-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- Dark variant: token swap only, no layout duplication ---------- */
+
+:root[data-theme="dark"] .admin-console {
+  --adm-canvas: #12100e;
+  --adm-surface: #1c1a17;
+  --adm-surface-sunk: #232019;
+  --adm-border: #332f2a;
+  --adm-ink: #f5f3f0;
+  --adm-muted: #a8a29e;
+  --adm-rail: #16213a;
+  --adm-accent: #f2703f;
+  --adm-accent-soft: rgba(242, 112, 63, 0.16);
+  --adm-link: #7aa2f7;
+  --adm-pos: #4ade80;
+  --adm-pos-bg: rgba(74, 222, 128, 0.14);
+  --adm-neg: #f87171;
+  --adm-neg-bg: rgba(248, 113, 113, 0.14);
+  --adm-info: #93b4fb;
+  --adm-info-bg: rgba(147, 180, 251, 0.14);
+  --adm-warn: #fbbf24;
+  --adm-warn-bg: rgba(251, 191, 36, 0.14);
+  --adm-neutral: #d6d3d1;
+  --adm-neutral-bg: rgba(214, 211, 209, 0.12);
+  --adm-shadow: none;
+}
+
+:root[data-theme="dark"] .admin-console .adm-segmented button[aria-pressed="true"] {
+  background: var(--adm-accent);
+  color: #12100e;
+}
+
+/* =============================================================================
+   ADMIN CONSOLE SIDEBAR (.app-sidebar--console)
+   AppShell is shared by seekers, recruiters and admins, so NONE of the base
+   .app-sidebar / .sidebar-nav__* rules are touched. Everything here hangs off a
+   modifier class that AppShell only applies when isAdmin is true, which keeps the
+   other two roles pixel-identical. The collapsed state is handled at the bottom so
+   the modifier works in both widths.
+   ============================================================================= */
+
+.app-sidebar--console {
+  --rail-bg: #1e2a44;
+  --rail-bg-deep: #18233a;
+  --rail-line: rgba(255, 255, 255, 0.1);
+  --rail-ink: rgba(255, 255, 255, 0.72);
+  --rail-ink-strong: #ffffff;
+  --rail-muted: rgba(255, 255, 255, 0.42);
+  --rail-hover: rgba(255, 255, 255, 0.07);
+  --rail-active: rgba(255, 255, 255, 0.13);
+  --rail-accent: #e0522c;
+
+  background: var(--rail-bg);
+  border-right: 1px solid var(--rail-line);
+  padding: 1.25rem 0 1rem;
+}
+
+/* ---------- Brand lockup ---------- */
+
+.app-sidebar--console .sidebar-header {
+  border-bottom: 1px solid var(--rail-line);
+  padding: 0 1.125rem 1.125rem;
+  margin-bottom: 1.125rem;
+}
+
+.app-sidebar--console .brand-lockup {
+  align-items: center;
+}
+
+.app-sidebar--console .brand-lockup__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-sidebar--console .brand-lockup .brand-title {
+  color: var(--rail-ink-strong);
+  margin: 0;
+  line-height: 1.1;
+}
+
+.app-sidebar--console .brand-lockup .brand-subtitle {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--rail-muted);
+  white-space: nowrap;
+}
+
+/* ---------- Section label ---------- */
+
+.app-sidebar--console .sidebar-nav {
+  gap: 2px;
+  padding: 0 0.75rem;
+}
+
+.app-sidebar--console .sidebar-nav__section {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--rail-muted);
+  margin: 0 0 0.5rem;
+  padding: 0 0.75rem;
+}
+
+/* ---------- Rows ---------- */
+
+.app-sidebar--console .sidebar-nav__item {
+  gap: 0.75rem;
+  padding: 0.7rem 0.75rem;
+  border-radius: 8px;
+  color: var(--rail-ink);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.app-sidebar--console .sidebar-nav__item:hover {
+  background: var(--rail-hover);
+  color: var(--rail-ink-strong);
+}
+
+.app-sidebar--console .sidebar-nav__item.active {
+  background: var(--rail-active);
+  color: var(--rail-ink-strong);
+  font-weight: 600;
+}
+
+/* The base rule paints a left edge bar on the active row; the console uses a filled pill with a
+   dot on the RIGHT instead, so that bar is switched off rather than restyled. */
+.app-sidebar--console .sidebar-nav__item.active::before {
+  display: none;
+}
+
+/* Decorative only — the active row is already conveyed by aria-current="page", which NavLink
+   sets, so this dot carries no information a screen reader needs. */
+.app-sidebar--console .sidebar-nav__item.active::after {
+  content: "";
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--rail-accent);
+}
+
+.app-sidebar--console .sidebar-nav__icon {
+  width: 18px;
+  height: 18px;
+  opacity: 0.9;
+}
+
+.app-sidebar--console .sidebar-nav__icon .linkedin-svg-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.app-sidebar--console .sidebar-nav__label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Sits left of the active dot so the two never overlap on a row that has both. */
+.app-sidebar--console .sidebar-nav__badge {
+  margin-right: 0.5rem;
+}
+
+/* ---------- Footer ---------- */
+
+.app-sidebar--console .sidebar-footer {
+  border-top: 1px solid var(--rail-line);
+  padding: 0.875rem 0.75rem 0;
+}
+
+.app-sidebar--console .sidebar-collapse {
+  background: transparent;
+  border: 1px solid var(--rail-line);
+  border-radius: 8px;
+  color: var(--rail-muted);
+  font-size: 0.8rem;
+  padding: 0.6rem 0.75rem;
+  box-shadow: none;
+  transform: none;
+}
+
+.app-sidebar--console .sidebar-collapse:hover {
+  background: var(--rail-hover);
+  color: var(--rail-ink-strong);
+  border-color: var(--rail-line);
+}
+
+/* ---------- Collapsed state ---------- */
+
+.app-sidebar--console.collapsed .sidebar-nav__section {
+  display: none;
+}
+
+.app-sidebar--console.collapsed .brand-lockup__stack {
+  display: none;
+}
+
+/* The pill has no room for a right-edge dot at 100px wide, so the active row falls back to a
+   left edge marker rather than clipping the dot against the icon. */
+.app-sidebar--console.collapsed .sidebar-nav__item.active::after {
+  display: none;
+}
+
+.app-sidebar--console.collapsed .sidebar-nav__item.active::before {
+  display: block;
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  border-radius: 0 3px 3px 0;
+  background: var(--rail-accent);
+}

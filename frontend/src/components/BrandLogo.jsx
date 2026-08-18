@@ -1,4 +1,6 @@
-export function BrandLogo({ isPro = false }) {
+// `subtitle` is opt-in and defaults to nothing, so the seeker and recruiter lockups render byte
+// for byte as they did before — only the admin console passes it.
+export function BrandLogo({ isPro = false, subtitle = "" }) {
   return (
     <div className="brand-lockup" aria-label="sgetai">
       <svg
@@ -28,7 +30,16 @@ export function BrandLogo({ isPro = false }) {
           <path d="M13.6 11.6a4 4 0 0 1-2.6-3.5 4 4 0 0 1-2.6 3.5" />
         </g>
       </svg>
-      <h1 className="brand-title brand-title--compact">sgetai</h1>
+      {/* Without a subtitle the markup stays exactly what it was — the extra wrapper only appears
+          for callers that ask for one, so no existing lockup gains a layout box it did not have. */}
+      {subtitle ? (
+        <span className="brand-lockup__stack">
+          <h1 className="brand-title brand-title--compact">sgetai</h1>
+          <span className="brand-subtitle">{subtitle}</span>
+        </span>
+      ) : (
+        <h1 className="brand-title brand-title--compact">sgetai</h1>
+      )}
       {isPro && <span className="brand-pro-badge">Pro</span>}
     </div>
   );

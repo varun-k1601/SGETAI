@@ -13,7 +13,8 @@ import { apiBlobRequest, apiRequest } from "../services/api";
 // recruiter/admin-only icons below) isn't disturbed for those icons.
 const STROKE_STYLE_ICON_NAMES = new Set([
   "home", "user", "bot", "briefcase", "clipboard", "zap", "bell", "book", "help", "settings",
-  "layout-grid", "users", "megaphone", "shield-check", "plug", "message-square"
+  "layout-grid", "users", "megaphone", "shield-check", "plug", "message-square",
+  "gauge", "bar-chart", "dollar-sign", "database"
 ]);
 
 function NavIcon({ name }) {
@@ -147,6 +148,32 @@ function NavIcon({ name }) {
     "message-square": (
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     ),
+    gauge: (
+      <>
+        <path d="m12 14 4-4" />
+        <path d="M3.34 19a10 10 0 1 1 17.32 0" />
+      </>
+    ),
+    "bar-chart": (
+      <>
+        <line x1="12" x2="12" y1="20" y2="10" />
+        <line x1="18" x2="18" y1="20" y2="4" />
+        <line x1="6" x2="6" y1="20" y2="16" />
+      </>
+    ),
+    "dollar-sign": (
+      <>
+        <line x1="12" x2="12" y1="2" y2="22" />
+        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+      </>
+    ),
+    database: (
+      <>
+        <ellipse cx="12" cy="5" rx="9" ry="3" />
+        <path d="M3 5v14a9 3 0 0 0 18 0V5" />
+        <path d="M3 12a9 3 0 0 0 18 0" />
+      </>
+    ),
   };
 
   const className = STROKE_STYLE_ICON_NAMES.has(name)
@@ -188,11 +215,21 @@ const recruiterNavItems = [
   { to: "/recruiter/settings", label: "Settings", icon: "settings" },
 ];
 
+// The admin console workspace. Jobs/Posts/Notifications were dropped from this list — those are
+// seeker-facing surfaces an admin rarely operates from, and their routes remain reachable by URL
+// (see the comments in routes/AppRouter.jsx). Every entry below has a real route registered in
+// the admin block of AppRouter; nothing here leads to NotFoundPage.
 const adminNavItems = [
-  { to: "/dashboard/admin", label: "Admin", icon: "home" },
-  { to: "/jobs", label: "Jobs", icon: "jobs" },
-  { to: "/home", label: "Posts", icon: "messaging" },
-  { to: "/notifications", label: "Notifications", icon: "notifications" },
+  { to: "/dashboard/overview", label: "Overview", icon: "layout-grid" },
+  { to: "/admin/candidates", label: "Candidates", icon: "users" },
+  { to: "/admin/applications", label: "Applications", icon: "clipboard" },
+  { to: "/admin/recruiter-pipeline", label: "Recruiter pipeline", icon: "gauge" },
+  { to: "/admin/skills", label: "Skills & progress", icon: "zap" },
+  { to: "/admin/growth", label: "Growth & operations", icon: "bar-chart" },
+  { to: "/admin/hrms", label: "HRMS", icon: "briefcase" },
+  { to: "/admin/support", label: "Support inbox", icon: "message-square" },
+  { to: "/admin/billing", label: "Billing", icon: "dollar-sign" },
+  { to: "/admin/api-health", label: "API health", icon: "database" },
 ];
 
 function getProfileInitial(session) {
@@ -223,7 +260,7 @@ export function AppShell() {
   const navItems = session?.role === "seeker" && session?.isPro
     ? [...baseNavItems.slice(0, 5), ...proOnlyNavItems, ...baseNavItems.slice(5)]
     : baseNavItems;
-  const profilePath = isAdmin ? "/dashboard/admin" : "/pro/profile";
+  const profilePath = isAdmin ? "/dashboard/overview" : "/pro/profile";
   const notificationsQuery = useQuery({
     queryKey: ["notifications", session?.role, "navbar"],
     queryFn: () =>
@@ -304,12 +341,29 @@ export function AppShell() {
   return (
     <div className="page-shell">
       {/* Left Sidebar Navigation */}
-      <aside className={`app-sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
+      {/* The --console modifier is the ONLY thing that changes the sidebar's appearance, and it is
+          gated on isAdmin. Every rule behind it is written under that class in styles.css, so the
+          seeker and recruiter sidebars keep the untouched base styling. */}
+      <aside
+        className={`app-sidebar ${isAdmin ? "app-sidebar--console" : ""} ${
+          sidebarCollapsed ? "collapsed" : ""
+        }`.replace(/\s+/g, " ").trim()}
+      >
         <div className="sidebar-header">
-          <BrandLogo isPro={session?.role === "seeker" && session?.isPro} />
+          <BrandLogo
+            isPro={session?.role === "seeker" && session?.isPro}
+            subtitle={isAdmin ? "Command centre" : ""}
+          />
         </div>
 
         <nav className="sidebar-nav" aria-label="Main navigation">
+          {/* Section label from the reference. Hidden when collapsed (see the modifier CSS) and
+              aria-hidden because the nav already carries its own accessible name. */}
+          {isAdmin ? (
+            <p className="sidebar-nav__section" aria-hidden="true">
+              Workspace
+            </p>
+          ) : null}
           {navItems.map((item) => (
             <NavLink
               key={item.to}

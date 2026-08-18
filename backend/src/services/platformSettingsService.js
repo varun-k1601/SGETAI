@@ -49,6 +49,20 @@ async function getProAutoApplyPolicy() {
   };
 }
 
+// Four hours. Deliberately not zero-ish: an unreachable target would report every ticket as an
+// SLA breach on day one, which reads as a broken metric rather than a demanding one.
+const DEFAULT_SUPPORT_POLICY = {
+  slaTargetMinutes: 240
+};
+
+async function getSupportPolicy() {
+  const settings = await getPlatformSettings();
+  return {
+    slaTargetMinutes:
+      settings.supportPolicy?.slaTargetMinutes ?? DEFAULT_SUPPORT_POLICY.slaTargetMinutes
+  };
+}
+
 async function getProRecruiterIntroPolicy() {
   const settings = await getPlatformSettings();
   return {
@@ -151,9 +165,11 @@ async function updateProRecruiterIntroPolicy({
 module.exports = {
   DEFAULT_PRO_AUTO_APPLY_POLICY,
   DEFAULT_PRO_RECRUITER_INTRO_POLICY,
+  DEFAULT_SUPPORT_POLICY,
   getPlatformSettings,
   getProAutoApplyPolicy,
   getProRecruiterIntroPolicy,
+  getSupportPolicy,
   updateProAutoApplyPolicy,
   updateProRecruiterIntroPolicy
 };

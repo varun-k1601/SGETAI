@@ -10,6 +10,15 @@ import { AcceptTeamInvitePage } from "../pages/auth/AcceptTeamInvitePage";
 import { RegisterPage } from "../pages/auth/RegisterPage";
 import { RecruiterDashboardPage } from "../pages/dashboard/RecruiterDashboardPage";
 import { AdminDashboardPage } from "../pages/admin/AdminDashboardPage";
+import { AdminCandidatesPage } from "../pages/admin/AdminCandidatesPage";
+import { AdminApplicationsPage } from "../pages/admin/AdminApplicationsPage";
+import { AdminRecruiterPipelinePage } from "../pages/admin/AdminRecruiterPipelinePage";
+import { AdminSkillsProgressPage } from "../pages/admin/AdminSkillsProgressPage";
+import { AdminGrowthOperationsPage } from "../pages/admin/AdminGrowthOperationsPage";
+import { AdminHrmsPage } from "../pages/admin/AdminHrmsPage";
+import { SupportInboxPage } from "../pages/admin/SupportInboxPage";
+import { AdminBillingPage } from "../pages/admin/AdminBillingPage";
+import { AdminApiHealthPage } from "../pages/admin/AdminApiHealthPage";
 import { JobsPage } from "../pages/jobs/JobsPage";
 import { JobDetailPage } from "../pages/jobs/JobDetailPage";
 import { RecruiterJobsPage } from "../pages/jobs/RecruiterJobsPage";
@@ -98,9 +107,11 @@ export function AppRouter() {
         </Route>
       </Route>
 
-      {/* Routes shared by seekers and admins — AppShell's admin sidebar (adminNavItems) links
-          directly to /home, /jobs, and /jobs/:jobId, so admins are a legitimate audience here
-          too, not just seekers. */}
+      {/* Routes shared by seekers and admins. The admin sidebar no longer links here — the
+          console nav was replaced with the /admin/* workspace — but admins keep route access so
+          these stay reachable by direct URL, from search results and from links elsewhere in the
+          product. Narrowing the allowlist is a separate, riskier change and is deliberately not
+          bundled with the nav swap. */}
       <Route element={<RoleRoute allowedRoles={["seeker", "SuperAdmin", "Moderator"]} />}>
         <Route element={<AppShell />}>
           <Route path="/home" element={<FeedPage />} />
@@ -129,10 +140,26 @@ export function AppRouter() {
         </Route>
       </Route>
 
-      {/* Admin-only routes */}
+      {/* Admin-only routes. Every entry in AppShell's adminNavItems resolves here, so no console
+          nav link can fall through to NotFoundPage. The console home is /dashboard/overview, so
+          the URL matches the nav label; the old /dashboard/admin path is kept as a redirect so
+          existing bookmarks and any links already in the wild still land on a real page rather
+          than NotFoundPage. Everything added since uses the /admin/* prefix. */}
       <Route element={<RoleRoute allowedRoles={["SuperAdmin", "Moderator"]} />}>
         <Route element={<AppShell />}>
-          <Route path="/dashboard/admin" element={<AdminDashboardPage />} />
+          <Route path="/dashboard/overview" element={<AdminDashboardPage />} />
+          {/* Legacy path, superseded by /dashboard/overview above. Kept indefinitely: it was the
+              admin home for the whole life of the product so far. */}
+          <Route path="/dashboard/admin" element={<Navigate to="/dashboard/overview" replace />} />
+          <Route path="/admin/candidates" element={<AdminCandidatesPage />} />
+          <Route path="/admin/applications" element={<AdminApplicationsPage />} />
+          <Route path="/admin/recruiter-pipeline" element={<AdminRecruiterPipelinePage />} />
+          <Route path="/admin/skills" element={<AdminSkillsProgressPage />} />
+          <Route path="/admin/growth" element={<AdminGrowthOperationsPage />} />
+          <Route path="/admin/hrms" element={<AdminHrmsPage />} />
+          <Route path="/admin/support" element={<SupportInboxPage />} />
+          <Route path="/admin/billing" element={<AdminBillingPage />} />
+          <Route path="/admin/api-health" element={<AdminApiHealthPage />} />
         </Route>
       </Route>
 
@@ -158,8 +185,10 @@ export function AppRouter() {
         </Route>
       </Route>
 
-      {/* /notifications is intentionally shared across roles (admins link to it too via
-          adminNavItems) — same ProRoute Pro-tier gate, no role allowlist. */}
+      {/* /notifications is intentionally shared across roles — same ProRoute Pro-tier gate, no
+          role allowlist. The admin nav no longer links here, but the route is unchanged and stays
+          reachable for admins: ProRoute only redirects seekers who are not Pro, so an admin
+          session still passes straight through. */}
       <Route element={<ProRoute />}>
         <Route element={<AppShell />}>
           <Route path="/notifications" element={<NotificationsPage />} />

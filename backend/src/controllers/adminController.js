@@ -9,6 +9,11 @@ const VerificationRequest = require("../models/VerificationRequest");
 const { sendSuccess } = require("../utils/apiResponse");
 const { requireNumberInRange } = require("../utils/validation");
 const { fireAndForget } = require("../services/aiSyncService");
+const ApiError = require("../utils/ApiError");
+const {
+  ALLOWED_TREND_WINDOW_DAYS,
+  buildAdminTrends
+} = require("../services/adminTrendsService");
 const { runAutoApplyForJob } = require("../workers/autoApplyWorker");
 const {
   getProAutoApplyPolicy,
@@ -24,8 +29,31 @@ function toCountMap(rows, key = "_id") {
   }, {});
 }
 
+// An explicit allowlist check rather than requireNumberInRange: the accepted values are three
+// discrete presets, not a continuous range, and each one selects a different set of aggregation
+// bucket sizes. A range check would wave through 47 — a window the service has no preset for.
+// Returns undefined for an omitted param so buildAdminTrends applies its own default and the
+// endpoint behaves exactly as it did before this parameter existed.
+function parseTrendWindowDays(rawValue) {
+  if (rawValue === undefined || rawValue === null || rawValue === "") {
+    return undefined;
+  }
+
+  const windowDays = Number(rawValue);
+
+  if (!Number.isInteger(windowDays) || !ALLOWED_TREND_WINDOW_DAYS.includes(windowDays)) {
+    throw new ApiError(
+      400,
+      `windowDays must be one of: ${ALLOWED_TREND_WINDOW_DAYS.join(", ")}.`
+    );
+  }
+
+  return windowDays;
+}
+
 async function getAdminOverview(req, res, next) {
   try {
+    const windowDays = parseTrendWindowDays(req.query.windowDays);
     const [
       seekerCount,
       proSeekerCount,
@@ -47,7 +75,8 @@ async function getAdminOverview(req, res, next) {
       recentPayments,
       recentVerificationRequests,
       proAutoApplyPolicy,
-      proRecruiterIntroPolicy
+      proRecruiterIntroPolicy,
+      trends
     ] = await Promise.all([
       JobSeeker.countDocuments(),
       JobSeeker.countDocuments({ isPro: true }),
@@ -117,7 +146,8 @@ async function getAdminOverview(req, res, next) {
         .populate("jobSeekerId", "firstName lastName username email")
         .lean(),
       getProAutoApplyPolicy(),
-      getProRecruiterIntroPolicy()
+      getProRecruiterIntroPolicy(),
+      buildAdminTrends({ windowDays })
     ]);
 
     const recruiterStatuses = toCountMap(recruiterStatusRows);
@@ -132,6 +162,59 @@ async function getAdminOverview(req, res, next) {
       },
       { count: 0, revenueByCurrency: {} }
     );
+
+    // Per-candidate match/ATS/pipeline signals for the dashboard table. These live on Application
+    // (atsScore, resumeMatchScore, status), NOT on JobSeeker, so they only exist for seekers who
+    // have actually applied to something — the UI renders an em-dash for everyone else rather
+    // than substituting a zero. One aggregation plus one title lookup for the whole page, never
+    // a query per row.
+    const recentSeekerIds = recentSeekers.map((seeker) => seeker._id);
+    const latestApplicationRows = recentSeekerIds.length
+      ? await Application.aggregate([
+          { $match: { jobSeekerId: { $in: recentSeekerIds } } },
+          { $sort: { createdAt: -1 } },
+          {
+            $group: {
+              _id: "$jobSeekerId",
+              applicationId: { $first: "$_id" },
+              jobId: { $first: "$jobId" },
+              status: { $first: "$status" },
+              atsScore: { $first: "$atsScore" },
+              atsTag: { $first: "$atsTag" },
+              resumeMatchScore: { $first: "$resumeMatchScore" },
+              source: { $first: "$source" },
+              lastActivityAt: { $first: "$createdAt" },
+              totalApplications: { $sum: 1 }
+            }
+          }
+        ])
+      : [];
+    const signalJobIds = latestApplicationRows.map((row) => row.jobId).filter(Boolean);
+    const signalJobs = signalJobIds.length
+      ? await Job.find({ _id: { $in: signalJobIds } }).select("title location").lean()
+      : [];
+    const signalJobById = new Map(signalJobs.map((job) => [job._id.toString(), job]));
+    const candidateSignals = latestApplicationRows.reduce((acc, row) => {
+      const job = row.jobId ? signalJobById.get(row.jobId.toString()) : null;
+
+      acc[row._id.toString()] = {
+        applicationId: row.applicationId,
+        targetRole: job?.title || null,
+        targetLocation: job?.location || null,
+        // The seeker-profile-vs-job composite that gated the application.
+        matchScore: Number.isFinite(row.atsScore) ? row.atsScore : null,
+        matchTag: row.atsTag || null,
+        // The tailored resume's own score against the JD — a different formula, and null for
+        // every application that never generated a tailored resume.
+        resumeMatchScore: Number.isFinite(row.resumeMatchScore) ? row.resumeMatchScore : null,
+        pipelineStatus: row.status || null,
+        source: row.source || null,
+        lastActivityAt: row.lastActivityAt || null,
+        totalApplications: row.totalApplications || 0
+      };
+
+      return acc;
+    }, {});
 
     return sendSuccess(res, {
       metrics: {
@@ -167,7 +250,9 @@ async function getAdminOverview(req, res, next) {
       payments: recentPayments,
       verificationRequests: recentVerificationRequests,
       proAutoApplyPolicy,
-      proRecruiterIntroPolicy
+      proRecruiterIntroPolicy,
+      trends,
+      candidateSignals
     });
   } catch (error) {
     return next(error);
