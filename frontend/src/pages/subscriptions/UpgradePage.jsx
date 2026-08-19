@@ -51,7 +51,7 @@ const STATUS_TONE = {
 // without the currency that belongs to it.
 function formatCurrency(amount, currency) {
   if (!Number.isFinite(amount) || !currency) {
-    return "0";
+    return null;
   }
 
   try {
@@ -89,9 +89,7 @@ function computeYearlySaving(plans) {
   const monthly = plans.find((plan) => plan.id === "monthly");
   const yearly = plans.find((plan) => plan.id === "yearly");
 
-  if (!monthly || !yearly || monthly.currency !== yearly.currency) {
-    return null;
-  }
+
 
   const monthlyEquivalent = monthly.amount * 12;
 
