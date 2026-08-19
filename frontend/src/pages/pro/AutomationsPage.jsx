@@ -1,9 +1,111 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest } from "../../services/api";
 import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
-import { AutomationSection } from "../../components/AutomationSection";
-import { useState } from "react";
+
+// STYLING APPROACH — scoped global CSS (`.automations-page ...` in styles.css) on the shared
+// --ph-* palette, the same system as .pro-home, .ai-gen, .jobs-page, .job-detail and
+// .applied-page. Tailwind's semantic colour utilities generate no CSS in this app, and the
+// unlayered global `button { ... }` rule outranks any Tailwind utility on a <button>.
+//
+// The toggle rows are built here rather than through <AutomationSection>: that component styles
+// itself from the app's older var(--border)/var(--surface) palette and inline style objects,
+// which would be a second visual language inside a --ph-* page. AutomationSection.jsx is left
+// untouched — its only other importer is DashboardLayout.jsx, which is unchanged.
+
+// Rendered wherever a figure has no source in this system, so "we cannot measure this" is never
+// confused with a measured zero.
+const NOT_TRACKED = null;
+
+const ICON_PATHS = {
+  briefcase: (
+    <>
+      <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+      <rect width="20" height="14" x="2" y="6" rx="2" />
+    </>
+  ),
+  userPlus: (
+    <>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M19 8v6" />
+      <path d="M22 11h-6" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </>
+  ),
+  message: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
+  mail: (
+    <>
+      <rect width="20" height="16" x="2" y="4" rx="2" />
+      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+    </>
+  ),
+  refresh: (
+    <>
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+      <path d="M8 16H3v5" />
+    </>
+  ),
+  shield: <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />,
+  zap: <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />,
+  reply: (
+    <>
+      <path d="M9 17l-5-5 5-5" />
+      <path d="M4 12h11a5 5 0 0 1 5 5v2" />
+    </>
+  ),
+  close: <path d="M18 6 6 18M6 6l12 12" />,
+  broom: (
+    <>
+      <path d="M3 21h18" />
+      <path d="M9 21V9l6-6 5 5-6 6H9z" />
+    </>
+  ),
+  bot: (
+    <>
+      <path d="M12 8V4H8" />
+      <rect width="16" height="12" x="4" y="8" rx="2" />
+      <path d="M2 14h2" />
+      <path d="M20 14h2" />
+      <path d="M15 13v2" />
+      <path d="M9 13v2" />
+    </>
+  ),
+};
+
+function Icon({ name, className = "au-icon" }) {
+  const paths = ICON_PATHS[name];
+
+  if (!paths) {
+    return null;
+  }
+
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      {paths}
+    </svg>
+  );
+}
 
 function formatRelativeTime(dateValue) {
   const date = new Date(dateValue);
@@ -43,6 +145,21 @@ function isWithinDays(dateValue, days) {
   return Date.now() - time <= days * 24 * 60 * 60 * 1000;
 }
 
+// Calendar day, not a rolling 24 hours — recruiterIntroCountToday is reset at midnight by
+// workers/midnightCron.js, so the two halves of "Actions today" have to mean the same thing.
+function isToday(dateValue) {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+  const now = new Date();
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
+}
+
 function humanizeSkipReason(reason) {
   if (!reason) {
     return "skipped";
@@ -51,6 +168,23 @@ function humanizeSkipReason(reason) {
     return "below threshold";
   }
   return String(reason).replace(/_/g, " ");
+}
+
+function Switch({ id, checked, disabled, onChange, label }) {
+  return (
+    <input
+      id={id}
+      type="checkbox"
+      role="switch"
+      className="au-switch"
+      checked={checked}
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      aria-disabled={disabled ? "true" : undefined}
+      onChange={(event) => onChange?.(event.target.checked)}
+    />
+  );
 }
 
 export function AutomationsPage() {
@@ -70,6 +204,14 @@ export function AutomationsPage() {
     enabled: Boolean(session?.accessToken),
   });
 
+  // Same query key the Pro home already uses, so this shares one cache entry rather than opening
+  // a parallel request for the same counts.
+  const introductionStatsQuery = useQuery({
+    queryKey: ["automations", "recruiter-introductions", "stats"],
+    queryFn: () => apiRequest("/pro/recruiter-introductions/stats", { token: session.accessToken }),
+    enabled: Boolean(session?.accessToken),
+  });
+
   const updatePreferencesMutation = useMutation({
     mutationFn: (patch) =>
       apiRequest("/pro/auto-apply/preferences", {
@@ -86,12 +228,49 @@ export function AutomationsPage() {
     },
   });
 
+  // Activity rows are computed from AutoApplyRun.results[], not their own documents, so there's
+  // nothing to soft-delete server-side — dismissing just records the row's stable key so it gets
+  // filtered out below. The underlying run history is never touched.
+  const dismissActivityMutation = useMutation({
+    mutationFn: (key) =>
+      apiRequest("/pro/agent/activity/dismiss", {
+        method: "PATCH",
+        token: session.accessToken,
+        body: { key },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["automations", "preferences"] });
+    },
+    onError: (error) => {
+      setFeedback({ type: "error", message: error.message });
+    },
+  });
+
+  const dismissAllActivityMutation = useMutation({
+    mutationFn: (keys) =>
+      apiRequest("/pro/agent/activity/dismiss-all", {
+        method: "PATCH",
+        token: session.accessToken,
+        body: { keys },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["automations", "preferences"] });
+    },
+    onError: (error) => {
+      setFeedback({ type: "error", message: error.message });
+    },
+  });
+
   const preferences = preferencesQuery.data?.preferences || {};
   const runs = runsQuery.data?.runs || [];
   // Admin-controlled caps for recruiter introductions — shown alongside the toggle so turning it
   // on is an informed choice about how much outreach it can actually produce.
   const recruiterIntroPolicy = preferencesQuery.data?.recruiterIntroPolicy || {};
   const recruiterIntroCountToday = preferencesQuery.data?.recruiterIntroCountToday || 0;
+  // Mirrors recruiterIntroductionWorker's own per-candidate gates, so the page can explain an
+  // inert configuration instead of leaving the seeker to infer it from silence.
+  const introReadiness = preferencesQuery.data?.recruiterIntroReadiness || {};
+  const introStats = introductionStatsQuery.data?.stats || {};
 
   function handleToggleAutomation(featureId, nextEnabled) {
     if (updatePreferencesMutation.isPending) {
@@ -113,62 +292,78 @@ export function AutomationsPage() {
     // rendered disabled below and never reach this handler.
   }
 
+  const masterIntroOn = Boolean(preferences.autoIntroduceToRecruiters);
+
   const automationFeatures = [
     {
       id: "autoApply",
       icon: "briefcase",
       name: "Auto-apply to jobs",
-      description: "Apply automatically when match is above threshold.",
+      description: "Applies on your behalf when a job scores above the platform match threshold.",
       enabled: Boolean(preferences.enabled),
     },
-    // In-platform only, and unrelated to the LinkedIn block below it: when an organization
-    // publishes a job you match, this introduces you to the individual recruiter who posted it
-    // and delivers an AI-drafted first message into your own chat thread — where you can read
-    // exactly what was sent.
+    // The MASTER switch. The reference omits it, but auto-connect and auto-DM below do nothing
+    // without it — recruiterIntroductionWorker gates every introduction on this flag.
     {
       id: "recruiterIntro",
-      icon: "user-plus",
+      icon: "userPlus",
       name: "Auto-introduce to recruiters",
       description:
-        "On a strong match, connect with the recruiter who posted the job and send an AI-drafted intro in chat.",
+        "Master switch for the two channels below. On a strong match, introduces you to the recruiter who posted the job.",
       note: recruiterIntroPolicy.maxDailyIntroductionsPerSeeker
         ? `Up to ${recruiterIntroPolicy.maxDailyIntroductionsPerSeeker}/day · ${recruiterIntroCountToday} sent today · you can read every message in Chat.`
         : "Every message is visible to you in Chat.",
-      enabled: Boolean(preferences.autoIntroduceToRecruiters),
+      enabled: masterIntroOn,
       disabled: recruiterIntroPolicy.enabled === false,
       badge: recruiterIntroPolicy.enabled === false ? "Paused by admin" : undefined,
     },
+    // RELABELLED. This was "Auto-connect" under a LinkedIn icon, which was false: it writes an
+    // in-app connection and a RecruiterIntroduction record and never contacts LinkedIn. LinkedIn's
+    // public API exposes no endpoint for sending connection requests to third parties, so no
+    // amount of scopes or approval could make the old label true.
     {
       id: "autoConnect",
-      icon: "linkedin",
-      name: "Auto-connect",
-      description: "Connect with recruiters automatically.",
+      icon: "link",
+      name: "Auto-connect to recruiters",
+      description:
+        "Creates an in-app connection with the recruiter who posted the job. Runs inside SGETAI only — your LinkedIn account is never used.",
       enabled: Boolean(preferences.autoConnectEnabled),
+      note: !masterIntroOn ? "Inert until Auto-introduce to recruiters is on." : undefined,
     },
+    // Reworded. There is no acceptance step to wait for: recruiterIntroductionWorker sends the
+    // intro in the same pass that creates the connection.
     {
       id: "autoDM",
-      icon: "message-square",
+      icon: "message",
       name: "Auto-DM intros",
-      description: "Send a first message after connecting.",
+      description:
+        "Sends an AI-drafted first message in SGETAI chat at the moment the connection is made — there is no acceptance step.",
       enabled: Boolean(preferences.autoDMEnabled),
+      note: introReadiness.dmBlockedByMissingConnect
+        ? "Sends nothing while Auto-connect is off — the message rides along with the connection."
+        : !masterIntroOn
+          ? "Inert until Auto-introduce to recruiters is on."
+          : undefined,
     },
     {
       id: "followUp",
       icon: "mail",
       name: "Auto follow-up emails",
-      description: "Polite nudges 5 days after silence.",
+      description: "Polite nudges after a period of silence.",
       enabled: false,
       disabled: true,
-      badge: "Coming soon",
+      badge: "Not built",
+      note: "Nothing is scheduled or sent — there is no follow-up service behind this switch yet.",
     },
     {
       id: "profileSync",
       icon: "refresh",
       name: "LinkedIn profile sync",
-      description: "Mirror updates from your sgetai profile to LinkedIn.",
+      description: "Mirror your SGETAI profile to LinkedIn.",
       enabled: false,
       disabled: true,
-      badge: "Coming soon",
+      badge: "Not possible",
+      note: "LinkedIn provides no API for writing a member's headline, experience or profile, so this cannot be built — it is not pending.",
     },
     {
       id: "safetyGuards",
@@ -180,203 +375,312 @@ export function AutomationsPage() {
   ];
 
   const runsLast7Days = runs.filter((run) => isWithinDays(run.ranAt || run.createdAt, 7));
-  const runsLast24Hours = runs.filter((run) => isWithinDays(run.ranAt || run.createdAt, 1));
-  const autoAppliesThisWeek = runsLast7Days.reduce((sum, run) => sum + (run.applicationsCreated || 0), 0);
-  const actionsToday = runsLast24Hours.reduce((sum, run) => sum + (run.results?.length || 0), 0);
+  const autoAppliesThisWeek = runsLast7Days.reduce(
+    (sum, run) => sum + (run.applicationsCreated || 0),
+    0
+  );
+  const autoApplyActionsToday = runs
+    .filter((run) => isToday(run.ranAt || run.createdAt))
+    .reduce((sum, run) => sum + (run.results?.length || 0), 0);
+  const actionsToday = autoApplyActionsToday + recruiterIntroCountToday;
+
+  // Recruiter replies are not recorded anywhere in this system, and there is no manual baseline
+  // to compare against, so there is nothing to divide. Rendered as "—", never as a number.
+  const replyRate = NOT_TRACKED;
+
+  const kpis = [
+    {
+      key: "actions",
+      icon: "zap",
+      label: "Actions today",
+      value: actionsToday,
+      sub: `${autoApplyActionsToday} auto-apply · ${recruiterIntroCountToday} intro${
+        recruiterIntroCountToday === 1 ? "" : "s"
+      }`,
+    },
+    {
+      key: "applies",
+      icon: "briefcase",
+      label: "Auto-applies",
+      value: autoAppliesThisWeek,
+      sub: "this week",
+    },
+    {
+      key: "connects",
+      icon: "userPlus",
+      label: "Connects sent",
+      value: Number.isFinite(introStats.total) ? introStats.total : NOT_TRACKED,
+      // NO acceptance rate. RecruiterIntroduction.status has Accepted/Declined values, but nothing
+      // in the codebase ever writes them — every record stays Pending, so any "% accepted" would
+      // be a permanent 0% masquerading as a measurement.
+      sub: Number.isFinite(introStats.last7Days) ? `${introStats.last7Days} this week` : null,
+    },
+    {
+      key: "replies",
+      icon: "reply",
+      label: "Reply rate",
+      value: replyRate,
+      sub: "Not tracked",
+    },
+  ];
+
+  const dismissedActivityKeys = preferencesQuery.data?.dismissedActivityKeys || [];
+  const dismissedActivityKeySet = new Set(dismissedActivityKeys);
+  const hasAnyRawActivity = runs.some((run) => (run.results || []).length);
 
   const activityStream = runs
     .flatMap((run) =>
-      (run.results || []).map((result) => ({ ...result, ranAt: run.ranAt || run.createdAt }))
+      (run.results || []).map((result) => ({
+        ...result,
+        ranAt: run.ranAt || run.createdAt,
+        // Identical to the Pro home's derivation, so dismissing a row on either surface hides it
+        // on both — the keys are stored per-seeker on the server, not per-page.
+        key: `${run._id}-${result.jobId}-${result.status}`,
+      }))
     )
     .sort((a, b) => new Date(b.ranAt) - new Date(a.ranAt))
+    .filter((result) => !dismissedActivityKeySet.has(result.key))
     .slice(0, 8)
-    .map((result, index) => {
+    .map((result) => {
       if (result.status === "applied") {
         return {
-          key: result.applicationId || `applied-${index}`,
-          icon: "bot",
+          key: result.key,
+          icon: "briefcase",
           title: `Applied to ${result.title}`,
           subtitle: `${result.companyName || "Company"} · ${result.score}% match · tailored resume`,
           time: formatRelativeTime(result.ranAt),
-          matchScore: Number.isFinite(result.score) ? result.score : undefined,
         };
       }
 
       return {
-        key: `skipped-${result.jobId || index}-${index}`,
-        icon: "bot",
+        key: result.key,
+        icon: "close",
         title: `Skipped: ${result.title}`,
         subtitle: `${result.companyName || "Company"} · ${
           Number.isFinite(result.score) ? `${result.score}% match · ` : ""
         }${humanizeSkipReason(result.reason)}`,
         time: formatRelativeTime(result.ranAt),
-        matchScore: Number.isFinite(result.score) ? result.score : undefined,
       };
     });
 
-  const getIconSvg = (iconName) => {
-    const icons = {
-      briefcase: <><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path><rect width="20" height="14" x="2" y="6" rx="2"></rect></>,
-      linkedin: <><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect width="4" height="12" x="2" y="9"></rect><circle cx="4" cy="4" r="2"></circle></>,
-      zap: <><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path></>,
-      bot: <><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></>,
-    };
-    return icons[iconName] || null;
-  };
+  function handleDismissAllActivity() {
+    if (
+      !window.confirm(
+        "Close all activity entries? Your auto-apply history is still saved — this only clears them from this list."
+      )
+    ) {
+      return;
+    }
+    dismissAllActivityMutation.mutate(activityStream.map((activity) => activity.key));
+  }
+
+  const matchThreshold =
+    typeof preferences.matchThreshold === "number" ? preferences.matchThreshold : null;
 
   return (
-    <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
+    <main className="automations-page">
       <AutoDismissFeedback feedback={feedback} onClear={() => setFeedback(null)} />
 
-      {/* Hero Banner */}
-      <div className="relative mb-6 overflow-hidden rounded-3xl border border-border/60 bg-linear-to-br p-6 lg:p-8 from-primary/15 via-pro/15 to-transparent">
-        <div className="orb -right-20 -top-20 h-60 w-60 bg-primary/20"></div>
-        <div className="orb -bottom-24 -left-24 h-72 w-72 bg-pro/25"></div>
-        <div className="relative">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Automation OS</p>
-              <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight lg:text-4xl">Your AI agents</h1>
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground lg:text-base">Configure what AI does on your behalf — across job boards, LinkedIn, and email.</p>
-            </div>
+      <header className="au-hero">
+        <p className="au-eyebrow">Automation OS</p>
+        <h1 className="au-hero__title">Your AI agents</h1>
+        <p className="au-hero__sub">
+          Configure what AI does on your behalf. Everything here runs inside SGETAI — job matching,
+          applications, and recruiter introductions. No external account is used on your behalf.
+        </p>
+      </header>
+
+      <div className="au-kpis">
+        {kpis.map((kpi) => (
+          <div key={kpi.key} className="au-card au-kpi">
+            <p className="au-kpi__label">
+              <Icon name={kpi.icon} className="au-icon au-icon--sm" />
+              {kpi.label}
+            </p>
+            <p className={`au-kpi__value${kpi.value === NOT_TRACKED ? " au-kpi__value--none" : ""}`}>
+              {kpi.value === NOT_TRACKED ? "—" : kpi.value}
+            </p>
+            {kpi.sub && <p className="au-kpi__sub">{kpi.sub}</p>}
           </div>
-        </div>
+        ))}
       </div>
 
-      {/* Metrics Cards */}
-      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3">
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-4 backdrop-blur">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide h-3.5 w-3.5" aria-hidden="true">
-              {getIconSvg("zap")}
-            </svg>
-            Auto-apply actions today
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <div className="font-display text-2xl font-semibold tabular-nums">{actionsToday}</div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-4 backdrop-blur">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide h-3.5 w-3.5" aria-hidden="true">
-              {getIconSvg("briefcase")}
-            </svg>
-            Auto-applies
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <div className="font-display text-2xl font-semibold tabular-nums">{autoAppliesThisWeek}</div>
-            <div className="text-xs font-medium text-success">this wk</div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-4 backdrop-blur">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide h-3.5 w-3.5" aria-hidden="true">
-              {getIconSvg("linkedin")}
-            </svg>
-            LinkedIn outreach prefs
-          </div>
-          <div className="mt-2 flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-              {preferences.autoConnectEnabled || preferences.autoDMEnabled ? "On" : "Off"}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Grid */}
-      <div className="grid grid-cols-12 gap-6">
-        {/* Left Section - Automations & Templates */}
-        <section className="col-span-12 space-y-4 lg:col-span-7">
-          {/* Active Automations */}
-          <AutomationSection
-            isActive={Boolean(preferences.enabled)}
-            features={automationFeatures}
-            onToggleFeature={handleToggleAutomation}
-            matchThreshold={typeof preferences.matchThreshold === "number" ? preferences.matchThreshold : null}
-          />
-
-          {/* Message Templates */}
-          <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-            <div className="mb-4 flex items-end justify-between gap-4">
+      <div className="au-split">
+        <div className="au-main">
+          <section className="au-card" aria-labelledby="au-automations-heading">
+            <div className="au-card__head">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Templates</p>
-                <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Message templates</h2>
+                <p className="au-eyebrow">Automation engine</p>
+                <h2 className="au-card__title" id="au-automations-heading">
+                  Active automations
+                </h2>
               </div>
-              <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                Coming soon
-              </span>
-            </div>
-            <div className="space-y-2">
-              {[
-                { title: "Recruiter intro DM", type: "Auto-DM · Auto-connect", chars: "320" },
-                { title: "Hiring manager cold email", type: "Cold email", chars: "540" },
-                { title: "Follow-up after silence", type: "Auto follow-up", chars: "240" },
-              ].map(template => (
-                <div key={template.title} className="flex items-center gap-3 rounded-xl border border-border/40 bg-surface/40 p-3 opacity-60">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide h-4 w-4 text-pro shrink-0" aria-hidden="true">
-                    {getIconSvg("bot")}
-                  </svg>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{template.title}</p>
-                    <p className="truncate text-xs text-muted-foreground">{template.type} · {template.chars} chars</p>
-                  </div>
-                  <button type="button" disabled className="rounded-full border border-border bg-surface px-3 py-1 text-xs font-medium shrink-0 cursor-not-allowed">Edit</button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Right Section - Activity Stream */}
-        <aside className="col-span-12 lg:col-span-5">
-          <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-            <div className="mb-4 flex items-end justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Live</p>
-                <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Activity stream</h2>
-              </div>
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true">
-                <circle cx="12" cy="12" r="10"></circle>
-                <circle cx="12" cy="12" r="6"></circle>
-                <circle cx="12" cy="12" r="2"></circle>
-              </svg>
-            </div>
-            <div className="space-y-2">
-              {activityStream.length ? (
-                activityStream.map((activity) => (
-                  <div key={activity.key} className="flex items-center gap-3 rounded-xl border border-border/40 bg-surface/40 p-3">
-                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gradient-pro text-pro-foreground">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide h-4 w-4" aria-hidden="true">
-                        {getIconSvg(activity.icon)}
-                      </svg>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">{activity.title}</p>
-                      <p className="truncate text-xs text-muted-foreground">{activity.subtitle}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className="text-[11px] text-muted-foreground">{activity.time}</span>
-                      {activity.matchScore !== undefined && (
-                        <div className="relative grid shrink-0 place-items-center rounded-full font-semibold tabular-nums h-10 w-10 text-[10px] text-white" style={{ background: `conic-gradient(var(--gradient-pro) ${activity.matchScore * 3.6}deg, oklch(0.93 0.01 250) 0deg)` }}>
-                          <div className="grid h-[calc(100%-6px)] w-[calc(100%-6px)] place-items-center rounded-full bg-card">
-                            {activity.matchScore}%
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))
+              {preferences.enabled ? (
+                <span className="au-pill au-pill--success">Auto-apply on</span>
               ) : (
-                <p className="p-3 text-sm text-muted-foreground">
-                  {runsQuery.isLoading
-                    ? "Loading activity…"
-                    : "No auto-apply activity yet. Enable auto-apply above to get started."}
-                </p>
+                <span className="au-pill">Auto-apply off</span>
               )}
             </div>
-          </div>
+
+            <ul className="au-features">
+              {automationFeatures.map((feature) => (
+                <li
+                  key={feature.id}
+                  className={`au-feature${feature.disabled ? " au-feature--disabled" : ""}`}
+                >
+                  <span className="au-tile" aria-hidden="true">
+                    <Icon name={feature.icon} className="au-icon au-icon--sm" />
+                  </span>
+
+                  <div className="au-feature__body">
+                    <div className="au-feature__top">
+                      <label className="au-feature__name" htmlFor={`au-toggle-${feature.id}`}>
+                        {feature.name}
+                      </label>
+                      {feature.badge && <span className="au-pill au-pill--sm">{feature.badge}</span>}
+                    </div>
+                    <p className="au-feature__desc" id={`au-desc-${feature.id}`}>
+                      {feature.description}
+                    </p>
+                    {feature.note && <p className="au-feature__note">{feature.note}</p>}
+                  </div>
+
+                  <div className="au-feature__control">
+                    <Switch
+                      id={`au-toggle-${feature.id}`}
+                      label={feature.name}
+                      checked={feature.enabled}
+                      disabled={feature.disabled || updatePreferencesMutation.isPending}
+                      onChange={(next) => handleToggleAutomation(feature.id, next)}
+                    />
+                    <span className="au-state" aria-hidden="true">
+                      {feature.disabled ? "Off" : feature.enabled ? "On" : "Off"}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {matchThreshold !== null && (
+              <div className="au-threshold">
+                <div className="au-threshold__head">
+                  <p className="au-eyebrow">Match threshold</p>
+                  <p className="au-threshold__value">{matchThreshold}%</p>
+                </div>
+                {/* READ-ONLY, exactly as on the Pro home and the Jobs page: this is a
+                    platform-wide policy value returned by getProAutoApplyPolicy(), not a
+                    per-seeker preference, and no mutation on this page writes it. The custom
+                    property is data binding for the track fill, not styling. */}
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={matchThreshold}
+                  disabled
+                  readOnly
+                  aria-disabled="true"
+                  aria-describedby="au-threshold-caption"
+                  aria-label="Match threshold, set by the platform"
+                  className="au-threshold__slider"
+                  style={{ "--au-threshold-fill": `${matchThreshold}%` }}
+                />
+                <p className="au-threshold__caption" id="au-threshold-caption">
+                  Set by the platform and applied to every Pro member. It is shown here so you know
+                  what auto-apply is measuring against — it cannot be changed from this screen.
+                </p>
+              </div>
+            )}
+          </section>
+
+          <section className="au-card" aria-labelledby="au-templates-heading">
+            <div className="au-card__head">
+              <div>
+                <p className="au-eyebrow">Templates</p>
+                <h2 className="au-card__title" id="au-templates-heading">
+                  Message templates
+                </h2>
+              </div>
+              <span className="au-pill">Not available</span>
+            </div>
+
+            {/* No template model, collection or endpoint exists, so there is nothing to list and
+                nothing to edit. Rendering three sample rows behind a disabled "Edit" button would
+                imply a store that does not exist. */}
+            <p className="au-note">
+              Saved templates aren&apos;t available yet — there is no template store behind this
+              screen, so there is nothing to edit or apply.
+            </p>
+            <p className="au-note">
+              Today every intro is drafted per-recruiter by the AI when it is sent, and you can read
+              exactly what went out in Chat. To write one yourself, use the Recruiter DM tool.
+            </p>
+            <Link to="/pro/ai" className="au-btn au-btn--sm">
+              <Icon name="bot" className="au-icon au-icon--sm" />
+              Open the AI Generator
+            </Link>
+          </section>
+        </div>
+
+        <aside className="au-rail">
+          <section className="au-card" aria-labelledby="au-activity-heading">
+            <div className="au-card__head">
+              <div>
+                <p className="au-eyebrow">Live</p>
+                <h2 className="au-card__title" id="au-activity-heading">
+                  Activity stream
+                </h2>
+              </div>
+              {/* A real control, not a decorative gear: it calls the existing dismiss-all
+                  endpoint. Rendered only when there is something to clear. */}
+              {activityStream.length > 0 && (
+                <button
+                  type="button"
+                  className="au-btn au-btn--sm au-btn--ghost"
+                  onClick={handleDismissAllActivity}
+                  disabled={dismissAllActivityMutation.isPending}
+                >
+                  <Icon name="broom" className="au-icon au-icon--sm" />
+                  Clear all
+                </button>
+              )}
+            </div>
+
+            {activityStream.length > 0 ? (
+              <ul className="au-activity">
+                {activityStream.map((activity) => (
+                  <li key={activity.key} className="au-activity__row">
+                    <span className="au-tile au-tile--sm" aria-hidden="true">
+                      <Icon name={activity.icon} className="au-icon au-icon--xs" />
+                    </span>
+                    <div className="au-activity__body">
+                      <p className="au-activity__title">{activity.title}</p>
+                      <p className="au-activity__sub">{activity.subtitle}</p>
+                    </div>
+                    <div className="au-activity__side">
+                      <span className="au-activity__time">{activity.time}</span>
+                      <button
+                        type="button"
+                        className="au-dismiss"
+                        onClick={() => dismissActivityMutation.mutate(activity.key)}
+                        disabled={dismissActivityMutation.isPending}
+                        aria-label={`Dismiss: ${activity.title}`}
+                      >
+                        <Icon name="close" className="au-icon au-icon--xs" />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="au-empty">
+                {runsQuery.isLoading
+                  ? "Loading activity…"
+                  : hasAnyRawActivity
+                    ? "You have cleared every activity entry. New auto-apply runs will appear here."
+                    : "No auto-apply activity yet. Turn on auto-apply to get started."}
+              </p>
+            )}
+          </section>
         </aside>
       </div>
     </main>

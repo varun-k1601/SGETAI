@@ -10,6 +10,7 @@ const JobSeeker = require("../models/JobSeeker");
 const AutoApplyRun = require("../models/AutoApplyRun");
 const Application = require("../models/Application");
 const GeneratedArtifact = require("../models/GeneratedArtifact");
+const RecruiterIntroduction = require("../models/RecruiterIntroduction");
 const { buildJobText, buildSeekerText } = require("../utils/textBuilders");
 const {
   cleanText,
@@ -1435,6 +1436,35 @@ const disconnectLinkedIn = asyncHandler(async (req, res) => {
   return sendSuccess(res, { message: "LinkedIn account disconnected." });
 });
 
+// Counts the seeker's own recruiter introductions. Added here rather than derived in the frontend
+// because nothing the seeker already fetches exposes RecruiterIntroduction at all — the home
+// dashboard's "auto-connects" tile had no source without it, and the alternative was a hardcoded
+// number.
+//
+// Deliberately does NOT report an "accepted"/"responded" count. RecruiterIntroduction.status has
+// Accepted/Declined values and a respondedAt field, but NOTHING in the codebase ever writes them:
+// every record stays Pending for its whole life. A count filtered on status would therefore always
+// be 0, and a rendered 0 reads as "no recruiter has responded" when the truth is "responses are
+// not tracked". The UI shows that stat as unavailable instead.
+const getRecruiterIntroductionStats = asyncHandler(async (req, res) => {
+  if (req.user.role !== "seeker") {
+    throw new ApiError(403, "Only job seekers have recruiter introductions.");
+  }
+
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  // Both counts are backed by the { jobSeekerId: 1, createdAt: -1 } index on the model.
+  const [total, last7Days] = await Promise.all([
+    RecruiterIntroduction.countDocuments({ jobSeekerId: req.user.id }),
+    RecruiterIntroduction.countDocuments({ jobSeekerId: req.user.id, createdAt: { $gte: since } })
+  ]);
+
+  return sendSuccess(res, {
+    message: "Recruiter introduction stats fetched successfully.",
+    stats: { total, last7Days }
+  });
+});
+
 module.exports = {
   preApplyCheck,
   generateResume,
@@ -1458,5 +1488,6 @@ module.exports = {
   linkedinCallback,
   getLinkedInStatus,
   disconnectLinkedIn,
-  publishLinkedInPost
+  publishLinkedInPost,
+  getRecruiterIntroductionStats
 };

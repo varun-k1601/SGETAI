@@ -5,6 +5,193 @@ import { useAuth } from "../../context/AuthContext";
 import { apiRequest } from "../../services/api";
 import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
 
+// STYLING APPROACH — scoped global CSS (`.notif-page ...` in styles.css) on the shared --ph-*
+// palette, the same system as .pro-home, .ai-gen, .jobs-page, .job-detail, .applied-page,
+// .automations-page and .chat-page. Tailwind's semantic colour utilities generate no CSS in this
+// app, and the unlayered global `button { ... }` rule outranks any Tailwind utility on a <button>.
+
+// ── THE TYPE REGISTRY ─────────────────────────────────────────────────────────────────────────
+// Notification.type is a free-form String, so this list was enumerated from every actual
+// createNotification() call site in backend/src — NOT from a grep for `type: "..."`, which also
+// returns GeneratedArtifact.type ("resume", "linkedin_post", "recruiter_dm", "job_matches") and
+// OAuth strings ("code", "authorization_code"). None of those are notification types.
+//
+// `connection_accepted` / `connection_rejected` are emitted as a template literal
+// (`connection_${actionLabel}` in connectionController) — a literal grep misses them.
+//
+// Three types the old page counted on — "auto_connect", "recruiter_response" and a standalone
+// "connection_accepted" KPI — were never wired to a real emit path, so those tiles read 0 forever.
+// Everything below is verified against a live emit site.
+const NOTIFICATION_TYPES = {
+  auto_apply_success: { label: "Auto-apply", tone: "accent" },
+  recruiter_introduction_sent: { label: "Introduction", tone: "accent" },
+  recruiter_introduction_received: { label: "Introduction", tone: "accent" },
+  chat_message: { label: "Message", tone: "success" },
+  application_status: { label: "Application", tone: "success" },
+  job_application: { label: "Application", tone: "neutral" },
+  application_withdrawn: { label: "Application", tone: "neutral" },
+  connection_request: { label: "Connection", tone: "neutral" },
+  connection_accepted: { label: "Connection", tone: "success" },
+  connection_rejected: { label: "Connection", tone: "neutral" },
+  follow: { label: "Follow", tone: "neutral" },
+  new_job: { label: "Job", tone: "neutral" },
+  post_like: { label: "Post", tone: "neutral" },
+  post_comment: { label: "Post", tone: "neutral" },
+  support_reply: { label: "Support", tone: "neutral" },
+  support_user_reply: { label: "Support", tone: "neutral" },
+  verification_complete: { label: "Account", tone: "success" },
+};
+
+// Auto-connects and Auto-DMs are the SAME notification type. recruiterIntroductionWorker stamps
+// metadata.deliveryMode ("connection_only" when no message was sent, "connection_and_message" when
+// one was), so they are told apart by that field rather than by inventing a second type.
+const DELIVERY_CONNECTION_ONLY = "connection_only";
+const DELIVERY_WITH_MESSAGE = "connection_and_message";
+
+const isAutoConnect = (n) =>
+  n.type === "recruiter_introduction_sent" && n.metadata?.deliveryMode === DELIVERY_CONNECTION_ONLY;
+const isAutoDm = (n) =>
+  n.type === "recruiter_introduction_sent" && n.metadata?.deliveryMode === DELIVERY_WITH_MESSAGE;
+
+// Categories are declared over verified types only. A category with no matching notification is
+// not rendered — which also means the chip row adapts to the account: a seeker never sees the
+// organization-only "Introductions received" chip, and an admin sees "Support".
+const CATEGORIES = [
+  { id: "all", label: "All", match: () => true, alwaysShow: true, empty: "No notifications yet." },
+  {
+    id: "unread",
+    label: "Unread",
+    match: (n) => !n.isRead,
+    alwaysShow: true,
+    empty: "No unread notifications.",
+  },
+  {
+    id: "auto-applies",
+    label: "Auto-applies",
+    match: (n) => n.type === "auto_apply_success",
+    empty: "No auto-applies yet.",
+  },
+  { id: "auto-connects", label: "Auto-connects", match: isAutoConnect, empty: "No auto-connects yet." },
+  { id: "auto-dms", label: "Auto-DMs", match: isAutoDm, empty: "No auto-DMs yet." },
+  {
+    id: "responses",
+    label: "Responses",
+    match: (n) => n.type === "chat_message" || n.type === "application_status",
+    empty: "No responses yet.",
+  },
+  {
+    id: "connections",
+    label: "Connections",
+    match: (n) =>
+      ["connection_request", "connection_accepted", "connection_rejected", "follow"].includes(n.type),
+    empty: "No connection activity yet.",
+  },
+  {
+    id: "applications",
+    label: "Applications",
+    match: (n) => ["job_application", "application_withdrawn"].includes(n.type),
+    empty: "No application activity yet.",
+  },
+  { id: "jobs", label: "Jobs", match: (n) => n.type === "new_job", empty: "No job alerts yet." },
+  {
+    id: "posts",
+    label: "Posts",
+    match: (n) => ["post_like", "post_comment"].includes(n.type),
+    empty: "No post activity yet.",
+  },
+  {
+    id: "introductions",
+    label: "Introductions received",
+    match: (n) => n.type === "recruiter_introduction_received",
+    empty: "No introductions received yet.",
+  },
+  {
+    id: "support",
+    label: "Support",
+    match: (n) => ["support_reply", "support_user_reply"].includes(n.type),
+    empty: "No support replies yet.",
+  },
+  {
+    id: "account",
+    label: "Account",
+    match: (n) => n.type === "verification_complete",
+    empty: "No account updates yet.",
+  },
+];
+
+// Rendered wherever a figure cannot be computed from what the API returned.
+const NOT_COUNTABLE = null;
+
+const ICON_PATHS = {
+  bell: (
+    <>
+      <path d="M10.268 21a2 2 0 0 0 3.464 0" />
+      <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />
+    </>
+  ),
+  briefcase: (
+    <>
+      <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+      <rect width="20" height="14" x="2" y="6" rx="2" />
+    </>
+  ),
+  userPlus: (
+    <>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M19 8v6" />
+      <path d="M22 11h-6" />
+    </>
+  ),
+  message: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
+  check: <path d="M20 6 9 17l-5-5" />,
+  trash: (
+    <>
+      <path d="M3 6h18" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </>
+  ),
+  close: <path d="M18 6 6 18M6 6l12 12" />,
+};
+
+function Icon({ name, className = "nt-icon" }) {
+  const paths = ICON_PATHS[name];
+
+  if (!paths) {
+    return null;
+  }
+
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      {paths}
+    </svg>
+  );
+}
+
+function iconForType(type) {
+  if (type === "auto_apply_success" || type === "job_application" || type === "application_status") {
+    return "briefcase";
+  }
+  if (type?.startsWith("recruiter_introduction") || type?.startsWith("connection") || type === "follow") {
+    return "userPlus";
+  }
+  if (type === "chat_message" || type === "post_comment" || type?.startsWith("support")) {
+    return "message";
+  }
+  return "bell";
+}
+
 function formatDate(value) {
   if (!value) {
     return "Just now";
@@ -15,8 +202,7 @@ function formatDate(value) {
     return "Recently";
   }
 
-  const now = new Date();
-  const seconds = Math.floor((now - parsed) / 1000);
+  const seconds = Math.floor((Date.now() - parsed) / 1000);
 
   if (seconds < 60) return "Just now";
   const minutes = Math.floor(seconds / 60);
@@ -24,254 +210,143 @@ function formatDate(value) {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  if (days === 1) return "yesterday";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days}d ago`;
 
-  return parsed.toLocaleString("en-IN", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return parsed.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
-function getNotificationIcon(type) {
-  switch (type) {
-    case "auto_apply_success":
-      return "💼";
-    case "auto_connect":
-      return "🤝";
-    case "auto_dm":
-      return "💬";
-    case "connection_request":
-      return "👥";
-    case "connection_accepted":
-    case "recruiter_response":
-      return "✨";
-    default:
-      return "📌";
+// Only routes that actually exist. metadata carries jobId / applicationId / sessionId /
+// introductionId / connectionId; anything without a real destination stays non-navigable rather
+// than pretending to be a link.
+function destinationFor(notification) {
+  const meta = notification.metadata || {};
+
+  if (meta.sessionId || notification.type === "chat_message") {
+    return "/chat";
   }
-}
-
-function getNotificationTypeLabel(type) {
-  switch (type) {
-    case "auto_apply_success":
-      return "Auto-apply";
-    case "auto_connect":
-      return "Auto-connect";
-    case "auto_dm":
-      return "Auto-DM";
-    case "connection_request":
-      return "Connection request";
-    case "connection_accepted":
-    case "recruiter_response":
-      return "Response";
-    default:
-      return "Notification";
+  if (notification.type?.startsWith("recruiter_introduction")) {
+    return "/chat";
   }
-}
-
-function NotificationItem({
-  notification,
-  onMarkRead,
-  onClear,
-  isUpdating,
-  onRespondConnection,
-  isRespondingConnection,
-  connectionResponseStatus,
-}) {
-  const typeLabel = getNotificationTypeLabel(notification.type);
-  const icon = getNotificationIcon(notification.type);
-  const isConnectionRequest = notification.type === "connection_request";
-  const connectionId = notification.metadata?.connectionId;
-
-  return (
-    <div className={`group relative flex items-start gap-3 rounded-xl border p-3 transition ${
-      notification.isRead
-        ? "border-border/60 bg-surface/50"
-        : "border-border/60 bg-surface shadow-sm"
-    }`}>
-      {!notification.isRead && (
-        <span className="absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-r-full bg-linear-to-r from-purple-500 to-blue-500"></span>
-      )}
-
-      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-lg bg-purple-500/20">
-        {icon}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="truncate text-sm font-semibold text-foreground">{notification.title}</p>
-          <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium shrink-0 text-[10px] text-muted-foreground">
-            {typeLabel}
-          </span>
-          {!notification.isRead && (
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-purple-500" aria-label="unread"></span>
-          )}
-        </div>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">{notification.message}</p>
-        <p className="mt-1 text-[11px] text-muted-foreground/70">{formatDate(notification.createdAt)}</p>
-
-        {isConnectionRequest && connectionId ? (
-          connectionResponseStatus ? (
-            <span
-              className={`mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                connectionResponseStatus === "Accepted"
-                  ? "bg-success/15 text-success"
-                  : "bg-muted text-muted-foreground"
-              }`}
-            >
-              {connectionResponseStatus === "Accepted" ? "Accepted" : "Declined"}
-            </span>
-          ) : (
-            <div className="mt-2 flex items-center gap-2">
-              <button
-                type="button"
-                title="Accept"
-                disabled={isRespondingConnection}
-                onClick={() => onRespondConnection(connectionId, "Accepted", notification._id)}
-                className="grid h-7 w-7 place-items-center rounded-full border border-success/40 bg-success/15 p-0! text-success hover:bg-success/25 disabled:opacity-50"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="lucide h-3.5 w-3.5"
-                  aria-hidden="true"
-                >
-                  <path d="M20 6 9 17l-5-5"></path>
-                </svg>
-              </button>
-              <button
-                type="button"
-                title="Decline"
-                disabled={isRespondingConnection}
-                onClick={() => onRespondConnection(connectionId, "Rejected", notification._id)}
-                className="grid h-7 w-7 place-items-center rounded-full border border-border/60 bg-surface p-0! text-muted-foreground hover:bg-surface/80 hover:text-foreground disabled:opacity-50"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="lucide h-3.5 w-3.5"
-                  aria-hidden="true"
-                >
-                  <path d="M18 6 6 18"></path>
-                  <path d="m6 6 12 12"></path>
-                </svg>
-              </button>
-            </div>
-          )
-        ) : null}
-      </div>
-
-      <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
-        {!notification.isRead && (
-          <button
-            title="Mark as read"
-            onClick={() => onMarkRead(notification._id)}
-            disabled={isUpdating}
-            className="grid h-8 w-8 place-items-center rounded-lg p-0! text-muted-foreground hover:bg-surface/80 hover:text-foreground disabled:opacity-50"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="lucide h-4 w-4"
-              aria-hidden="true"
-            >
-              <path d="M20 6 9 17l-5-5"></path>
-            </svg>
-          </button>
-        )}
-        <button
-          title="Dismiss"
-          onClick={() => onClear(notification._id)}
-          disabled={isUpdating}
-          className="grid h-8 w-8 place-items-center rounded-lg p-0! text-muted-foreground hover:bg-surface/80 hover:text-foreground disabled:opacity-50"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="lucide h-4 w-4"
-            aria-hidden="true"
-          >
-            <path d="M18 6 6 18"></path>
-            <path d="m6 6 12 12"></path>
-          </svg>
-        </button>
-      </div>
-    </div>
-  );
+  if (meta.jobId) {
+    return `/jobs/${meta.jobId}`;
+  }
+  if (meta.applicationId || notification.type === "application_status") {
+    return "/applications";
+  }
+  if (notification.type?.startsWith("support")) {
+    return "/help";
+  }
+  if (["connection_request", "connection_accepted", "connection_rejected", "follow"].includes(notification.type)) {
+    return "/connections";
+  }
+  return "";
 }
 
 export function NotificationsPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [typeFilter, setTypeFilter] = useState("All");
   const [feedback, setFeedback] = useState({ type: "", message: "" });
-  // The Notification document itself is just a point-in-time snapshot (metadata.connectionId),
-  // not a live reflection of the Connection's current status, so there's nothing on the
-  // notification to check after a response — track which ones this session has resolved locally,
-  // mirroring the same approach ConnectionsPage relies on (refetching the pending list after
-  // respondMutation succeeds) but scoped to this page's own notification cards.
+  const [activeCategory, setActiveCategory] = useState("all");
+  // A connection request notification stays in the list after it is answered, and there is no
+  // notification to re-check after a response — track which ones this session has resolved
+  // locally, mirroring the same approach ConnectionsPage relies on.
   const [connectionResponses, setConnectionResponses] = useState({});
 
+  const notificationsKey = ["notifications", session?.role, "page"];
+
   const notificationsQuery = useQuery({
-    queryKey: ["notifications", session?.role, "page"],
+    queryKey: notificationsKey,
     queryFn: () =>
       apiRequest("/notifications?limit=50", {
         token: session.accessToken,
       }),
     enabled: Boolean(session?.accessToken),
+    // Matches AppShell's badge cadence exactly. Two different query keys at the same interval
+    // refresh together rather than one lagging the other.
+    refetchInterval: 30000,
   });
 
   const notifications = notificationsQuery.data?.notifications || [];
-  const unreadCount = notifications.filter((notification) => !notification.isRead).length;
-  const autoApplyCount = notifications.filter((n) => n.type === "auto_apply_success").length;
-  const autoConnectCount = notifications.filter((n) => n.type === "auto_connect").length;
-  const responsesCount = notifications.filter((n) =>
-    n.type === "recruiter_response" || n.type === "connection_accepted"
-  ).length;
+  const pagination = notificationsQuery.data?.pagination || {};
 
-  const typeOptions = useMemo(() => {
-    const types = new Set(notifications.map((n) => n.type).filter(Boolean));
-    return ["All", ...Array.from(types).sort()];
-  }, [notifications]);
+  // GET /notifications IS paginated, and normalizePagination() hard-caps limit at 50. Once a user
+  // has more than 50 notifications, this page holds a partial list and every count derived from it
+  // would be wrong — so the KPI tiles refuse to report rather than under-count.
+  const totalNotifications = Number.isFinite(pagination.total) ? pagination.total : notifications.length;
+  const hasCompleteList = notifications.length >= totalNotifications;
 
-  const filteredNotifications = useMemo(() => {
-    if (typeFilter === "All") return notifications;
-    return notifications.filter((n) => n.type === typeFilter);
-  }, [notifications, typeFilter]);
+  const countOf = (predicate) =>
+    hasCompleteList ? notifications.filter(predicate).length : NOT_COUNTABLE;
 
+  const unreadCount = countOf((n) => !n.isRead);
+  // Used for the "Mark all as read" enablement — a local truth about the loaded page, which is
+  // fine because the endpoint marks everything server-side regardless of what is displayed.
+  const hasUnreadOnPage = notifications.some((n) => !n.isRead);
+
+  const kpis = [
+    { key: "unread", icon: "bell", label: "Unread", value: unreadCount },
+    {
+      key: "auto-applies",
+      icon: "briefcase",
+      label: "Auto-applies",
+      value: countOf((n) => n.type === "auto_apply_success"),
+    },
+    { key: "auto-connects", icon: "userPlus", label: "Auto-connects", value: countOf(isAutoConnect) },
+    {
+      key: "responses",
+      icon: "message",
+      label: "Responses",
+      value: countOf((n) => n.type === "chat_message" || n.type === "application_status"),
+    },
+  ];
+
+  // Counts here are over the loaded page and are labelled as such by the "{n} shown" indicator —
+  // they describe what is on screen, unlike the KPI tiles which claim to describe the account.
+  const categories = useMemo(
+    () =>
+      CATEGORIES.map((category) => ({
+        ...category,
+        count: notifications.filter(category.match).length,
+      })).filter((category) => category.alwaysShow || category.count > 0),
+    [notifications]
+  );
+
+  const activeDefinition =
+    categories.find((category) => category.id === activeCategory) || categories[0];
+
+  const filteredNotifications = useMemo(
+    () => notifications.filter(activeDefinition?.match || (() => true)),
+    [notifications, activeDefinition]
+  );
+
+  // Prefix match: this covers BOTH this page's key and AppShell's
+  // ["notifications", session?.role, "navbar"], so the sidebar badge updates with the list.
   const invalidateNotifications = () => {
     queryClient.invalidateQueries({ queryKey: ["notifications"] });
   };
+
+  // Optimistic helpers. Every mutation below snapshots the cache, applies the change immediately,
+  // and restores the snapshot if the request fails.
+  async function beginOptimistic(update) {
+    await queryClient.cancelQueries({ queryKey: notificationsKey });
+    const previous = queryClient.getQueryData(notificationsKey);
+    queryClient.setQueryData(notificationsKey, (old) => {
+      if (!old?.notifications) {
+        return old;
+      }
+      return { ...old, ...update(old) };
+    });
+    return { previous };
+  }
+
+  function rollback(context, error) {
+    if (context?.previous !== undefined) {
+      queryClient.setQueryData(notificationsKey, context.previous);
+    }
+    setFeedback({ type: "error", message: error.message });
+  }
 
   const markReadMutation = useMutation({
     mutationFn: (notificationId) =>
@@ -279,12 +354,14 @@ export function NotificationsPage() {
         method: "PUT",
         token: session.accessToken,
       }),
-    onSuccess: () => {
-      invalidateNotifications();
-    },
-    onError: (error) => {
-      setFeedback({ type: "error", message: error.message });
-    },
+    onMutate: (notificationId) =>
+      beginOptimistic((old) => ({
+        notifications: old.notifications.map((n) =>
+          n._id === notificationId ? { ...n, isRead: true } : n
+        ),
+      })),
+    onError: (error, _id, context) => rollback(context, error),
+    onSettled: () => invalidateNotifications(),
   });
 
   const markAllReadMutation = useMutation({
@@ -293,13 +370,15 @@ export function NotificationsPage() {
         method: "PUT",
         token: session.accessToken,
       }),
+    onMutate: () =>
+      beginOptimistic((old) => ({
+        notifications: old.notifications.map((n) => ({ ...n, isRead: true })),
+      })),
     onSuccess: (response) => {
-      setFeedback({ type: "success", message: response.message || "All marked as read" });
-      invalidateNotifications();
+      setFeedback({ type: "success", message: response.message || "All marked as read." });
     },
-    onError: (error) => {
-      setFeedback({ type: "error", message: error.message });
-    },
+    onError: (error, _vars, context) => rollback(context, error),
+    onSettled: () => invalidateNotifications(),
   });
 
   const clearNotificationMutation = useMutation({
@@ -308,12 +387,15 @@ export function NotificationsPage() {
         method: "DELETE",
         token: session.accessToken,
       }),
-    onSuccess: () => {
-      invalidateNotifications();
-    },
-    onError: (error) => {
-      setFeedback({ type: "error", message: error.message });
-    },
+    onMutate: (notificationId) =>
+      beginOptimistic((old) => ({
+        notifications: old.notifications.filter((n) => n._id !== notificationId),
+        pagination: old.pagination
+          ? { ...old.pagination, total: Math.max((old.pagination.total || 1) - 1, 0) }
+          : old.pagination,
+      })),
+    onError: (error, _id, context) => rollback(context, error),
+    onSettled: () => invalidateNotifications(),
   });
 
   const clearAllNotificationsMutation = useMutation({
@@ -322,13 +404,16 @@ export function NotificationsPage() {
         method: "DELETE",
         token: session.accessToken,
       }),
+    onMutate: () =>
+      beginOptimistic((old) => ({
+        notifications: [],
+        pagination: old.pagination ? { ...old.pagination, total: 0 } : old.pagination,
+      })),
     onSuccess: (response) => {
       setFeedback({ type: "success", message: response.message || "All notifications cleared." });
-      invalidateNotifications();
     },
-    onError: (error) => {
-      setFeedback({ type: "error", message: error.message });
-    },
+    onError: (error, _vars, context) => rollback(context, error),
+    onSettled: () => invalidateNotifications(),
   });
 
   // Mirrors ConnectionsPage.jsx's own respondMutation exactly (same endpoint/body shape) so
@@ -355,141 +440,237 @@ export function NotificationsPage() {
     },
   });
 
+  function handleOpen(notification) {
+    const destination = destinationFor(notification);
+    if (!notification.isRead) {
+      markReadMutation.mutate(notification._id);
+    }
+    if (destination) {
+      navigate(destination);
+    }
+  }
+
+  function handleClearAll() {
+    if (
+      !window.confirm("Delete every notification? This removes them permanently and cannot be undone.")
+    ) {
+      return;
+    }
+    clearAllNotificationsMutation.mutate();
+  }
+
   return (
-    <main className="flex-1 overflow-y-auto px-6 py-6 lg:px-8 lg:py-8 bg-muted/30">
+    <main className="notif-page">
       <AutoDismissFeedback
         feedback={feedback}
         onClear={() => setFeedback({ type: "", message: "" })}
       />
 
-      {/* Header Banner */}
-      <div className="relative mb-6 overflow-hidden rounded-3xl border border-border/60 bg-card p-7 lg:p-8">
-        <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-linear-to-br from-purple-500 to-blue-500 opacity-5 blur-3xl"></div>
-        <div className="absolute -bottom-32 left-1/3 h-80 w-80 rounded-full bg-linear-to-br from-purple-500 to-blue-500 opacity-3 blur-3xl"></div>
-
-        <div className="relative">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Inbox</p>
-              <h1 className="mt-2 text-3xl font-bold tracking-tight lg:text-4xl text-foreground">
-                Notification center
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground lg:text-base">
-                Every action your AI takes, plus inbound responses from recruiters — in one place.
-              </p>
-            </div>
-            <button
-              onClick={() => markAllReadMutation.mutate()}
-              disabled={!unreadCount || markAllReadMutation.isPending}
-              className="inline-flex items-center gap-2 rounded-full bg-linear-to-r from-purple-500 to-blue-500 px-4 py-2 text-sm font-semibold text-white shadow-lg hover:opacity-90 disabled:opacity-50"
-            >
-              ✓ Mark all as read
-            </button>
-          </div>
+      <header className="nt-hero">
+        <div className="nt-hero__body">
+          <p className="nt-eyebrow">Inbox</p>
+          <h1 className="nt-hero__title">Notification center</h1>
+          <p className="nt-hero__sub">
+            Every action your AI took on your behalf, plus inbound activity from recruiters,
+            connections and support — all in one place.
+          </p>
         </div>
+        <div className="nt-hero__actions">
+          <button
+            type="button"
+            className="nt-btn nt-btn--primary"
+            onClick={() => markAllReadMutation.mutate()}
+            disabled={!hasUnreadOnPage || markAllReadMutation.isPending}
+          >
+            <Icon name="check" className="nt-icon nt-icon--sm" />
+            Mark all as read
+          </button>
+          <button
+            type="button"
+            className="nt-btn nt-btn--ghost"
+            onClick={handleClearAll}
+            disabled={!notifications.length || clearAllNotificationsMutation.isPending}
+          >
+            <Icon name="trash" className="nt-icon nt-icon--sm" />
+            Clear all
+          </button>
+        </div>
+      </header>
+
+      <div className="nt-kpis">
+        {kpis.map((kpi) => (
+          <div key={kpi.key} className="nt-card nt-kpi">
+            <p className="nt-kpi__label">
+              <Icon name={kpi.icon} className="nt-icon nt-icon--sm" />
+              {kpi.label}
+            </p>
+            <p className={`nt-kpi__value${kpi.value === NOT_COUNTABLE ? " nt-kpi__value--none" : ""}`}>
+              {kpi.value === NOT_COUNTABLE ? "—" : kpi.value}
+            </p>
+          </div>
+        ))}
       </div>
 
-      {/* Stats Grid */}
-      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">🔔 Unread</div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <div className="text-2xl font-bold text-foreground">{unreadCount}</div>
-          </div>
-        </div>
-        <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">💼 Auto-applies</div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <div className="text-2xl font-bold text-foreground">{autoApplyCount}</div>
-          </div>
-        </div>
-        <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">🤝 Auto-connects</div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <div className="text-2xl font-bold text-foreground">{autoConnectCount}</div>
-          </div>
-        </div>
-        <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">✨ Responses</div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <div className="text-2xl font-bold text-foreground">{responsesCount}</div>
-          </div>
-        </div>
-      </div>
+      {!hasCompleteList && (
+        <p className="nt-notice">
+          Showing the {notifications.length} most recent of {totalNotifications} notifications. The
+          list endpoint caps a page at 50, so the totals above cannot be computed from it and are
+          shown as &ldquo;—&rdquo; rather than under-counted.
+        </p>
+      )}
 
-      {/* Activity Feed */}
-      <div className="relative rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
-        <div className="mb-4 flex items-end justify-between gap-4">
+      <section className="nt-card nt-activity" aria-labelledby="nt-activity-heading">
+        <div className="nt-activity__head">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Activity</p>
-            <h2 className="mt-1 text-xl font-bold tracking-tight text-foreground">AI events & responses</h2>
+            <p className="nt-eyebrow">Activity</p>
+            <h2 className="nt-card__title" id="nt-activity-heading">
+              Recent notifications
+            </h2>
           </div>
-          <div className="flex items-center gap-3">
+          <span className="nt-shown">{filteredNotifications.length} shown</span>
+        </div>
+
+        <div className="nt-chips" role="group" aria-label="Filter notifications by category">
+          {categories.map((category) => (
             <button
-              onClick={() => clearAllNotificationsMutation.mutate()}
-              disabled={!notifications.length || clearAllNotificationsMutation.isPending}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface/80 hover:text-foreground disabled:opacity-50 transition"
+              key={category.id}
+              type="button"
+              className={`nt-chip${activeCategory === category.id ? " nt-chip--active" : ""}`}
+              aria-pressed={activeCategory === category.id}
+              onClick={() => setActiveCategory(category.id)}
             >
-              Close all
+              {category.label}
+              <span className="nt-chip__count">{category.count}</span>
             </button>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              🔽 {filteredNotifications.length} shown
-            </div>
-          </div>
+          ))}
         </div>
 
-        {/* Filter Tabs */}
-        <div className="mb-4 flex flex-wrap gap-2">
-          {typeOptions.map((type) => {
-            const count = type === "All"
-              ? notifications.length
-              : notifications.filter((n) => n.type === type).length;
-            return (
-              <button
-                key={type}
-                onClick={() => setTypeFilter(type)}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                  typeFilter === type
-                    ? "border-transparent bg-linear-to-r from-purple-500 to-blue-500 text-white shadow-lg"
-                    : "border-border/60 bg-surface text-foreground hover:bg-surface/80"
-                }`}
-              >
-                {type}
-                <span className={`rounded-full px-1.5 text-[10px] tabular-nums ${
-                  typeFilter === type ? "bg-white/20" : "bg-muted text-muted-foreground"
-                }`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Notifications List */}
-        <div className="space-y-2">
+        <div className="nt-list" aria-label="Notifications" aria-live="polite">
           {notificationsQuery.isLoading ? (
-            <div className="text-center py-8 text-muted-foreground">Loading notifications...</div>
-          ) : filteredNotifications.length ? (
-            filteredNotifications.map((notification) => (
-              <NotificationItem
-                key={notification._id}
-                notification={notification}
-                isUpdating={markReadMutation.isPending || clearNotificationMutation.isPending}
-                onMarkRead={(id) => markReadMutation.mutate(id)}
-                onClear={(id) => clearNotificationMutation.mutate(id)}
-                isRespondingConnection={respondConnectionMutation.isPending}
-                connectionResponseStatus={connectionResponses[notification._id]}
-                onRespondConnection={(connectionId, status, notificationId) => {
-                  setFeedback({ type: "", message: "" });
-                  respondConnectionMutation.mutate({ connectionId, status, notificationId });
-                }}
-              />
-            ))
+            <p className="nt-empty">Loading notifications…</p>
+          ) : notificationsQuery.isError ? (
+            <p className="nt-empty nt-empty--error">
+              {notificationsQuery.error?.message || "Could not load your notifications."}
+            </p>
+          ) : filteredNotifications.length === 0 ? (
+            <p className="nt-empty">{activeDefinition?.empty || "Nothing here yet."}</p>
           ) : (
-            <div className="text-center py-8 text-muted-foreground">No notifications</div>
+            <ul className="nt-rows">
+              {filteredNotifications.map((notification) => {
+                const meta = NOTIFICATION_TYPES[notification.type] || {
+                  label: "Notification",
+                  tone: "neutral",
+                };
+                const destination = destinationFor(notification);
+                const connectionId = notification.metadata?.connectionId;
+                const isConnectionRequest = notification.type === "connection_request";
+                const answered = connectionResponses[notification._id];
+
+                return (
+                  <li
+                    key={notification._id}
+                    className={`nt-row${notification.isRead ? "" : " nt-row--unread"}`}
+                  >
+                    <span className={`nt-tile nt-tile--${meta.tone}`} aria-hidden="true">
+                      <Icon name={iconForType(notification.type)} className="nt-icon nt-icon--sm" />
+                    </span>
+
+                    <div className="nt-row__body">
+                      <div className="nt-row__top">
+                        {destination ? (
+                          <button
+                            type="button"
+                            className="nt-row__title nt-row__title--link"
+                            onClick={() => handleOpen(notification)}
+                          >
+                            {notification.title}
+                          </button>
+                        ) : (
+                          <p className="nt-row__title">{notification.title}</p>
+                        )}
+                        <span className="nt-pill">{meta.label}</span>
+                        {!notification.isRead && (
+                          <span className="nt-unread">
+                            <span className="nt-unread__dot" aria-hidden="true" />
+                            Unread
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="nt-row__message">{notification.message}</p>
+                      <p className="nt-row__time">{formatDate(notification.createdAt)}</p>
+
+                      {isConnectionRequest && connectionId ? (
+                        answered ? (
+                          <span className="nt-pill nt-pill--state">
+                            {answered === "Accepted" ? "Accepted" : "Declined"}
+                          </span>
+                        ) : (
+                          <div className="nt-row__inline">
+                            <button
+                              type="button"
+                              className="nt-btn nt-btn--sm"
+                              disabled={respondConnectionMutation.isPending}
+                              onClick={() =>
+                                respondConnectionMutation.mutate({
+                                  connectionId,
+                                  status: "Accepted",
+                                  notificationId: notification._id,
+                                })
+                              }
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              className="nt-btn nt-btn--sm nt-btn--ghost"
+                              disabled={respondConnectionMutation.isPending}
+                              onClick={() =>
+                                respondConnectionMutation.mutate({
+                                  connectionId,
+                                  status: "Rejected",
+                                  notificationId: notification._id,
+                                })
+                              }
+                            >
+                              Decline
+                            </button>
+                          </div>
+                        )
+                      ) : null}
+                    </div>
+
+                    {/* Always in the DOM, not hover-only: a hover-revealed control is unreachable
+                        on touch and invisible to keyboard users. Hover only changes opacity. */}
+                    <div className="nt-row__actions">
+                      {!notification.isRead && (
+                        <button
+                          type="button"
+                          className="nt-act"
+                          onClick={() => markReadMutation.mutate(notification._id)}
+                          disabled={markReadMutation.isPending}
+                          aria-label={`Mark as read: ${notification.title}`}
+                        >
+                          <Icon name="check" className="nt-icon nt-icon--xs" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="nt-act nt-act--danger"
+                        onClick={() => clearNotificationMutation.mutate(notification._id)}
+                        disabled={clearNotificationMutation.isPending}
+                        aria-label={`Dismiss: ${notification.title}`}
+                      >
+                        <Icon name="close" className="nt-icon nt-icon--xs" />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
-      </div>
+      </section>
     </main>
   );
 }

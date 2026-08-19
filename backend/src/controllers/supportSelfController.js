@@ -4,6 +4,7 @@ const { sendSuccess } = require("../utils/apiResponse");
 const { requireNonEmptyString, normalizePagination } = require("../utils/validation");
 const { createNotification } = require("../services/notificationService");
 const { SUPPORT_DISPLAY_NAME, previewLine } = require("../utils/supportPresentation");
+const { buildPublicResponseStat } = require("../services/supportMetricsService");
 
 const SupportTicket = require("../models/SupportTicket");
 const SupportMessage = require("../models/SupportMessage");
@@ -259,10 +260,32 @@ const replyToMyTicket = asyncHandler(async (req, res) => {
   );
 });
 
+// GET /api/support/me/response-time — the ONE support measurement a requester may see.
+//
+// The admin desk's GET /api/support/metrics is gated to SuperAdmin/Moderator and stays that way:
+// it reports open counts, unread counts, SLA breach rates and assignee spread, all of which
+// describe other people's tickets. This returns a single aggregate median plus its sample size —
+// no ticket, no id, no body, nothing per-requester — so the help page can print a real reply time
+// instead of a hardcoded one.
+//
+// requireAuth only, deliberately: unlike the routes above there is no per-row data to scope, and
+// an organization requester needs the same figure a seeker does. resolveRequesterScope is NOT
+// called here for that reason — an admin hitting this endpoint gets the same public aggregate
+// rather than a 403, which is harmless because that is all it can ever return.
+const getMyResponseTime = asyncHandler(async (_req, res) => {
+  const responseTime = await buildPublicResponseStat();
+
+  return sendSuccess(res, {
+    message: "Support response time fetched successfully.",
+    responseTime
+  });
+});
+
 module.exports = {
   listMyTickets,
   getMyTicket,
   replyToMyTicket,
+  getMyResponseTime,
   // Exported for the route-level tests; not mounted anywhere.
   toRequesterTicket,
   toRequesterMessage

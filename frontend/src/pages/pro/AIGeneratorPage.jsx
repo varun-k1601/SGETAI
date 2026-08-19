@@ -4,6 +4,13 @@ import { useAuth } from "../../context/AuthContext";
 import { apiBlobRequest, apiRequest } from "../../services/api";
 import { API_BASE_URL } from "../../config/env";
 
+// STYLING APPROACH — scoped global CSS (`.ai-gen ...` in styles.css), the same approach the Pro
+// seeker home uses, and for the same two reasons: Tailwind's semantic colour utilities generate
+// no CSS in this app (index.css wires fonts only into @theme), and styles.css's unlayered
+// `button { ... }` rule outranks any Tailwind utility placed on a <button> — which is what the
+// inline `ghostPillStyle` in this file used to work around. Colours come from the shared --ph-*
+// palette now declared at :root, so this page and .pro-home cannot drift.
+
 const MIN_JD_TEXT_LENGTH = 40;
 const MIN_TOPIC_TEXT_LENGTH = 10;
 // A pasted job description is typically much longer than a normal chat message, so treat a
@@ -11,6 +18,201 @@ const MIN_TOPIC_TEXT_LENGTH = 10;
 const LIKELY_JD_TEXT_LENGTH = 150;
 // Roughly 6-8 lines of text before the chat input switches to internal scrolling.
 const CHAT_INPUT_MAX_HEIGHT_PX = 160;
+
+const ICON_PATHS = {
+  "file-text": (
+    <>
+      <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+      <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+      <path d="M10 9H8" />
+      <path d="M16 13H8" />
+      <path d="M16 17H8" />
+    </>
+  ),
+  linkedin: (
+    <>
+      <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
+      <rect width="4" height="12" x="2" y="9" />
+      <circle cx="4" cy="4" r="2" />
+    </>
+  ),
+  "message-square": (
+    <>
+      <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" />
+      <path d="M7 11h10" />
+      <path d="M7 15h6" />
+      <path d="M7 7h8" />
+    </>
+  ),
+  mail: (
+    <>
+      <path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7" />
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+    </>
+  ),
+  "file-pen": (
+    <>
+      <path d="M12.5 22H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v3.5" />
+      <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+      <path d="M21.378 15.626a1 1 0 1 0-3.004-3.004l-4.01 4.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z" />
+    </>
+  ),
+  target: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </>
+  ),
+  bot: (
+    <>
+      <path d="M12 8V4H8" />
+      <rect width="16" height="12" x="4" y="8" rx="2" />
+      <path d="M2 14h2" />
+      <path d="M20 14h2" />
+      <path d="M15 13v2" />
+      <path d="M9 13v2" />
+    </>
+  ),
+  send: (
+    <>
+      <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+      <path d="m21.854 2.147-10.94 10.939" />
+    </>
+  ),
+  wand: (
+    <>
+      <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" />
+      <path d="m14 7 3 3" />
+      <path d="M5 6v4" />
+      <path d="M19 14v4" />
+      <path d="M10 2v2" />
+      <path d="M7 8H3" />
+      <path d="M21 16h-4" />
+      <path d="M11 3H9" />
+    </>
+  ),
+  sparkles: (
+    <>
+      <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
+      <path d="M20 2v4" />
+      <path d="M22 4h-4" />
+      <circle cx="4" cy="20" r="2" />
+    </>
+  ),
+  close: (
+    <>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </>
+  ),
+};
+
+function Icon({ name, className = "ai-icon" }) {
+  const paths = ICON_PATHS[name];
+
+  if (!paths) {
+    return null;
+  }
+
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      {paths}
+    </svg>
+  );
+}
+
+// TOOL COVERAGE — every enabled card below is wired to an endpoint that exists and works today.
+//
+//   Tailored resume  -> POST /pro/agent/tailor-resume-pdf
+//   LinkedIn post    -> POST /pro/agent/linkedin-post
+//   Recruiter DM     -> POST /pro/agent/recruiter-dm
+//   Job match        -> POST /pro/agent/match-jobs
+//
+// The reference's sixth tool, "JD-to-profile fit — score any job against your profile", is NOT
+// offered as described. The only scoring endpoint that takes a specific job is
+// POST /pro/jobs/:jobId/pre-apply-check, which needs a real jobId; it cannot score arbitrary
+// pasted text, and there is no freeform-JD variant. Rather than wire a control that would have to
+// lie about what it accepts, that slot is the job-match tool, described as what match-jobs
+// actually does: score this profile against live openings.
+//
+// Cold email and Cover letter have NO backend at all — no route, no service — and
+// GeneratedArtifact.type is enum ["resume","linkedin_post","recruiter_dm","job_matches"], so
+// neither could even be stored. They render as visibly unavailable, with no click handler.
+const TOOLS = [
+  {
+    id: "resume",
+    icon: "file-text",
+    title: "Tailored resume",
+    badge: "Most used",
+    description: "Paste a JD and get a resume focused on it.",
+    action: "Tailor my resume",
+  },
+  {
+    id: "linkedin-post",
+    icon: "linkedin",
+    title: "LinkedIn post",
+    badge: "Daily",
+    description: "Polished posts for your network.",
+    action: "Draft a LinkedIn post",
+  },
+  {
+    id: "recruiter-dm",
+    icon: "message-square",
+    title: "Recruiter DM",
+    badge: "Pro",
+    description: "Warm, personalised outreach.",
+    action: "Write recruiter DM",
+  },
+  {
+    id: "job-match",
+    icon: "target",
+    title: "Job match analysis",
+    badge: "AI",
+    description: "Score your profile against live openings.",
+    action: "Match jobs to me",
+  },
+  {
+    id: "cold-email",
+    icon: "mail",
+    title: "Cold email",
+    description: "Intro emails to hiring managers.",
+    unavailable: true,
+  },
+  {
+    id: "cover-letter",
+    icon: "file-pen",
+    title: "Cover letter",
+    description: "Concise, on-brand, role-specific.",
+    unavailable: true,
+  },
+];
+
+const QUICK_ACTIONS = [
+  { icon: "file-text", label: "Tailor my resume" },
+  { icon: "linkedin", label: "Draft a LinkedIn post" },
+  { icon: "target", label: "Match jobs to me" },
+  { icon: "message-square", label: "Write recruiter DM" },
+];
+
+// Only the four types GeneratedArtifact.type can actually hold. There is deliberately no "Letter"
+// label — the enum cannot store one, so a pill for it would describe a row that can never exist.
+const ARTIFACT_TYPE_LABELS = {
+  resume: "Resume",
+  linkedin_post: "Post",
+  recruiter_dm: "DM",
+  job_matches: "Matches",
+};
 
 function looksLikeJobDescription(text) {
   return text.trim().length >= LIKELY_JD_TEXT_LENGTH;
@@ -75,11 +277,7 @@ function CopyButton({ text, label = "Copy" }) {
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface/70 px-2.5 py-1 text-xs font-medium hover:bg-surface"
-    >
+    <button type="button" onClick={handleCopy} className="ai-btn ai-btn--chip">
       {copied ? "Copied!" : label}
     </button>
   );
@@ -87,32 +285,28 @@ function CopyButton({ text, label = "Copy" }) {
 
 function JobMatchList({ matches }) {
   if (!matches.length) {
-    return <p className="mt-2 text-xs text-muted-foreground">No active job matches were found right now.</p>;
+    return <p className="ai-empty">No active job matches were found right now.</p>;
   }
 
   return (
-    <div className="mt-3 space-y-2">
+    <div className="ai-matches">
       {matches.map((match) => (
-        <div key={match.jobId} className="rounded-xl border border-border/40 bg-surface/40 p-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold">{match.title}</p>
-              <p className="truncate text-xs text-muted-foreground">
+        <div key={match.jobId} className="ai-match">
+          <div className="ai-match__head">
+            <div className="ai-match__info">
+              <p className="ai-match__title">{match.title}</p>
+              <p className="ai-match__org">
                 {match.organization?.companyName || "Company name unavailable"}
                 {match.location ? ` · ${match.location}` : ""}
               </p>
             </div>
-            <div className="flex shrink-0 flex-col items-end gap-1">
-              <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
-                {match.score}%
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
-                {match.tag}
-              </span>
+            <div className="ai-match__scores">
+              <span className="ai-pill">{match.score}%</span>
+              <span className="ai-pill ai-pill--muted">{match.tag}</span>
             </div>
           </div>
           {match.reasoning?.matchedSkills?.length ? (
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="ai-match__skills">
               Matched: {match.reasoning.matchedSkills.slice(0, 5).join(", ")}
             </p>
           ) : null}
@@ -127,47 +321,21 @@ function PostToLinkedInButton({ artifact, linkedinStatus, onPublish, isPublishin
 
   if (alreadyPosted) {
     return artifact.metadata.linkedin.url ? (
-      <a
-        href={artifact.metadata.linkedin.url}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-2 ml-2 inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/15 px-2.5 py-1 text-xs font-medium text-success"
-      >
+      <a href={artifact.metadata.linkedin.url} target="_blank" rel="noreferrer" className="ai-posted">
         Posted ✓ · View on LinkedIn
       </a>
     ) : (
-      <span className="mt-2 ml-2 inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/15 px-2.5 py-1 text-xs font-medium text-success">
-        Posted ✓
-      </span>
+      <span className="ai-posted">Posted ✓</span>
     );
   }
 
-  // This app's global `button { background, border-radius, padding, border, box-shadow, color,
-  // transform, transition }` rule in styles.css is unlayered, so it silently wins over any
-  // Tailwind utility class applied directly to a <button> (see AutomationSection.jsx's
-  // FeatureToggle for the original diagnosis) — the pre-existing CopyButton just above this one
-  // on this same page is a live example of the resulting bug. Resetting those specific
-  // properties inline is the established workaround; layout classes are unaffected.
-  const ghostPillStyle = {
-    border: "1px solid var(--border)",
-    borderRadius: "9999px",
-    background: "var(--surface-muted)",
-    boxShadow: "none",
-    color: "inherit",
-    fontWeight: 500,
-    padding: "0.25rem 0.625rem",
-    transform: "none",
-    transition: "none",
-  };
-
+  // The two-step gate is unchanged: a seeker who has never connected, or whose token lost the
+  // posting scope / expired, gets the connect affordance instead of a publish button that would
+  // fail server-side with LINKEDIN_NOT_CONNECTED / MISSING_SCOPE / TOKEN_EXPIRED. ALREADY_POSTED
+  // is handled by the postedAt branch above.
   if (!linkedinStatus?.connected || !linkedinStatus?.canPost) {
     return (
-      <button
-        type="button"
-        onClick={onConnect}
-        style={ghostPillStyle}
-        className="mt-2 ml-2 inline-flex items-center gap-1.5 text-xs"
-      >
+      <button type="button" onClick={onConnect} className="ai-btn">
         {linkedinStatus?.connected ? "Reconnect LinkedIn to post" : "Connect LinkedIn to post"}
       </button>
     );
@@ -178,8 +346,7 @@ function PostToLinkedInButton({ artifact, linkedinStatus, onPublish, isPublishin
       type="button"
       onClick={() => onPublish(artifact.id)}
       disabled={isPublishing}
-      style={{ ...ghostPillStyle, opacity: isPublishing ? 0.6 : 1, cursor: isPublishing ? "not-allowed" : "pointer" }}
-      className="mt-2 ml-2 inline-flex items-center gap-1.5 text-xs"
+      className="ai-btn"
     >
       {isPublishing ? "Posting…" : "Post to LinkedIn"}
     </button>
@@ -194,20 +361,27 @@ function ArtifactPreviewModal({ artifact, onClose, linkedinStatus, onPublish, is
   const copyLabel = artifact.type === "linkedin_post" ? "Copy post" : "Copy message";
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-container" onClick={(event) => event.stopPropagation()}>
-        <div className="modal-header">
-          <h3>{artifact.title}</h3>
-          <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
-            ×
+    <div className="ai-modal" onClick={onClose} role="presentation">
+      <div
+        className="ai-modal__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label={artifact.title}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="ai-modal__head">
+          <h3 className="ai-modal__title">{artifact.title}</h3>
+          <button type="button" className="ai-btn ai-btn--icon" onClick={onClose} aria-label="Close preview">
+            <Icon name="close" />
           </button>
         </div>
-        <div className="modal-content">
-          {artifact.type === "job_matches" ? (
-            <JobMatchList matches={artifact.metadata?.matches || []} />
-          ) : (
-            <>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">{artifact.textContent}</p>
+
+        {artifact.type === "job_matches" ? (
+          <JobMatchList matches={artifact.metadata?.matches || []} />
+        ) : (
+          <>
+            <p className="ai-modal__body">{artifact.textContent}</p>
+            <div className="ai-modal__actions">
               <CopyButton text={artifact.textContent || ""} label={copyLabel} />
               {artifact.type === "linkedin_post" && (
                 <PostToLinkedInButton
@@ -218,12 +392,12 @@ function ArtifactPreviewModal({ artifact, onClose, linkedinStatus, onPublish, is
                   onConnect={onConnect}
                 />
               )}
-              {artifact.type === "linkedin_post" && publishError && (
-                <p className="mt-2 text-xs text-red-500">{publishError}</p>
-              )}
-            </>
-          )}
-        </div>
+            </div>
+            {artifact.type === "linkedin_post" && publishError && (
+              <p className="ai-error">{publishError}</p>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -377,120 +551,6 @@ export function AIGeneratorPage() {
     matchJobsMutation.isPending ||
     linkedInPostMutation.isPending ||
     recruiterDmMutation.isPending;
-
-  const features = [
-    {
-      icon: "file-text",
-      title: "Tailor my resume",
-      description: "Paste a JD, get a focused resume."
-    },
-    {
-      icon: "linkedin",
-      title: "LinkedIn post",
-      description: "Polished posts for your network."
-    },
-    {
-      icon: "message-square",
-      title: "Recruiter DM",
-      description: "Warm, personalized outreach."
-    },
-    {
-      icon: "mail",
-      title: "Cover letter",
-      description: "Concise, on-brand, role-specific."
-    },
-    {
-      icon: "target",
-      title: "Job match analysis",
-      description: "Score and tailor your profile."
-    }
-  ];
-
-  const quickActions = [
-    { icon: "file-text", label: "Tailor my resume" },
-    { icon: "linkedin", label: "Draft a LinkedIn post" },
-    { icon: "target", label: "Match jobs to me" },
-    { icon: "message-square", label: "Write recruiter DM" }
-  ];
-
-  const getIconSvg = (iconName) => {
-    const icons = {
-      "file-text": (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-          <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path>
-          <path d="M14 2v5a1 1 0 0 0 1 1h5"></path>
-          <path d="M10 9H8"></path>
-          <path d="M16 13H8"></path>
-          <path d="M16 17H8"></path>
-        </svg>
-      ),
-      linkedin: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-          <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path>
-          <rect width="4" height="12" x="2" y="9"></rect>
-          <circle cx="4" cy="4" r="2"></circle>
-        </svg>
-      ),
-      "message-square": (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-          <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path>
-          <path d="M7 11h10"></path>
-          <path d="M7 15h6"></path>
-          <path d="M7 7h8"></path>
-        </svg>
-      ),
-      mail: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-          <path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"></path>
-          <rect x="2" y="4" width="20" height="16" rx="2"></rect>
-        </svg>
-      ),
-      target: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-          <circle cx="12" cy="12" r="10"></circle>
-          <circle cx="12" cy="12" r="6"></circle>
-          <circle cx="12" cy="12" r="2"></circle>
-        </svg>
-      ),
-      bot: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
-          <path d="M12 8V4H8"></path>
-          <rect width="16" height="12" x="4" y="8" rx="2"></rect>
-          <path d="M2 14h2"></path>
-          <path d="M20 14h2"></path>
-          <path d="M15 13v2"></path>
-          <path d="M9 13v2"></path>
-        </svg>
-      ),
-      send: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-          <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"></path>
-          <path d="m21.854 2.147-10.94 10.939"></path>
-        </svg>
-      ),
-      wand: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-          <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"></path>
-          <path d="m14 7 3 3"></path>
-          <path d="M5 6v4"></path>
-          <path d="M19 14v4"></path>
-          <path d="M10 2v2"></path>
-          <path d="M7 8H3"></path>
-          <path d="M21 16h-4"></path>
-          <path d="M11 3H9"></path>
-        </svg>
-      ),
-      sparkles: (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
-          <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"></path>
-          <path d="M20 2v4"></path>
-          <path d="M22 4h-4"></path>
-          <circle cx="4" cy="20" r="2"></circle>
-        </svg>
-      )
-    };
-    return icons[iconName] || null;
-  };
 
   function pushMessage(message) {
     setMessages((current) => [...current, message]);
@@ -697,203 +757,213 @@ export function AIGeneratorPage() {
   };
 
   return (
-    <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
-      {/* Hero Banner */}
-      <div className="relative mb-6 overflow-hidden rounded-3xl border border-border/60 bg-linear-to-br p-6 lg:p-8 from-primary/10 via-transparent to-transparent">
-        <div className="absolute -right-20 -top-20 h-60 w-60 bg-primary/20 rounded-full blur-3xl"></div>
-        <div className="relative">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                AI assistant
-              </p>
-              <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight lg:text-4xl">
-                Career Copilot
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground lg:text-base">
-                Generate tailored resumes, LinkedIn posts, recruiter DMs and more — on demand.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+    <main className="ai-gen">
+      {/* ---------------------------------------------------------------- Hero */}
+      <section className="ai-hero">
+        <p className="ai-eyebrow">Career copilot</p>
+        <h1 className="ai-hero__title">Generate anything for your search</h1>
+        {/* Cold emails are deliberately absent from this line — the page cannot produce one. */}
+        <p className="ai-hero__sub">
+          Resumes, LinkedIn posts, recruiter DMs and job-match scoring — drafted in seconds and
+          tuned to your profile.
+        </p>
+      </section>
 
-      {/* Main Grid */}
-      <div className="grid grid-cols-12 gap-6">
-        {/* Left Sidebar - Features */}
-        <aside className="col-span-12 space-y-3 lg:col-span-4">
-          {features.map((feature) => (
-            <div key={feature.title} className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-              <div className="flex items-start gap-3">
-                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
-                  {getIconSvg(feature.icon)}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">{feature.title}</p>
-                  <p className="text-xs text-muted-foreground">{feature.description}</p>
-                </div>
+      <div className="ai-split">
+        {/* ------------------------------------------------- Left: tools + artifacts */}
+        <div className="ai-main">
+          <section className="ai-card">
+            <div className="ai-card__head">
+              <div>
+                <p className="ai-eyebrow">Quick tools</p>
+                <h2 className="ai-card__title">What do you want to build?</h2>
               </div>
             </div>
-          ))}
-        </aside>
 
-        {/* Right Section - Chat Interface */}
-        <section className="col-span-12 lg:col-span-8">
-          <div className="flex h-[calc(100vh-12rem)] min-h-140 flex-col overflow-hidden rounded-3xl border border-border/60 bg-card/80 backdrop-blur-xl shadow-elegant">
-            {/* Header */}
-            <div className="flex items-center gap-3 border-b border-border/60 bg-gradient-subtle p-5">
-              <div className="grid h-11 w-11 place-items-center rounded-2xl text-primary-foreground bg-linear-to-r from-purple-500 to-blue-500 shadow-glow">
-                {getIconSvg("bot")}
-              </div>
-              <div className="flex-1">
-                <h2 className="font-display text-lg font-semibold leading-tight">Career Copilot</h2>
-                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-success animate-pulse"></span>
-                  Online · Free tier
-                </p>
-              </div>
-              <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-secondary text-secondary-foreground">
-                {getIconSvg("sparkles")}
-                Beta
-              </span>
-            </div>
-
-            {/* Messages */}
-            <div className="flex-1 space-y-4 overflow-y-auto p-5">
-              {messages.map((msg, idx) => (
-                <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`} style={{ opacity: 1, transform: "none" }}>
-                  <div
-                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
-                      msg.role === "user"
-                        ? "rounded-br-md bg-linear-to-r from-purple-500 to-blue-500 text-white"
-                        : "rounded-bl-md border border-border/60 bg-surface"
-                    }`}
+            <ul className="ai-tools">
+              {TOOLS.map((tool) => (
+                <li key={tool.id}>
+                  <button
+                    type="button"
+                    className={`ai-tool${tool.unavailable ? " ai-tool--soon" : ""}`}
+                    // Unavailable tools carry BOTH: `disabled` makes them genuinely unclickable
+                    // and `aria-disabled` states it explicitly. There is no onClick to fall back
+                    // on, so an enabled-looking card can never do nothing.
+                    disabled={tool.unavailable}
+                    aria-disabled={tool.unavailable ? "true" : undefined}
+                    onClick={tool.unavailable ? undefined : quickActionHandlers[tool.action]}
                   >
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
-                    {msg.kind === "job-matches" ? <JobMatchList matches={msg.matches} /> : null}
-                    {msg.kind === "copyable" ? <CopyButton text={msg.content} label={msg.copyLabel} /> : null}
-                  </div>
-                </div>
+                    <span className="ai-tile">
+                      <Icon name={tool.icon} />
+                    </span>
+                    <span className="ai-tool__body">
+                      <span className="ai-tool__top">
+                        <span className="ai-tool__title">{tool.title}</span>
+                        {tool.unavailable ? (
+                          <span className="ai-pill ai-pill--muted">Coming soon</span>
+                        ) : (
+                          <span className="ai-pill">{tool.badge}</span>
+                        )}
+                      </span>
+                      <span className="ai-tool__desc">{tool.description}</span>
+                    </span>
+                  </button>
+                </li>
               ))}
-            </div>
+            </ul>
+          </section>
 
-            {/* Quick Actions */}
-            <div className="flex flex-wrap gap-2 border-t border-border/60 px-5 py-3">
-              {quickActions.map((action) => (
-                <button
-                  key={action.label}
-                  type="button"
-                  disabled={isAnyMutationPending}
-                  onClick={quickActionHandlers[action.label]}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface/80 px-3 py-1.5 text-xs font-medium hover:bg-surface hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {getIconSvg(action.icon)}
-                  {action.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Input */}
-            <div className="border-t border-border/60 p-4">
-              <div className="flex items-end gap-2 rounded-2xl border border-border/60 bg-surface/80 pl-4 pr-1 focus-within:bg-surface focus-within:shadow-elegant">
-                <div className="py-2.5">{getIconSvg("wand")}</div>
-                <textarea
-                  ref={chatInputRef}
-                  rows={1}
-                  placeholder={inputPlaceholders[activeIntent] || inputPlaceholders.default}
-                  value={inputValue}
-                  disabled={isAnyMutationPending}
-                  onChange={(e) => {
-                    setInputValue(e.target.value);
-                    resizeChatInput();
-                  }}
-                  onKeyDown={handleChatInputKeyDown}
-                  className="max-h-40 flex-1 resize-none overflow-y-auto bg-transparent py-2.5 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                />
-                <button
-                  onClick={handleSendMessage}
-                  disabled={isAnyMutationPending}
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-primary-foreground transition hover:opacity-90 bg-linear-to-r from-purple-500 to-blue-500 shadow-glow disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {getIconSvg("send")}
-                </button>
+          <section className="ai-card">
+            <div className="ai-card__head">
+              <div>
+                <p className="ai-eyebrow">Recently generated</p>
+                <h2 className="ai-card__title">Your artifacts</h2>
               </div>
+              {artifacts.length ? (
+                <button
+                  type="button"
+                  className="ai-btn ai-btn--ghost"
+                  onClick={handleDismissAllArtifacts}
+                  disabled={dismissAllArtifactsMutation.isPending}
+                >
+                  {dismissAllArtifactsMutation.isPending ? "Closing…" : "Close all"}
+                </button>
+              ) : null}
+            </div>
+
+            {artifacts.length ? (
+              <ul className="ai-artifacts">
+                {artifacts.map((artifact) => (
+                  <li key={artifact.id} className="ai-artifact">
+                    <button
+                      type="button"
+                      className="ai-artifact__open"
+                      onClick={() => handleArtifactClick(artifact)}
+                    >
+                      <span className="ai-artifact__spark">
+                        <Icon name="sparkles" className="ai-icon ai-icon--sm" />
+                      </span>
+                      <span className="ai-artifact__body">
+                        <span className="ai-artifact__title">{artifact.title}</span>
+                        <span className="ai-artifact__meta">
+                          <span className="ai-pill ai-pill--muted">
+                            {ARTIFACT_TYPE_LABELS[artifact.type] || artifact.type}
+                          </span>
+                          <span className="ai-artifact__time">
+                            {formatRelativeTime(artifact.createdAt)}
+                          </span>
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="ai-btn ai-btn--icon"
+                      onClick={(event) => handleDismissArtifact(event, artifact.id)}
+                      aria-label={`Dismiss ${artifact.title}`}
+                      title="Dismiss"
+                      disabled={dismissArtifactMutation.isPending}
+                    >
+                      <Icon name="close" className="ai-icon ai-icon--sm" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="ai-empty">
+                {artifactsQuery.isLoading
+                  ? "Loading your generated artifacts…"
+                  : "Nothing generated yet — pick a tool above to get started."}
+              </p>
+            )}
+          </section>
+        </div>
+
+        {/* ------------------------------------------------------- Right: Copilot */}
+        <section className="ai-card ai-copilot" aria-label="Career Copilot">
+          <div className="ai-copilot__head">
+            <span className="ai-tile">
+              <Icon name="bot" />
+            </span>
+            <div className="ai-copilot__identity">
+              <h2 className="ai-copilot__name">Career Copilot</h2>
+              <p className="ai-status">
+                <span className="ai-status__dot" aria-hidden="true" />
+                {/* The word carries the state; the dot only reinforces it. */}
+                Online · Pro automation enabled
+              </p>
+            </div>
+            <span className="ai-pill">
+              <span aria-hidden="true">✨</span> Pro
+            </span>
+          </div>
+
+          <div
+            className="ai-chat"
+            role="log"
+            aria-live="polite"
+            aria-label="Conversation with Career Copilot"
+          >
+            {messages.map((msg, idx) => (
+              <div
+                key={idx}
+                className={`ai-msg ${msg.role === "user" ? "ai-msg--user" : "ai-msg--assistant"}`}
+              >
+                <div className="ai-msg__bubble">
+                  <p className="ai-msg__text">{msg.content}</p>
+                  {msg.kind === "job-matches" ? <JobMatchList matches={msg.matches} /> : null}
+                  {msg.kind === "copyable" ? <CopyButton text={msg.content} label={msg.copyLabel} /> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="ai-chips">
+            {QUICK_ACTIONS.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                className="ai-btn ai-btn--chip"
+                disabled={isAnyMutationPending}
+                onClick={quickActionHandlers[action.label]}
+              >
+                <Icon name={action.icon} className="ai-icon ai-icon--sm" />
+                {action.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="ai-composer">
+            <label className="ai-sr-only" htmlFor="ai-composer-input">
+              Message Career Copilot
+            </label>
+            <div className="ai-composer__field">
+              <Icon name="wand" className="ai-icon ai-icon--sm" />
+              <textarea
+                id="ai-composer-input"
+                ref={chatInputRef}
+                rows={1}
+                className="ai-composer__input"
+                placeholder={inputPlaceholders[activeIntent] || inputPlaceholders.default}
+                value={inputValue}
+                disabled={isAnyMutationPending}
+                onChange={(e) => {
+                  setInputValue(e.target.value);
+                  resizeChatInput();
+                }}
+                onKeyDown={handleChatInputKeyDown}
+              />
+              <button
+                type="button"
+                className="ai-btn ai-btn--send"
+                onClick={handleSendMessage}
+                disabled={isAnyMutationPending}
+                aria-label="Send message"
+              >
+                <Icon name="send" className="ai-icon ai-icon--sm" />
+              </button>
             </div>
           </div>
         </section>
-      </div>
-
-      {/* Generated Artifacts */}
-      <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant mt-6">
-        <div className="mb-4 flex items-end justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Recent
-            </p>
-            <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">
-              Generated artifacts
-            </h2>
-          </div>
-          {artifacts.length ? (
-            <button
-              type="button"
-              onClick={handleDismissAllArtifacts}
-              disabled={dismissAllArtifactsMutation.isPending}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface/70 px-3 py-1.5 text-xs font-medium hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {dismissAllArtifactsMutation.isPending ? "Closing…" : "Close all"}
-            </button>
-          ) : null}
-        </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          {artifacts.length ? (
-            artifacts.map((artifact) => (
-              <div
-                key={artifact.id}
-                onClick={() => handleArtifactClick(artifact)}
-                className="relative cursor-pointer rounded-xl border border-border/40 bg-surface/40 p-3 text-left transition hover:bg-surface/70 hover:shadow-sm"
-              >
-                <button
-                  type="button"
-                  onClick={(event) => handleDismissArtifact(event, artifact.id)}
-                  aria-label="Dismiss artifact"
-                  title="Dismiss"
-                  className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border border-border/60 bg-surface/80 p-0! text-muted-foreground hover:bg-surface"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="h-3 w-3"
-                    aria-hidden="true"
-                  >
-                    <path d="M18 6 6 18"></path>
-                    <path d="m6 6 12 12"></path>
-                  </svg>
-                </button>
-                <p className="pr-6 text-sm font-semibold">{artifact.title}</p>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
-                    {formatRelativeTime(artifact.createdAt)}
-                  </span>
-                  <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
-                    {artifact.status}
-                  </span>
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {artifactsQuery.isLoading ? "Loading your generated artifacts…" : "No generated artifacts yet — try one of the quick actions above."}
-            </p>
-          )}
-        </div>
       </div>
 
       <ArtifactPreviewModal

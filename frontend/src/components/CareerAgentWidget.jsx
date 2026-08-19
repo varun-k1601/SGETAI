@@ -77,6 +77,12 @@ function VoiceWaveform() {
   );
 }
 
+// The agent's own empty-state copy, hoisted to constants so the panel has one place that says
+// what it can do.
+export const CAREER_AGENT_GREETING = "Ask anything career-related.";
+export const CAREER_AGENT_GREETING_DETAIL =
+  "Attach a resume, screenshot, JD, or project file and I'll use it in the answer.";
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -406,8 +412,8 @@ export function CareerAgentWidget() {
               ))
             ) : (
               <article className="career-widget-empty">
-                <strong>Ask anything career-related.</strong>
-                <p>Attach a resume, screenshot, JD, or project file and I'll use it in the answer.</p>
+                <strong>{CAREER_AGENT_GREETING}</strong>
+                <p>{CAREER_AGENT_GREETING_DETAIL}</p>
               </article>
             )}
             {chatMutation.isPending ? <TypingDots /> : null}

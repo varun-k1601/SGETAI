@@ -12790,3 +12790,7723 @@ body.career-agent-resizing {
   border-radius: 0 3px 3px 0;
   background: var(--rail-accent);
 }
+
+/* =============================================================================================
+   Pro surface palette (--ph-*)
+   =============================================================================================
+   PROMOTED from .pro-home to :root so every Pro surface reads one palette instead of each page
+   copying a near-identical set that then drifts. Consumed today by .pro-home (the Pro seeker
+   home) and .ai-gen (the AI Generator / Career Copilot page); both are sibling Pro surfaces and
+   are meant to look like the same product.
+
+   Declaring the tokens here paints nothing by itself — a custom property has no effect until
+   something references it. The rules that consume them stay scoped to their own page class.
+   ============================================================================================= */
+
+:root {
+  /* .pro-home paints this saturated hero. .ai-gen and .jobs-page deliberately do NOT — their
+     heroes are light washes with dark ink, and share --ph-hero-soft below. The TILE gradient is
+     shared by all three: the 40px icon tile is the same element everywhere. */
+  --ph-hero-gradient: linear-gradient(100deg, #7c3aed 0%, #2563eb 55%, #06b6d4 100%);
+  --ph-tile-gradient: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+  /* The canvas the cards sit on. This is the ONE token that is deliberately not a colour in
+     dark mode — see the dark block at the bottom of this file. */
+  --ph-page-bg: #f8fafc;
+  --ph-surface: #ffffff;
+  --ph-surface-sunk: #f4f7fb;
+  --ph-border: #e8edf3;
+  --ph-ink: #0f172a;
+  --ph-muted: #64748b;
+  --ph-accent: #7c3aed;
+  --ph-accent-soft: rgba(124, 58, 237, 0.1);
+  --ph-track-off: #d8dee7;
+  --ph-success: #15803d;
+  --ph-success-soft: rgba(22, 163, 74, 0.12);
+  /* Form/validation errors on the Pro surfaces. Light value matches what .ai-gen hardcoded
+     before this token existed, so that page renders identically; the dark override is the point. */
+  --ph-danger: #dc2626;
+  /* The tinted fill that pairs with --ph-danger, matching how --ph-success-soft pairs with
+     --ph-success and --ph-accent-soft with --ph-accent. Used for warn pills and warning notices
+     on .upgrade-page; promoted to :root rather than inlined so a page can never drift. */
+  --ph-danger-soft: rgba(220, 38, 38, 0.1);
+  --ph-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  /* The LIGHT hero wash shared by .ai-gen and .jobs-page — pale lavender to pale blue, read
+     with --ph-ink on top. Distinct from --ph-hero-gradient, which is .pro-home saturated hero. */
+  --ph-hero-soft: linear-gradient(115deg, #ede9fe 0%, #e0e7ff 48%, #dbeafe 100%);
+  --ph-hero-soft-border: rgba(124, 58, 237, 0.16);
+  --ph-radius-card: 14px;
+  --ph-radius-tile: 10px;
+}
+
+/* Only the token VALUES are redefined for dark. Every rule that reads them swaps automatically,
+   which is why neither page needs a duplicate dark layout. */
+:root[data-theme="dark"] {
+  --ph-hero-gradient: linear-gradient(100deg, #5b21b6 0%, #1d4ed8 55%, #0e7490 100%);
+  --ph-tile-gradient: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+  /* NOT a colour. The app's dark canvas is itself a gradient — rgba(5,5,5,.99) to
+     rgba(0,0,0,.99) over #000000 on body — so no single flat value can match it at every scroll
+     position; #0b1220 here was a blue-tinted panel whose seam against that near-black body read
+     as one card wrapping the whole page. transparent removes the seam by construction rather
+     than by colour-matching, and cannot drift if the app's dark background is ever retuned.
+     Light mode keeps its #f8fafc canvas, where the cards genuinely need it. */
+  --ph-page-bg: transparent;
+  --ph-surface: #131c2e;
+  --ph-surface-sunk: #1a2436;
+  --ph-border: #26334a;
+  --ph-ink: #e8eef8;
+  --ph-muted: #94a3b8;
+  --ph-accent: #a78bfa;
+  --ph-accent-soft: rgba(167, 139, 250, 0.16);
+  --ph-track-off: #38455e;
+  --ph-success: #4ade80;
+  --ph-success-soft: rgba(74, 222, 128, 0.14);
+  --ph-danger: #f87171;
+  --ph-danger-soft: rgba(248, 113, 113, 0.14);
+  --ph-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --ph-hero-soft: linear-gradient(115deg, #241b4d 0%, #1c2a5e 48%, #123049 100%);
+  --ph-hero-soft-border: rgba(167, 139, 250, 0.22);
+}
+
+/* =============================================================================================
+   Pro seeker home (/home when session.isPro) — pages/dashboard/ProSeekerDashboard.jsx
+   =============================================================================================
+   Every rule is scoped under .pro-home. Nothing here is a bare element selector, so no other
+   page's <button>, <input> or <h1> can be reached by it — the Normal seeker dashboard renders
+   from the same route and must be untouched.
+
+   Why this file rather than Tailwind: index.css wires FONTS ONLY into Tailwind v4's @theme, so
+   every semantic colour utility (bg-card, border-border, text-muted-foreground, bg-primary...)
+   generates no CSS at all in this app, and styles.css's unlayered `button { ... }` rule outranks
+   any Tailwind utility placed on a <button>. Scoped CSS has neither problem, and expressing the
+   palette as custom properties is what lets the whole surface swap for dark mode below.
+   ============================================================================================= */
+
+.pro-home {
+  /* BOX MODEL — this element is a layout container, not a surface.
+     It used to read as one big card wrapping every section, for two reasons, both fixed:
+
+       1. PADDING (removed). .main-panel already pads this region by 1.5rem and paints nothing.
+          Padding again by 24px here put this page's content 48px from the shell edge while
+          every other page sits at 24px, which is what framed the whole thing as an inset panel.
+
+       2. BACKGROUND (kept in light, made transparent in dark — see the dark block below).
+          In dark this was laying #0b1220, a blue-tinted panel, over the app's near-black body,
+          and the seam between the two was the visible card edge.
+
+     The background is NOT simply deleted, because light mode needs it. body paints
+     linear-gradient(180deg, rgba(255,255,255,.98), rgba(237,243,255,.98)) over #eef3ff, so at
+     the TOP of the page the shell canvas resolves to pure #ffffff — identical to --ph-surface.
+     With no canvas of its own, the first cards would be white-on-white with only their 1px
+     border to separate them. #f8fafc keeps them reading as raised there. Painting the canvas at
+     .main-panel level instead would fix that once for every page, but it would also restyle the
+     seeker, recruiter and admin pages that share the shell — a much larger blast radius than
+     this bug justifies.
+
+     overflow-y/x are unchanged. The real scroller is .main-panel (flex: 1 + overflow-y: auto
+     inside .app-main-wrapper's flex column); this element's height is content-driven, so its own
+     overflow-y never actually scrolls, and overflow-x: hidden is the load-bearing half. Removing
+     the padding changes neither. */
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  /* Belt and braces against a sideways page: children below also carry min-width: 0 so a long
+     unbroken string in a post or an activity row cannot widen the grid. */
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background: var(--ph-page-bg);
+  color: var(--ph-ink);
+}
+
+/* --- Shared primitives --------------------------------------------------------------------- */
+
+.pro-home .ph-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.pro-home .ph-eyebrow--live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ph-accent);
+}
+
+.pro-home .ph-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.pro-home .ph-tile {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.pro-home .ph-tile--brand {
+  background: var(--ph-tile-gradient);
+}
+
+.pro-home .ph-tile--muted {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.pro-home .ph-card {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.pro-home .ph-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--ph-border);
+}
+
+.pro-home .ph-card__title {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.pro-home .ph-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pro-home .ph-empty {
+  margin: 0;
+  padding: 22px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+.pro-home .ph-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Status pill. The state is spelled out in words next to the dot — the colour is reinforcement,
+   never the only carrier of the meaning. */
+.pro-home .ph-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.pro-home .ph-status--on {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+/* Declared explicitly rather than relying on the base rule, so "paused" is a state this
+   stylesheet states on purpose and not a style that happens to be left over. */
+.pro-home .ph-status--off {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.pro-home .ph-status__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.pro-home .ph-status--on .ph-status__dot {
+  animation: ph-pulse 2s ease-in-out infinite;
+}
+
+@keyframes ph-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pro-home .ph-status--on .ph-status__dot {
+    animation: none;
+  }
+}
+
+/* --- Buttons ------------------------------------------------------------------------------
+   styles.css's global `button { ... }` is unlayered, so specificity is the only lever: every
+   selector below is (0,2,x) or higher and therefore wins on each property it sets. Anything the
+   global rule sets that is not reset here would still apply, so background, border, radius,
+   padding, shadow, colour, weight and transform are all stated explicitly. */
+
+.pro-home .ph-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+.pro-home .ph-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.pro-home .ph-btn:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
+.pro-home .ph-btn:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.pro-home .ph-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pro-home .ph-btn--primary,
+.pro-home .ph-btn--primary:hover:not(:disabled) {
+  background: var(--ph-tile-gradient);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.pro-home .ph-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ph-muted);
+}
+
+.pro-home .ph-btn--icon {
+  padding: 6px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ph-muted);
+}
+
+.pro-home .ph-btn--field {
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+  background: var(--ph-surface-sunk);
+  border-color: var(--ph-border);
+  color: var(--ph-muted);
+  font-weight: 500;
+  text-align: left;
+}
+
+/* --- Hero ---------------------------------------------------------------------------------- */
+
+.pro-home .ph-hero {
+  min-width: 0;
+  padding: 28px;
+  border-radius: 20px;
+  background: var(--ph-hero-gradient);
+  color: #ffffff;
+  box-shadow: 0 10px 30px rgba(37, 99, 235, 0.18);
+}
+
+.pro-home .ph-hero__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pro-home .ph-hero__title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+}
+
+.pro-home .ph-hero__sub {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.pro-home .ph-hero__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.pro-home .ph-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  text-align: center;
+}
+
+.pro-home .ph-stat__icon {
+  width: 18px;
+  height: 18px;
+  opacity: 0.9;
+}
+
+.pro-home .ph-stat__value {
+  margin: 2px 0 0;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #ffffff;
+}
+
+.pro-home .ph-stat__label {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Shown only when the value is an em-dash, so an unavailable figure always says why instead of
+   looking like a loading state. */
+.pro-home .ph-stat__note {
+  margin: 2px 0 0;
+  font-size: 10px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* --- Two-column row ------------------------------------------------------------------------ */
+
+/* Row 2. The rail is column 2 and the feed column 1 by EXPLICIT placement, not by source
+   order — the rail deliberately comes first in the DOM so the stacked reading order puts the
+   automation controls above the feed. minmax(0, ...) on both tracks is what stops a long post
+   or a long activity title from widening the grid and giving the page a horizontal scrollbar. */
+.pro-home .ph-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 27%, 360px);
+  align-items: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+.pro-home .ph-centre {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.pro-home .ph-rail {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  /* The rail's cards reflow against the RAIL's width, not the viewport's: at 1280px this is
+     ~320px while the viewport is wide, so a viewport media query would never fire and the toggle
+     rows would stay on one cramped line. Container queries are already used in this codebase
+     (AutomationSection.jsx), so this is not a new mechanism. */
+  container-type: inline-size;
+  container-name: ph-rail;
+}
+
+/* --- Automation toggles -------------------------------------------------------------------- */
+
+.pro-home .ph-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pro-home .ph-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--ph-surface-sunk);
+}
+
+.pro-home .ph-toggle__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.pro-home .ph-toggle__title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ph-ink);
+  cursor: pointer;
+}
+
+.pro-home .ph-toggle__desc {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ph-muted);
+}
+
+/* The "this switch currently does nothing" caption. Deliberately in the accent colour rather than
+   an error red: it is a prerequisite, not a fault. */
+.pro-home .ph-toggle__note {
+  margin: 5px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ph-accent);
+}
+
+.pro-home .ph-switch {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 44px;
+  height: 26px;
+  margin-top: 2px;
+}
+
+/* The input is the full-size hit target sitting over the painted track, so the thing the user
+   clicks, tabs to and toggles with Space is a real checkbox — not a div listening for clicks. */
+.pro-home .ph-switch__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  z-index: 1;
+  cursor: pointer;
+}
+
+.pro-home .ph-switch__input:disabled {
+  cursor: not-allowed;
+}
+
+.pro-home .ph-switch__track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--ph-track-off);
+  transition: background 180ms ease;
+}
+
+.pro-home .ph-switch__track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 180ms ease;
+}
+
+.pro-home .ph-switch__input:checked + .ph-switch__track {
+  background: var(--ph-tile-gradient);
+}
+
+.pro-home .ph-switch__input:checked + .ph-switch__track::after {
+  transform: translateX(18px);
+}
+
+.pro-home .ph-switch__input:focus-visible + .ph-switch__track {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.pro-home .ph-switch__input:disabled + .ph-switch__track {
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pro-home .ph-switch__track,
+  .pro-home .ph-switch__track::after {
+    transition: none;
+  }
+}
+
+/* --- Match threshold (read-only) ------------------------------------------------------------
+   Styled as a real disabled range input rather than a fake bar, so assistive tech reports it as
+   the disabled control it is. --ph-threshold-fill is set from the JSX as DATA (the platform's
+   current value), not as styling. */
+
+.pro-home .ph-threshold {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.pro-home .ph-threshold__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.pro-home .ph-threshold__value {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.pro-home .ph-threshold__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #7c3aed 0%,
+    #2563eb var(--ph-threshold-fill, 0%),
+    var(--ph-track-off) var(--ph-threshold-fill, 0%)
+  );
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.pro-home .ph-threshold__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid var(--ph-accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: not-allowed;
+}
+
+.pro-home .ph-threshold__slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid var(--ph-accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: not-allowed;
+}
+
+.pro-home .ph-threshold__caption {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* --- Activity feed ------------------------------------------------------------------------- */
+
+.pro-home .ph-activity {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pro-home .ph-activity__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ph-border);
+}
+
+.pro-home .ph-activity__row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.pro-home .ph-activity__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.pro-home .ph-activity__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.pro-home .ph-activity__sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.pro-home .ph-activity__time {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+  opacity: 0.8;
+}
+
+/* --- Composer + feed ----------------------------------------------------------------------- */
+
+.pro-home .ph-composer__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.pro-home .ph-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pro-home .ph-textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 12px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.pro-home .ph-textarea:focus {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: -1px;
+}
+
+.pro-home .ph-composer__files {
+  margin: 8px 0 0 52px;
+  font-size: 11px;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.pro-home .ph-composer__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.pro-home .ph-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* --- Narrow-rail reflow ---------------------------------------------------------------------
+   Everything below fires when the RAIL is narrow (its natural desktop state) and is skipped when
+   the same cards are full-width in the stacked layout, where the roomier one-line rows are fine.
+   440px rather than the rail's ~320px so the switch-off happens before anything is actually
+   cramped. */
+
+@container ph-rail (max-width: 440px) {
+  /* Toggle row goes two-line: [tile][title + description + note] / [switch, right-aligned].
+     The switch keeps its full 44x26 hit target instead of being squeezed, and the two-line
+     prerequisite notes get the row's whole width to wrap into rather than a ~90px column. */
+  .pro-home .ph-toggle {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr);
+    grid-template-areas:
+      "tile body"
+      "switch switch";
+    column-gap: 10px;
+    row-gap: 10px;
+    align-items: start;
+  }
+
+  .pro-home .ph-toggle .ph-tile {
+    grid-area: tile;
+  }
+
+  .pro-home .ph-toggle__body {
+    grid-area: body;
+  }
+
+  .pro-home .ph-toggle .ph-switch {
+    grid-area: switch;
+    justify-self: end;
+    margin-top: 0;
+  }
+
+  /* Card headers: the title block takes the full width and the actions drop beneath it, so
+     "Live / AI activity feed" and the Refresh + Close all buttons can never collide. */
+  .pro-home .ph-card__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pro-home .ph-card__actions {
+    justify-content: flex-start;
+  }
+
+  /* Threshold: label and value can drop onto separate lines rather than colliding, and the
+     caption keeps a comfortable measure. */
+  .pro-home .ph-threshold__head {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .pro-home .ph-threshold__caption {
+    font-size: 11px;
+    line-height: 1.55;
+  }
+
+  /* Activity rows: smaller tile and tighter gaps buy the title back ~16px of wrapping width. */
+  .pro-home .ph-activity__row {
+    gap: 10px;
+  }
+
+  .pro-home .ph-activity__row .ph-tile {
+    width: 32px;
+    height: 32px;
+  }
+
+  .pro-home .ph-activity__row .ph-icon {
+    width: 15px;
+    height: 15px;
+  }
+}
+
+/* --- Responsive ----------------------------------------------------------------------------
+   The hero tiles go 4 -> 2 -> 1 and the two-column row stacks, so nothing ever forces the page
+   to scroll sideways. */
+
+@media (max-width: 1080px) {
+  /* Single column. The explicit grid-column/grid-row assignments are released so the two
+     children fall back to source order — which is rail (automation, then activity) and then the
+     community feed, exactly the order the stacked page should read in. */
+  .pro-home .ph-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pro-home .ph-centre,
+  .pro-home .ph-rail {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .pro-home .ph-hero__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  /* No padding override either — .main-panel already drops to 1rem at its own breakpoint. Only
+     the gap between cards tightens. */
+  .pro-home {
+    gap: 16px;
+  }
+
+  .pro-home .ph-hero {
+    padding: 20px;
+  }
+
+  .pro-home .ph-hero__title {
+    font-size: 23px;
+  }
+
+  .pro-home .ph-hero__stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pro-home .ph-composer__actions {
+    flex-wrap: wrap;
+  }
+}
+
+/* --- Dark mode ------------------------------------------------------------------------------
+   Only the tokens are redefined. Every rule above reads through them, so the entire surface —
+   hero included — swaps without a second copy of the layout. */
+
+
+:root[data-theme="dark"] .pro-home .ph-hero {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-theme="dark"] .pro-home .ph-threshold__slider {
+  background: linear-gradient(
+    to right,
+    #a78bfa 0%,
+    #60a5fa var(--ph-threshold-fill, 0%),
+    var(--ph-track-off) var(--ph-threshold-fill, 0%)
+  );
+}
+
+/* =============================================================================================
+   AI Generator / Career Copilot (/pro/ai) — pages/pro/AIGeneratorPage.jsx
+   =============================================================================================
+   Scoped under .ai-gen, same approach as .pro-home: the app's unlayered `button { ... }` rule
+   outranks Tailwind utilities on a <button>, and Tailwind's semantic colour utilities generate
+   no CSS in this app at all (index.css wires fonts only into @theme). Scoped CSS has neither
+   problem.
+
+   COLOURS COME FROM THE SHARED --ph-* PALETTE at :root — this file declares only the two things
+   that are genuinely different here: a LIGHT hero (dark ink on a pale lavender wash, where
+   .pro-home's hero is saturated with white text) and the chat surface.
+
+   The root .ai-gen is a TRANSPARENT LAYOUT CONTAINER. It deliberately paints no page background
+   and adds no padding: .main-panel already pads this region, and a root that paints its own
+   surface is exactly what made .pro-home render as one giant card in dark mode.
+   ============================================================================================= */
+
+.ai-gen {
+  --ai-bubble-user: var(--ph-tile-gradient);
+
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives (mirrors of the .pro-home ones, reading the same tokens) -------------- */
+
+.ai-gen .ai-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.ai-gen .ai-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.ai-gen .ai-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.ai-gen .ai-tile {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.ai-gen .ai-card {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.ai-gen .ai-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.ai-gen .ai-card__title {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.ai-gen .ai-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.ai-gen .ai-pill--muted {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.ai-gen .ai-empty {
+  margin: 0;
+  padding: 18px 0;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+.ai-gen .ai-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Buttons (specificity beats the global unlayered `button` rule) -------------------------- */
+
+.ai-gen .ai-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+.ai-gen .ai-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.ai-gen .ai-btn:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
+.ai-gen .ai-btn:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.ai-gen .ai-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ai-gen .ai-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ph-muted);
+}
+
+.ai-gen .ai-btn--chip {
+  padding: 6px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--ph-surface-sunk);
+}
+
+.ai-gen .ai-btn--icon {
+  padding: 5px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ph-muted);
+}
+
+.ai-gen .ai-btn--send {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-color: transparent;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.ai-gen .ai-btn--send:hover:not(:disabled) {
+  background: var(--ph-tile-gradient);
+  opacity: 0.9;
+}
+
+/* --- Hero ----------------------------------------------------------------------------------- */
+
+.ai-gen .ai-hero {
+  min-width: 0;
+  padding: 28px;
+  border: 1px solid var(--ph-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-hero-soft);
+  /* Dark ink on a light wash — the opposite of .pro-home's hero, on purpose. --ph-ink already
+     flips for dark mode, so this needs no second rule. */
+  color: var(--ph-ink);
+}
+
+.ai-gen .ai-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+}
+
+.ai-gen .ai-hero__sub {
+  margin: 8px 0 0;
+  max-width: 60ch;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* The hero eyebrow sits on the wash, where --ph-muted is too faint. */
+.ai-gen .ai-hero .ai-eyebrow {
+  color: var(--ph-accent);
+}
+
+/* --- Two-column row ------------------------------------------------------------------------- */
+
+.ai-gen .ai-split {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+.ai-gen .ai-main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* --- Tool grid ------------------------------------------------------------------------------ */
+
+.ai-gen .ai-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-gen .ai-tool {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 12px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  text-align: left;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.ai-gen .ai-tool:hover:not(:disabled) {
+  border-color: var(--ph-accent);
+  background: var(--ph-surface);
+  box-shadow: none;
+  transform: none;
+}
+
+.ai-gen .ai-tool:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+/* Unavailable tools stay legible rather than being greyed into illegibility — the "Coming soon"
+   pill is what communicates the state, not the opacity. */
+.ai-gen .ai-tool--soon,
+.ai-gen .ai-tool--soon:hover {
+  border-style: dashed;
+  background: transparent;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.ai-gen .ai-tool--soon .ai-tile {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.ai-gen .ai-tool__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-gen .ai-tool__top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ai-gen .ai-tool__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.ai-gen .ai-tool__desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ph-muted);
+}
+
+/* --- Artifacts ------------------------------------------------------------------------------ */
+
+.ai-gen .ai-artifacts {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-gen .ai-artifact {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ph-border);
+}
+
+.ai-gen .ai-artifact:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.ai-gen .ai-artifact__open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+.ai-gen .ai-artifact__open:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 3px;
+}
+
+.ai-gen .ai-artifact__spark {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+}
+
+.ai-gen .ai-artifact__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-gen .ai-artifact__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ph-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-gen .ai-artifact__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.ai-gen .ai-artifact__time {
+  font-size: 11px;
+  color: var(--ph-muted);
+}
+
+/* --- Career Copilot panel -------------------------------------------------------------------- */
+
+.ai-gen .ai-copilot {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  /* Tall enough to be a usable chat surface, capped so the page itself still scrolls normally. */
+  height: clamp(520px, calc(100vh - 13rem), 760px);
+}
+
+.ai-gen .ai-copilot__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 16px;
+  border-bottom: 1px solid var(--ph-border);
+}
+
+.ai-gen .ai-copilot__identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-gen .ai-copilot__name {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.ai-gen .ai-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: var(--ph-success);
+}
+
+.ai-gen .ai-status__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  flex-shrink: 0;
+  animation: ai-pulse 2s ease-in-out infinite;
+}
+
+@keyframes ai-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-gen .ai-status__dot {
+    animation: none;
+  }
+}
+
+.ai-gen .ai-chat {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.ai-gen .ai-msg {
+  display: flex;
+}
+
+.ai-gen .ai-msg--user {
+  justify-content: flex-end;
+}
+
+.ai-gen .ai-msg--assistant {
+  justify-content: flex-start;
+}
+
+.ai-gen .ai-msg__bubble {
+  max-width: 88%;
+  min-width: 0;
+  padding: 10px 13px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ai-gen .ai-msg--assistant .ai-msg__bubble {
+  border: 1px solid var(--ph-border);
+  border-bottom-left-radius: 4px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+}
+
+.ai-gen .ai-msg--user .ai-msg__bubble {
+  border-bottom-right-radius: 4px;
+  background: var(--ai-bubble-user);
+  color: #ffffff;
+}
+
+.ai-gen .ai-msg__text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ai-gen .ai-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.ai-gen .ai-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.ai-gen .ai-composer__field {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 14px;
+  background: var(--ph-surface-sunk);
+}
+
+.ai-gen .ai-composer__field:focus-within {
+  border-color: var(--ph-accent);
+}
+
+.ai-gen .ai-composer__input {
+  flex: 1;
+  min-width: 0;
+  max-height: 160px;
+  padding: 6px 0;
+  border: none;
+  background: transparent;
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+}
+
+.ai-gen .ai-composer__input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* --- Job match list + inline copy (rendered inside chat bubbles and the modal) ---------------- */
+
+.ai-gen .ai-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ai-gen .ai-match {
+  padding: 10px;
+  border: 1px solid var(--ph-border);
+  border-radius: 10px;
+  background: var(--ph-surface);
+}
+
+.ai-gen .ai-match__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-gen .ai-match__info {
+  min-width: 0;
+}
+
+.ai-gen .ai-match__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.ai-gen .ai-match__org {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-gen .ai-match__scores {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ai-gen .ai-match__skills {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+}
+
+/* --- Artifact preview modal ------------------------------------------------------------------ */
+
+.ai-gen .ai-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.5);
+  overflow-y: auto;
+}
+
+.ai-gen .ai-modal__panel {
+  width: min(640px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+.ai-gen .ai-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--ph-border);
+}
+
+.ai-gen .ai-modal__title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.ai-gen .ai-modal__body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ph-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ai-gen .ai-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ai-gen .ai-error {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--ph-danger);
+}
+
+.ai-gen .ai-posted {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--ph-success-soft);
+  border-radius: 999px;
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* --- Responsive ------------------------------------------------------------------------------ */
+
+@media (max-width: 1100px) {
+  .ai-gen .ai-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Stacked, the panel no longer has a column to fill, so it takes a fixed comfortable height
+     instead of stretching to the viewport. */
+  .ai-gen .ai-copilot {
+    height: 560px;
+  }
+}
+
+@media (max-width: 620px) {
+  .ai-gen {
+    gap: 16px;
+  }
+
+  .ai-gen .ai-hero {
+    padding: 20px;
+  }
+
+  .ai-gen .ai-hero__title {
+    font-size: 23px;
+  }
+
+  .ai-gen .ai-tools {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-gen .ai-copilot {
+    height: 480px;
+  }
+}
+
+:root[data-theme="dark"] .ai-gen .ai-modal {
+  background: rgba(0, 0, 0, 0.65);
+}
+
+/* =============================================================================================
+   Jobs (/jobs and /pro/jobs) — pages/jobs/JobsPage.jsx
+   =============================================================================================
+   Third Pro surface on the shared --ph-* palette, alongside .pro-home and .ai-gen. It declares
+   NO colours of its own: the soft hero wash is --ph-hero-soft, promoted to :root so this page and
+   the AI Generator cannot drift apart.
+
+   The root .jobs-page is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding.
+   .main-panel already pads the region, and a root that paints its own surface is what made
+   .pro-home render as one giant card in dark mode.
+   ============================================================================================= */
+
+.jobs-page {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives ---------------------------------------------------------------------- */
+
+.jobs-page .jp-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.jobs-page .jp-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.jobs-page .jp-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.jobs-page .jp-card__title {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.jobs-page .jp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.jobs-page .jp-pill--accent {
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+}
+
+.jobs-page .jp-pill--success {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+.jobs-page .jp-empty {
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+.jobs-page .jp-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Buttons (specificity beats the global unlayered `button` rule) --------------------------- */
+
+.jobs-page .jp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+.jobs-page .jp-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.jobs-page .jp-btn:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
+.jobs-page .jp-btn:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.jobs-page .jp-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.jobs-page .jp-btn--primary,
+.jobs-page .jp-btn--primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.jobs-page .jp-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ph-muted);
+  font-weight: 500;
+}
+
+.jobs-page .jp-btn--sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+/* The auto-apply pill is a real toggle, so it is a button and reads its state from the server. */
+.jobs-page .jp-btn--toggle-on,
+.jobs-page .jp-btn--toggle-on:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+/* --- Hero ------------------------------------------------------------------------------------ */
+
+.jobs-page .jp-hero {
+  min-width: 0;
+  padding: 28px;
+  border: 1px solid var(--ph-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-hero-soft);
+  /* Dark ink on a light wash, exactly like .ai-gen's hero. --ph-ink flips per theme, so this
+     needs no second colour rule. */
+  color: var(--ph-ink);
+}
+
+.jobs-page .jp-hero .jp-eyebrow {
+  color: var(--ph-accent);
+}
+
+.jobs-page .jp-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+}
+
+.jobs-page .jp-hero__sub {
+  margin: 8px 0 0;
+  max-width: 60ch;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+.jobs-page .jp-hero__note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* --- Control bar ------------------------------------------------------------------------------ */
+
+.jobs-page .jp-controls__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.jobs-page .jp-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 220px;
+  padding: 8px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.jobs-page .jp-search:focus-within {
+  border-color: var(--ph-accent);
+}
+
+.jobs-page .jp-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.jobs-page .jp-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.jobs-page .jp-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ph-muted);
+}
+
+.jobs-page .jp-field select {
+  padding: 6px 10px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+/* --- Match threshold (read-only) — the same treatment as .pro-home's ------------------------- */
+
+.jobs-page .jp-threshold {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.jobs-page .jp-threshold__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.jobs-page .jp-threshold__value {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.jobs-page .jp-threshold__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #7c3aed 0%,
+    #2563eb var(--jp-threshold-fill, 0%),
+    var(--ph-track-off) var(--jp-threshold-fill, 0%)
+  );
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.jobs-page .jp-threshold__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid var(--ph-accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: not-allowed;
+}
+
+.jobs-page .jp-threshold__slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid var(--ph-accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: not-allowed;
+}
+
+.jobs-page .jp-threshold__caption {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* --- Two-column row --------------------------------------------------------------------------- */
+
+.jobs-page .jp-split {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+.jobs-page .jp-results,
+.jobs-page .jp-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.jobs-page .jp-rail {
+  gap: 20px;
+}
+
+.jobs-page .jp-results__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* --- Job card ---------------------------------------------------------------------------------- */
+
+.jobs-page .jp-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jobs-page .jp-job {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+
+.jobs-page .jp-job:hover {
+  border-color: var(--ph-accent);
+}
+
+/* Focus lands on the title link, so the whole card shows the ring. */
+.jobs-page .jp-job:focus-within {
+  border-color: var(--ph-accent);
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.jobs-page .jp-job__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.jobs-page .jp-job__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.jobs-page .jp-job__title {
+  font-family: var(--font-display, inherit);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ph-ink);
+  text-decoration: none;
+}
+
+.jobs-page .jp-job__title:hover {
+  text-decoration: underline;
+}
+
+.jobs-page .jp-job__title:focus-visible {
+  outline: none;
+}
+
+.jobs-page .jp-job__meta {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.jobs-page .jp-job__desc {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.jobs-page .jp-job__skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.jobs-page .jp-job__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+/* Match score. The number and the word "match" carry the meaning; the ring is decoration, so a
+   reader who cannot distinguish the fill still gets the value. */
+.jobs-page .jp-match {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.jobs-page .jp-match__value {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+.jobs-page .jp-match__label {
+  margin: 0;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.jobs-page .jp-match--none .jp-match__value {
+  color: var(--ph-muted);
+}
+
+/* --- Rail cards --------------------------------------------------------------------------------- */
+
+.jobs-page .jp-companies {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jobs-page .jp-company {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--ph-border);
+  border-radius: 10px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  text-align: left;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+.jobs-page .jp-company--active {
+  border-color: var(--ph-accent);
+  background: var(--ph-accent-soft);
+}
+
+.jobs-page .jp-company:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.jobs-page .jp-company__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.jobs-page .jp-company__name {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jobs-page .jp-company__industry {
+  margin: 1px 0 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jobs-page .jp-company__link {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ph-accent);
+  text-decoration: none;
+}
+
+.jobs-page .jp-company__link:hover {
+  text-decoration: underline;
+}
+
+.jobs-page .jp-clear-filter {
+  margin-top: 10px;
+  align-self: flex-start;
+}
+
+.jobs-page .jp-summary__value {
+  margin: 12px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ph-ink);
+}
+
+.jobs-page .jp-summary__line {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ph-muted);
+}
+
+.jobs-page .jp-summary__note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* --- Responsive ---------------------------------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  .jobs-page .jp-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .jobs-page {
+    gap: 16px;
+  }
+
+  .jobs-page .jp-hero {
+    padding: 20px;
+  }
+
+  .jobs-page .jp-hero__title {
+    font-size: 23px;
+  }
+
+  /* The score column drops under the text rather than squeezing the title to nothing. */
+  .jobs-page .jp-job {
+    flex-wrap: wrap;
+  }
+
+  .jobs-page .jp-job__side {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+  }
+}
+
+/* =============================================================================================
+   Job detail (/jobs/:jobId and /pro/jobs/:jobId) — pages/jobs/JobDetailPage.jsx
+   =============================================================================================
+   Fourth Pro surface on the shared --ph-* palette, alongside .pro-home, .ai-gen and .jobs-page.
+   It declares NO colours of its own — this page is opened straight from the Jobs list, so a
+   local palette here would be the most visible drift in the product.
+
+   The root .job-detail is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no
+   border, no radius. .main-panel already pads and scrolls the region, and a root that paints its
+   own surface is exactly what made .pro-home render as one giant card in dark mode.
+
+   The old page put title, meta, both tag walls, description, requirements, company and apply
+   inside ONE bordered box at one type size. Here each section owns its own card, and the type
+   scale runs h1 30px / card title 16px / prose 15px / meta 13px / eyebrow 10px.
+   ============================================================================================= */
+
+.job-detail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives ---------------------------------------------------------------------- */
+
+.job-detail .jd-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.job-detail .jd-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.job-detail .jd-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.job-detail .jd-card {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.job-detail .jd-card__title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.job-detail .jd-eyebrow + .jd-card__title {
+  margin-top: 4px;
+}
+
+.job-detail .jd-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* The state pill spells out "Applied" and the status, so the colour is reinforcement, never the
+   only carrier of the meaning. */
+.job-detail .jd-pill--success {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+.job-detail .jd-pill--muted {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.job-detail .jd-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ph-muted);
+}
+
+/* Loading / not-found. Same card treatment as the real page, so the states no longer read as a
+   different, flatter product. */
+.job-detail .jd-state {
+  margin: 0;
+  padding: 40px 24px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+  text-align: center;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+/* --- Back link -------------------------------------------------------------------------------- */
+
+.job-detail .jd-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+  text-decoration: none;
+}
+
+.job-detail .jd-back:hover {
+  color: var(--ph-ink);
+}
+
+.job-detail .jd-back:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* --- Header card ------------------------------------------------------------------------------ */
+
+.job-detail .jd-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.job-detail .jd-header__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.job-detail .jd-header__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.job-detail .jd-title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.job-detail .jd-meta {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Salary gets its own step in the scale — on the old page it was the same 13px muted line as the
+   company/location meta, which is why the INR "L" figures were hard to read. */
+.job-detail .jd-salary {
+  margin: 10px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+.job-detail .jd-posted {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+}
+
+/* --- Two-column body -------------------------------------------------------------------------- */
+
+/* Placement, not DOM order: the apply card is FIRST in the markup (so the stacked layout puts the
+   primary action above the description) and is moved into the right column here. .jd-main spans
+   both rows so the rail column has room for the sticky apply card to travel. */
+.job-detail .jd-split {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 20px;
+  min-width: 0;
+}
+
+.job-detail .jd-main {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.job-detail .jd-apply {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  position: sticky;
+  top: 0;
+  /* Never taller than the viewport: a sticky panel that overflows would pin content out of reach
+     for a keyboard user tabbing through the form. */
+  max-height: calc(100vh - 3rem);
+  overflow-y: auto;
+}
+
+.job-detail .jd-about {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: start;
+}
+
+/* --- Skills ------------------------------------------------------------------------------------ */
+
+.job-detail .jd-skillgroup {
+  margin-top: 16px;
+}
+
+.job-detail .jd-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* Required = solid fill, preferred = dashed outline. The distinction the old page drew is kept;
+   only the surface changed. */
+.job-detail .jd-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.job-detail .jd-tag--preferred {
+  border: 1px dashed var(--ph-border);
+  background: transparent;
+  color: var(--ph-muted);
+  font-weight: 500;
+}
+
+/* --- Description prose -------------------------------------------------------------------------- */
+
+/* The single biggest readability win on this page. The string is recruiter free text and is NOT
+   parsed or transformed: white-space: pre-line keeps the author's own newlines, and the generous
+   line-height turns their blank lines into real paragraph gaps. */
+.job-detail .jd-prose {
+  margin: 14px 0 0;
+  max-width: 70ch;
+  white-space: pre-line;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+/* --- Requirements ------------------------------------------------------------------------------ */
+
+.job-detail .jd-list {
+  margin: 14px 0 0;
+  padding-left: 20px;
+  list-style: disc;
+  max-width: 70ch;
+}
+
+.job-detail .jd-list li {
+  margin-top: 8px;
+  padding-left: 4px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--ph-ink);
+}
+
+.job-detail .jd-list li::marker {
+  color: var(--ph-accent);
+}
+
+/* --- customFields (recruiter-defined label/value pairs) ------------------------------------------ */
+
+.job-detail .jd-dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+.job-detail .jd-dl__row {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+.job-detail .jd-dl__label {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ph-muted);
+}
+
+.job-detail .jd-dl__value {
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+/* --- Apply card -------------------------------------------------------------------------------- */
+
+.job-detail .jd-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.job-detail .jd-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ph-muted);
+}
+
+.job-detail .jd-file {
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ph-muted);
+}
+
+.job-detail .jd-file::file-selector-button {
+  margin-right: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.job-detail .jd-file:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.job-detail .jd-error {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ph-danger);
+}
+
+.job-detail .jd-applied {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+.job-detail .jd-applied__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--ph-ink);
+}
+
+.job-detail .jd-applied__status {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* Buttons — the class carries specificity (0,2,0) so it beats the unlayered global `button` rule
+   (0,0,1) that would otherwise repaint the background and re-apply a transform on hover. */
+.job-detail .jd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 10px 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: opacity 150ms ease, background 150ms ease;
+}
+
+.job-detail .jd-btn:hover:not(:disabled),
+.job-detail .jd-btn:active:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+.job-detail .jd-btn:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.job-detail .jd-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.job-detail .jd-btn--primary,
+.job-detail .jd-btn--primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+/* --- About the company -------------------------------------------------------------------------- */
+
+.job-detail .jd-about__text {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ph-muted);
+}
+
+.job-detail .jd-facts {
+  margin: 14px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.job-detail .jd-facts__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.job-detail .jd-facts__row dt {
+  color: var(--ph-muted);
+}
+
+.job-detail .jd-facts__row dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.job-detail .jd-weblink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-accent);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.job-detail .jd-weblink:hover {
+  text-decoration: underline;
+}
+
+.job-detail .jd-weblink:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* --- Responsive ---------------------------------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  /* Single column. The apply card is first in the DOM, so it lands above the description with no
+     duplicated markup — and sticky is dropped, since there is no rail left to pin it to. */
+  .job-detail .jd-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .job-detail .jd-main,
+  .job-detail .jd-apply,
+  .job-detail .jd-about {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .job-detail .jd-apply {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+
+@media (max-width: 620px) {
+  .job-detail {
+    gap: 16px;
+  }
+
+  .job-detail .jd-header {
+    flex-wrap: wrap;
+    padding: 18px;
+  }
+
+  .job-detail .jd-header__side {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+  }
+
+  .job-detail .jd-title {
+    font-size: 23px;
+  }
+
+  .job-detail .jd-card {
+    padding: 16px;
+  }
+
+  .job-detail .jd-split {
+    gap: 16px;
+  }
+
+  .job-detail .jd-main {
+    gap: 16px;
+  }
+}
+
+/* =============================================================================================
+   Applied jobs pipeline (/pro/applied and /applications) — pages/applications/ApplicationsPage.jsx
+   =============================================================================================
+   Fifth Pro surface on the shared --ph-* palette, alongside .pro-home, .ai-gen, .jobs-page and
+   .job-detail. It declares NO colours of its own.
+
+   The root .applied-page is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no
+   border, no radius. .main-panel already pads and scrolls the region, and a root that paints its
+   own surface is what made .pro-home render as one giant card in dark mode.
+
+   READ-ONLY BOARD: there is no drag affordance anywhere in here — no `cursor: grab`, no drop
+   target styling, no placeholder slot. A seeker cannot move their own application between
+   columns, so the layout must not suggest they can.
+   ============================================================================================= */
+
+.applied-page {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives ---------------------------------------------------------------------- */
+
+.applied-page .ap-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.applied-page .ap-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.applied-page .ap-icon--xs {
+  width: 11px;
+  height: 11px;
+}
+
+.applied-page .ap-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.applied-page .ap-card-surface {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.applied-page .ap-section-title {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.applied-page .ap-tile {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.applied-page .ap-tile--sm {
+  width: 26px;
+  height: 26px;
+}
+
+.applied-page .ap-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.applied-page .ap-pill--accent {
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+}
+
+.applied-page .ap-state,
+.applied-page .ap-empty {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ph-muted);
+}
+
+.applied-page .ap-state {
+  padding: 40px 24px;
+}
+
+.applied-page .ap-empty {
+  padding: 24px;
+}
+
+.applied-page .ap-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Buttons — the class carries specificity (0,2,0) so it beats the unlayered global `button` rule
+   (0,0,1) that would otherwise repaint the background and re-apply a transform on hover. */
+.applied-page .ap-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.applied-page .ap-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.applied-page .ap-btn:active:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+.applied-page .ap-btn:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.applied-page .ap-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.applied-page .ap-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ph-muted);
+}
+
+/* --- Hero ------------------------------------------------------------------------------------ */
+
+/* Light lavender wash with DARK ink — the --ph-hero-soft family shared with .ai-gen and
+   .jobs-page, NOT .pro-home's saturated white-on-purple hero. */
+.applied-page .ap-hero {
+  min-width: 0;
+  padding: 28px;
+  border: 1px solid var(--ph-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-hero-soft);
+  color: var(--ph-ink);
+}
+
+.applied-page .ap-hero .ap-eyebrow {
+  color: var(--ph-accent);
+}
+
+.applied-page .ap-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+}
+
+.applied-page .ap-hero__sub {
+  margin: 8px 0 0;
+  max-width: 62ch;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* --- KPI cards -------------------------------------------------------------------------------- */
+
+.applied-page .ap-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.applied-page .ap-kpi {
+  display: flex;
+  flex-direction: column;
+}
+
+.applied-page .ap-kpi__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+.applied-page .ap-kpi__value {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+/* Only rendered where the model actually timestamps the transition (createdAt, acceptedAt).
+   In review and Interview have no such field, so they carry no sub-label at all. */
+.applied-page .ap-kpi__sub {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+}
+
+/* --- Board ------------------------------------------------------------------------------------ */
+
+.applied-page .ap-board-wrap {
+  min-width: 0;
+}
+
+/* The ONLY horizontal scroller on the page. Everything else is min-width: 0, so the five columns
+   can never push the page itself sideways. */
+.applied-page .ap-board {
+  display: flex;
+  gap: 14px;
+  min-width: 0;
+  padding-bottom: 6px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+}
+
+.applied-page .ap-column {
+  display: flex;
+  flex-direction: column;
+  /* Equal width, never squashed: below ~1200px each column holds a readable 244px and the board
+     scrolls; above it they share the row evenly. */
+  flex: 0 0 244px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface-sunk);
+  scroll-snap-align: start;
+}
+
+.applied-page .ap-column__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 0 2px;
+}
+
+.applied-page .ap-column__title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.applied-page .ap-count {
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-muted);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* Independent vertical scroll per column, so one long column does not stretch the whole board. */
+.applied-page .ap-column__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.applied-page .ap-column__empty {
+  margin: 0;
+  padding: 20px 8px;
+  border: 1px dashed var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  text-align: center;
+  font-size: 11px;
+  color: var(--ph-muted);
+}
+
+/* --- Card -------------------------------------------------------------------------------------- */
+
+/* Note what is NOT here: no cursor: grab, no drag handle, no drop-target outline. The pointer
+   cursor advertises navigation to the job, which is the only thing a click does. */
+.applied-page .ap-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+
+.applied-page .ap-card:hover {
+  border-color: var(--ph-accent);
+}
+
+/* Focus lands on the title link, so the whole card shows the ring. */
+.applied-page .ap-card:focus-within {
+  border-color: var(--ph-accent);
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.applied-page .ap-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* The number and the word "Match" carry the meaning — nothing here is colour-coded. */
+.applied-page .ap-match {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.applied-page .ap-match__value {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+.applied-page .ap-match__label {
+  margin: 0;
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.applied-page .ap-card__title {
+  display: block;
+  margin: 10px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ph-ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.applied-page a.ap-card__title:hover {
+  text-decoration: underline;
+}
+
+.applied-page a.ap-card__title:focus-visible {
+  outline: none;
+}
+
+.applied-page .ap-card__meta {
+  margin: 3px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.applied-page .ap-card__foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.applied-page .ap-card__actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ph-border);
+}
+
+/* --- Notifications ------------------------------------------------------------------------------ */
+
+.applied-page .ap-notifications__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.applied-page .ap-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.applied-page .ap-feed__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--ph-border);
+}
+
+.applied-page .ap-feed__row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.applied-page .ap-feed__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.applied-page .ap-feed__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ph-ink);
+}
+
+.applied-page .ap-feed__message {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.applied-page .ap-feed__time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+  white-space: nowrap;
+}
+
+/* --- Responsive ---------------------------------------------------------------------------------- */
+
+/* Wide enough for all five columns to share the row evenly with no scrolling. */
+@media (min-width: 1200px) {
+  .applied-page .ap-column {
+    flex: 1 1 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .applied-page .ap-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .applied-page {
+    gap: 16px;
+  }
+
+  .applied-page .ap-hero {
+    padding: 20px;
+  }
+
+  .applied-page .ap-hero__title {
+    font-size: 23px;
+  }
+
+  /* Narrower cards, still readable — the board keeps scrolling horizontally rather than letting
+     five columns squash. */
+  .applied-page .ap-column {
+    flex: 0 0 218px;
+  }
+
+  .applied-page .ap-column__body {
+    max-height: none;
+  }
+
+  .applied-page .ap-feed__row {
+    flex-wrap: wrap;
+  }
+}
+
+/* =============================================================================================
+   Automations (/pro/automations) — pages/pro/AutomationsPage.jsx
+   =============================================================================================
+   Sixth Pro surface on the shared --ph-* palette, alongside .pro-home, .ai-gen, .jobs-page,
+   .job-detail and .applied-page. It declares NO colours of its own.
+
+   The root .automations-page is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding,
+   no border, no radius. .main-panel already pads and scrolls the region, and a root that paints
+   its own surface is what made .pro-home render as one giant card in dark mode.
+   ============================================================================================= */
+
+.automations-page {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives ---------------------------------------------------------------------- */
+
+.automations-page .au-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.automations-page .au-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.automations-page .au-icon--xs {
+  width: 12px;
+  height: 12px;
+}
+
+.automations-page .au-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.automations-page .au-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.automations-page .au-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.automations-page .au-card__title {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.automations-page .au-tile {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.automations-page .au-tile--sm {
+  width: 26px;
+  height: 26px;
+}
+
+.automations-page .au-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.automations-page .au-pill--sm {
+  padding: 1px 7px;
+  font-size: 10px;
+}
+
+.automations-page .au-pill--success {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+.automations-page .au-note {
+  margin: 12px 0 0;
+  max-width: 62ch;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ph-muted);
+}
+
+.automations-page .au-empty {
+  margin: 0;
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ph-muted);
+}
+
+/* Buttons — the class carries specificity (0,2,0) so it beats the unlayered global `button` rule
+   (0,0,1) that would otherwise repaint the background and re-apply a transform on hover. */
+.automations-page .au-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.automations-page .au-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.automations-page .au-btn:active:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+.automations-page .au-btn:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.automations-page .au-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.automations-page .au-btn--sm {
+  margin-top: 14px;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.automations-page .au-btn--ghost {
+  margin-top: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ph-muted);
+}
+
+/* --- Hero ------------------------------------------------------------------------------------ */
+
+/* Light lavender wash with DARK ink — the --ph-hero-soft family shared with .ai-gen, .jobs-page
+   and .applied-page, NOT .pro-home's saturated white-on-purple hero. */
+.automations-page .au-hero {
+  min-width: 0;
+  padding: 28px;
+  border: 1px solid var(--ph-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-hero-soft);
+  color: var(--ph-ink);
+}
+
+.automations-page .au-hero .au-eyebrow {
+  color: var(--ph-accent);
+}
+
+.automations-page .au-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+}
+
+.automations-page .au-hero__sub {
+  margin: 8px 0 0;
+  max-width: 68ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+/* --- KPI cards -------------------------------------------------------------------------------- */
+
+.automations-page .au-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.automations-page .au-kpi {
+  display: flex;
+  flex-direction: column;
+}
+
+.automations-page .au-kpi__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+.automations-page .au-kpi__value {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+/* The em dash for an unmeasurable figure is muted so it does not read as a value. */
+.automations-page .au-kpi__value--none {
+  color: var(--ph-muted);
+}
+
+.automations-page .au-kpi__sub {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ph-muted);
+}
+
+/* --- Two-column body -------------------------------------------------------------------------- */
+
+.automations-page .au-split {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  align-items: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+.automations-page .au-main,
+.automations-page .au-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* --- Toggle rows ------------------------------------------------------------------------------- */
+
+.automations-page .au-features {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-page .au-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+/* Dimmed, but never the ONLY signal: every disabled row also carries a badge and a visible
+   sentence saying why, and the input itself carries aria-disabled. */
+.automations-page .au-feature--disabled .au-tile {
+  background: var(--ph-track-off);
+}
+
+.automations-page .au-feature__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.automations-page .au-feature__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.automations-page .au-feature__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ph-ink);
+  cursor: pointer;
+}
+
+.automations-page .au-feature--disabled .au-feature__name {
+  cursor: default;
+  color: var(--ph-muted);
+}
+
+.automations-page .au-feature__desc {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+.automations-page .au-feature__note {
+  margin: 6px 0 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--ph-border);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+.automations-page .au-feature__control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.automations-page .au-state {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ph-muted);
+}
+
+/* A real checkbox, restyled — not a div pretending to be a switch. Keyboard, form semantics and
+   the accessibility tree all come free. */
+.automations-page .au-switch {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--ph-track-off);
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.automations-page .au-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 150ms ease;
+}
+
+.automations-page .au-switch:checked {
+  background: var(--ph-tile-gradient);
+}
+
+.automations-page .au-switch:checked::after {
+  transform: translateX(16px);
+}
+
+.automations-page .au-switch:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.automations-page .au-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Match threshold (read-only) — the same treatment as .pro-home's and .jobs-page's ---------- */
+
+.automations-page .au-threshold {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.automations-page .au-threshold__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.automations-page .au-threshold__value {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+.automations-page .au-threshold__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #7c3aed 0%,
+    #2563eb var(--au-threshold-fill, 0%),
+    var(--ph-track-off) var(--au-threshold-fill, 0%)
+  );
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.automations-page .au-threshold__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid var(--ph-accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: not-allowed;
+}
+
+.automations-page .au-threshold__slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid var(--ph-accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: not-allowed;
+}
+
+.automations-page .au-threshold__caption {
+  margin: 10px 0 0;
+  max-width: 62ch;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* --- Activity stream ---------------------------------------------------------------------------- */
+
+.automations-page .au-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-page .au-activity__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--ph-border);
+}
+
+.automations-page .au-activity__row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.automations-page .au-activity__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.automations-page .au-activity__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.automations-page .au-activity__sub {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.automations-page .au-activity__side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.automations-page .au-activity__time {
+  font-size: 11px;
+  color: var(--ph-muted);
+  white-space: nowrap;
+}
+
+.automations-page .au-dismiss {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ph-muted);
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+.automations-page .au-dismiss:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  box-shadow: none;
+  transform: none;
+}
+
+.automations-page .au-dismiss:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.automations-page .au-dismiss:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Responsive ---------------------------------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  .automations-page .au-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .automations-page .au-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .automations-page {
+    gap: 16px;
+  }
+
+  .automations-page .au-hero {
+    padding: 20px;
+  }
+
+  .automations-page .au-hero__title {
+    font-size: 23px;
+  }
+
+  .automations-page .au-card {
+    padding: 16px;
+  }
+
+  /* The switch drops below the text instead of staying pinned right and squeezing the label to
+     nothing. */
+  .automations-page .au-feature {
+    flex-wrap: wrap;
+  }
+
+  .automations-page .au-feature__control {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding-top: 4px;
+  }
+}
+
+/* =============================================================================================
+   Messages (/chat) — pages/chat/ChatPage.jsx
+   =============================================================================================
+   Seventh Pro surface on the shared --ph-* palette, alongside .pro-home, .ai-gen, .jobs-page,
+   .job-detail, .applied-page and .automations-page. It declares NO colours of its own.
+
+   Reached by seekers, organizations AND admins (/chat is mounted under a bare ProtectedRoute with
+   no role allowlist), so nothing here may assume a seeker. Recruiters' separate
+   /recruiter/messages page is styled entirely with Tailwind utilities and shares no class name
+   with this block — restyling here cannot reach it.
+
+   The root .chat-page is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no
+   border, no radius. .main-panel already pads and scrolls the region, and a root that paints its
+   own surface is what made .pro-home render as one giant card in dark mode.
+   ============================================================================================= */
+
+/* --- THE HEIGHT CHAIN -------------------------------------------------------------------------
+   A chat view needs a fixed-height shell with internal scrolling. The app shell is:
+
+     .page-shell (min-height: 100vh, flex row)
+       .app-sidebar
+       .app-main-wrapper (flex: 1, flex column, overflow: hidden)
+         .app-header
+         .main-panel (flex: 1, overflow-y: auto, padding: 1.5rem)   <- our parent
+
+   .page-shell uses MIN-height, so the chain never hands down a definite height and a percentage
+   height on our root would resolve to auto. Rather than hardcode `100vh - <header>` (which
+   guesses the header height and breaks the moment it changes), this scopes a definite height onto
+   the shell ONLY when a chat page is mounted. Every other page is untouched, .main-panel keeps its
+   own padding and scrolling, and "viewport minus header" falls out of the existing flex layout
+   instead of being estimated.
+
+   Browsers without :has() simply fall back to today's content-driven behaviour — no worse than
+   before, nothing breaks.
+   ---------------------------------------------------------------------------------------------- */
+.page-shell:has(.chat-page) {
+  height: 100vh;
+}
+
+.chat-page {
+  min-width: 0;
+  /* Now resolvable: .main-panel has a definite height thanks to the rule above. */
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* --- Shared primitives ---------------------------------------------------------------------- */
+
+.chat-page .cp-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.chat-page .cp-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.chat-page .cp-icon--xs {
+  width: 11px;
+  height: 11px;
+}
+
+.chat-page .cp-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Compact page header — deliberately NOT a gradient hero. Chat needs the vertical space. */
+.chat-page .cp-head {
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.chat-page .cp-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-accent);
+}
+
+.chat-page .cp-title {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+}
+
+.chat-page .cp-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.chat-page .cp-hint {
+  margin: 0;
+  padding: 12px 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+.chat-page .cp-hint--error {
+  color: var(--ph-danger);
+}
+
+.chat-page .cp-empty {
+  margin: 12px 0;
+  padding: 24px 16px;
+  border: 1px dashed var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  text-align: center;
+}
+
+.chat-page .cp-empty--centred {
+  margin: auto;
+  max-width: 340px;
+  border-style: solid;
+}
+
+.chat-page .cp-empty__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.chat-page .cp-empty__body {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+.chat-page .cp-group-label {
+  margin: 14px 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.chat-page .cp-group-label:first-child {
+  margin-top: 4px;
+}
+
+/* Buttons — the class carries specificity (0,2,0) so it beats the unlayered global `button` rule
+   (0,0,1) that would otherwise repaint the background and re-apply a transform on hover. */
+.chat-page .cp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.chat-page .cp-btn:hover:not(:disabled),
+.chat-page .cp-btn:active:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.chat-page .cp-btn:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.chat-page .cp-btn--sm {
+  padding: 6px 11px;
+  font-size: 12px;
+}
+
+/* --- Avatars ---------------------------------------------------------------------------------- */
+
+.chat-page .cp-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.chat-page .cp-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-page .cp-avatar--md {
+  width: 38px;
+  height: 38px;
+  font-size: 14px;
+}
+
+.chat-page .cp-avatar--sm {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+
+/* --- The two-panel shell ----------------------------------------------------------------------- */
+
+/* min-height: 0 is load-bearing on every level of this chain: without it a flex item refuses to
+   shrink below its content, the panels grow, and the internal scrollers never engage. */
+.chat-page .cp-shell {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.chat-page .cp-list,
+.chat-page .cp-thread {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+/* --- Conversation list --------------------------------------------------------------------------- */
+
+.chat-page .cp-list__head {
+  flex-shrink: 0;
+  padding: 12px;
+  border-bottom: 1px solid var(--ph-border);
+}
+
+.chat-page .cp-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.chat-page .cp-search:focus-within {
+  border-color: var(--ph-accent);
+}
+
+.chat-page .cp-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+/* Scrolls independently of the thread. */
+.chat-page .cp-list__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 8px;
+}
+
+.chat-page .cp-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-page .cp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  /* The 3px left inset is where the selected accent bar lands, so rows never shift on selection. */
+  padding: 9px 10px 9px 13px;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: var(--ph-radius-tile);
+  background: transparent;
+  color: var(--ph-ink);
+  font-family: inherit;
+  text-align: left;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.chat-page .cp-row:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.chat-page .cp-row:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: -2px;
+}
+
+.chat-page .cp-row:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Tinted surface + left accent bar, the same way the sidebar nav marks its active item. */
+.chat-page .cp-row--selected,
+.chat-page .cp-row--selected:hover {
+  border-left-color: var(--ph-accent);
+  background: var(--ph-accent-soft);
+}
+
+.chat-page .cp-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-page .cp-row__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-page .cp-row__name {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ph-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-page .cp-row__time {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--ph-muted);
+  white-space: nowrap;
+}
+
+/* Single line, ellipsised — a long last message can never grow the row. */
+.chat-page .cp-row__preview {
+  display: block;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ph-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Thread header ------------------------------------------------------------------------------- */
+
+.chat-page .cp-thread__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--ph-border);
+}
+
+.chat-page .cp-thread__identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-page .cp-thread__name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ph-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-page .cp-thread__sub {
+  margin: 1px 0 0;
+  font-size: 12px;
+  color: var(--ph-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-page .cp-thread__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Only meaningful in the single-panel layout; hidden on desktop where both panels are visible. */
+.chat-page .cp-back {
+  display: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+.chat-page .cp-back:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+/* --- Message list --------------------------------------------------------------------------------- */
+
+/* The thread's own scroll region. Auto-scroll to newest is handled in JS and deliberately skipped
+   while the reader has scrolled up. */
+.chat-page .cp-messages {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.chat-page .cp-messages:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: -2px;
+}
+
+.chat-page .cp-day {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ph-muted);
+}
+
+.chat-page .cp-day::before,
+.chat-page .cp-day::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ph-border);
+}
+
+/* One group = consecutive messages from the same sender on the same day. */
+.chat-page .cp-group {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 100%;
+  margin-top: 10px;
+}
+
+.chat-page .cp-group--mine {
+  justify-content: flex-end;
+}
+
+.chat-page .cp-group__body {
+  display: flex;
+  flex-direction: column;
+  /* Bubbles shrink to their content instead of filling the column: a two-word message renders as
+     a two-word bubble. */
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  max-width: 68%;
+}
+
+.chat-page .cp-group--mine .cp-group__body {
+  align-items: flex-end;
+}
+
+/* Name appears once per group, not once per message. */
+.chat-page .cp-group__name {
+  margin: 0 0 2px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+.chat-page .cp-msg {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chat-page .cp-msg--mine {
+  align-items: flex-end;
+}
+
+.chat-page .cp-bubble {
+  min-width: 0;
+  /* fit-content is what stops a short message rendering an oversized block. */
+  width: fit-content;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 14px 14px 14px 4px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+}
+
+.chat-page .cp-bubble--mine {
+  border-color: transparent;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.chat-page .cp-bubble__text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  /* Long unbroken strings and URLs wrap instead of forcing horizontal overflow. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Timestamp lives OUTSIDE the bubble, muted, so it never interrupts the message text. */
+.chat-page .cp-msg__time {
+  font-size: 10px;
+  color: var(--ph-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The auto-sent AI badge. Real text — it is what tells a user which messages they did not
+   personally write — so it must stay legible against BOTH bubble backgrounds. */
+.chat-page .cp-autotag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+/* On the accent-filled outbound bubble the accent-on-accent pill would disappear, so it inverts. */
+.chat-page .cp-bubble--mine .cp-autotag {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+/* --- Composer --------------------------------------------------------------------------------------- */
+
+.chat-page .cp-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 12px 14px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.chat-page .cp-composer textarea {
+  flex: 1;
+  min-width: 0;
+  max-height: 120px;
+  padding: 10px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 18px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  overflow-y: auto;
+}
+
+.chat-page .cp-composer textarea:focus {
+  border-color: var(--ph-accent);
+}
+
+.chat-page .cp-composer textarea::placeholder {
+  color: var(--ph-muted);
+}
+
+.chat-page .cp-send {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: opacity 150ms ease;
+}
+
+.chat-page .cp-send:hover:not(:disabled),
+.chat-page .cp-send:active:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+.chat-page .cp-send:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.chat-page .cp-send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --- Responsive ------------------------------------------------------------------------------------- */
+
+@media (max-width: 1000px) {
+  .chat-page .cp-shell {
+    grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+  }
+
+  .chat-page .cp-group__body {
+    max-width: 78%;
+  }
+}
+
+/* Single panel at a time: the list, or the thread with a back control. Two squashed columns are
+   worse than either one on their own. */
+@media (max-width: 720px) {
+  .chat-page .cp-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chat-page .cp-thread {
+    display: none;
+  }
+
+  .chat-page .cp-shell--thread .cp-list {
+    display: none;
+  }
+
+  .chat-page .cp-shell--thread .cp-thread {
+    display: flex;
+  }
+
+  .chat-page .cp-back {
+    display: grid;
+  }
+
+  /* "Close chat" and the back arrow do the same thing here, and the arrow is the one that reads
+     as navigation on a single-panel layout. */
+  .chat-page .cp-thread__actions .cp-btn {
+    display: none;
+  }
+
+  .chat-page .cp-group__body {
+    max-width: 85%;
+  }
+}
+
+/* =============================================================================================
+   Notifications (/notifications and /pro/notifications) — pages/notifications/NotificationsPage.jsx
+   =============================================================================================
+   Eighth Pro surface on the shared --ph-* palette, alongside .pro-home, .ai-gen, .jobs-page,
+   .job-detail, .applied-page, .automations-page and .chat-page. It declares NO colours of its own.
+
+   Both routes sit behind ProRoute, which only redirects seekers who are not Pro — an organization
+   or admin session passes straight through, so nothing here may assume a seeker.
+
+   The root .notif-page is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no
+   border, no radius. .main-panel already pads and scrolls the region, and a root that paints its
+   own surface is what made .pro-home render as one giant card in dark mode.
+   ============================================================================================= */
+
+.notif-page {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives ---------------------------------------------------------------------- */
+
+.notif-page .nt-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.notif-page .nt-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.notif-page .nt-icon--xs {
+  width: 12px;
+  height: 12px;
+}
+
+.notif-page .nt-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.notif-page .nt-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.notif-page .nt-card__title {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.notif-page .nt-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.notif-page .nt-pill--state {
+  align-self: flex-start;
+  margin-top: 8px;
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+  font-size: 11px;
+}
+
+.notif-page .nt-notice {
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px dashed var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+.notif-page .nt-empty {
+  margin: 0;
+  padding: 32px 16px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ph-muted);
+}
+
+.notif-page .nt-empty--error {
+  color: var(--ph-danger);
+}
+
+/* Buttons — the class carries specificity (0,2,0) so it beats the unlayered global `button` rule
+   (0,0,1) that would otherwise repaint the background and re-apply a transform on hover. */
+.notif-page .nt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.notif-page .nt-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.notif-page .nt-btn:active:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+.notif-page .nt-btn:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.notif-page .nt-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.notif-page .nt-btn--primary,
+.notif-page .nt-btn--primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.notif-page .nt-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ph-muted);
+}
+
+.notif-page .nt-btn--sm {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+/* --- Hero ------------------------------------------------------------------------------------ */
+
+/* Light lavender wash with DARK ink — the --ph-hero-soft family shared with .ai-gen, .jobs-page,
+   .applied-page and .automations-page, NOT .pro-home's saturated white-on-purple hero. */
+.notif-page .nt-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 28px;
+  border: 1px solid var(--ph-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-hero-soft);
+  color: var(--ph-ink);
+}
+
+.notif-page .nt-hero__body {
+  min-width: 0;
+}
+
+.notif-page .nt-hero .nt-eyebrow {
+  color: var(--ph-accent);
+}
+
+.notif-page .nt-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+}
+
+.notif-page .nt-hero__sub {
+  margin: 8px 0 0;
+  max-width: 66ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+.notif-page .nt-hero__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+/* --- KPI cards -------------------------------------------------------------------------------- */
+
+.notif-page .nt-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.notif-page .nt-kpi {
+  display: flex;
+  flex-direction: column;
+}
+
+.notif-page .nt-kpi__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+.notif-page .nt-kpi__value {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+/* The em dash for an uncountable figure is muted so it never reads as a value. */
+.notif-page .nt-kpi__value--none {
+  color: var(--ph-muted);
+}
+
+/* --- Activity card ----------------------------------------------------------------------------- */
+
+.notif-page .nt-activity__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.notif-page .nt-shown {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Filter chips ------------------------------------------------------------------------------- */
+
+/* Own scroll container: on a narrow screen the chips scroll sideways here rather than making the
+   page scroll. They still wrap first wherever there is room. */
+.notif-page .nt-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-bottom: 2px;
+  min-width: 0;
+}
+
+.notif-page .nt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.notif-page .nt-chip:hover {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.notif-page .nt-chip:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+/* Selection is carried by the fill AND the pressed state in the accessibility tree, never by
+   colour alone. */
+.notif-page .nt-chip--active,
+.notif-page .nt-chip--active:hover {
+  border-color: transparent;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.notif-page .nt-chip__count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.notif-page .nt-chip--active .nt-chip__count {
+  background: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+}
+
+/* --- Rows --------------------------------------------------------------------------------------- */
+
+.notif-page .nt-list {
+  margin-top: 14px;
+  min-width: 0;
+}
+
+.notif-page .nt-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notif-page .nt-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 12px 12px 14px;
+  /* The left accent bar. Transparent when read, so nothing shifts between states. */
+  border: 1px solid var(--ph-border);
+  border-left: 3px solid transparent;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+.notif-page .nt-row--unread {
+  border-left-color: var(--ph-accent);
+  background: var(--ph-surface);
+}
+
+.notif-page .nt-tile {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.notif-page .nt-tile--accent {
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+}
+
+.notif-page .nt-tile--success {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+.notif-page .nt-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.notif-page .nt-row__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.notif-page .nt-row__title {
+  margin: 0;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+/* A real button, because it navigates. Styled as text so the row still reads as a row. */
+.notif-page button.nt-row__title--link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+.notif-page button.nt-row__title--link:hover {
+  text-decoration: underline;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.notif-page button.nt-row__title--link:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Unread is spelled out, not signalled by the dot's colour alone. */
+.notif-page .nt-unread {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ph-accent);
+}
+
+.notif-page .nt-unread__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ph-accent);
+}
+
+.notif-page .nt-row__message {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.notif-page .nt-row__time {
+  margin: 5px 0 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+}
+
+.notif-page .nt-row__inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Row actions. Present in the DOM at every viewport — hover only raises the opacity, so touch and
+   keyboard users can always reach them. */
+.notif-page .nt-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: opacity 150ms ease;
+}
+
+.notif-page .nt-row:hover .nt-row__actions,
+.notif-page .nt-row:focus-within .nt-row__actions {
+  opacity: 1;
+}
+
+.notif-page .nt-act {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-muted);
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.notif-page .nt-act:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  box-shadow: none;
+  transform: none;
+}
+
+.notif-page .nt-act--danger:hover:not(:disabled) {
+  color: var(--ph-danger);
+}
+
+.notif-page .nt-act:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.notif-page .nt-act:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Responsive ---------------------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .notif-page .nt-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .notif-page {
+    gap: 16px;
+  }
+
+  .notif-page .nt-hero {
+    padding: 20px;
+  }
+
+  .notif-page .nt-hero__title {
+    font-size: 23px;
+  }
+
+  .notif-page .nt-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .notif-page .nt-card {
+    padding: 16px;
+  }
+
+  /* Below this width wrapping the chips would consume most of the screen, so the row becomes its
+     own horizontal scroller instead — the page itself still never scrolls sideways. */
+  .notif-page .nt-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  /* The actions drop under the text rather than squeezing the title to nothing. */
+  .notif-page .nt-row {
+    flex-wrap: wrap;
+  }
+
+  .notif-page .nt-row__actions {
+    opacity: 1;
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* =============================================================================================
+   Help & Feedback (/help and /pro/help) — pages/help/HelpPage.jsx
+   =============================================================================================
+   Ninth Pro surface on the shared --ph-* palette, alongside .pro-home, .ai-gen, .jobs-page,
+   .job-detail, .applied-page, .automations-page, .chat-page and .notif-page. It declares NO
+   colours of its own.
+
+   The root .help-page is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no
+   border, no radius. .main-panel already pads and scrolls the region, and a root that paints its
+   own surface is what made .pro-home render as one giant card in dark mode.
+   ============================================================================================= */
+
+.help-page {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives ---------------------------------------------------------------------- */
+
+.help-page .hp-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.help-page .hp-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.help-page .hp-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.help-page .hp-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.help-page .hp-muted {
+  font-size: 11px;
+  color: var(--ph-muted);
+}
+
+.help-page .hp-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.help-page .hp-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.help-page .hp-card__title {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.help-page .hp-card__sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+.help-page .hp-tile {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.help-page .hp-tile--muted {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.help-page .hp-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.help-page .hp-pill--accent {
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+}
+
+.help-page .hp-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--ph-accent);
+}
+
+.help-page .hp-empty {
+  margin: 0;
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+.help-page .hp-error {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-danger);
+}
+
+.help-page .hp-panel {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+.help-page .hp-panel--centred {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.help-page .hp-panel--fill {
+  height: 100%;
+  min-height: 180px;
+}
+
+.help-page .hp-panel__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.help-page .hp-panel__body {
+  margin: 6px 0 0;
+  max-width: 52ch;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+/* Buttons — the class carries specificity (0,2,0) so it beats the unlayered global `button` rule
+   (0,0,1) that would otherwise repaint the background and re-apply a transform on hover. */
+.help-page .hp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin-top: 10px;
+  padding: 9px 16px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.help-page .hp-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.help-page .hp-btn:active:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+.help-page .hp-btn:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.help-page .hp-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.help-page .hp-btn--primary,
+.help-page .hp-btn--primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.help-page .hp-btn--sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+/* --- Hero ------------------------------------------------------------------------------------ */
+
+/* Light lavender wash with DARK ink — the --ph-hero-soft family shared with .ai-gen, .jobs-page,
+   .applied-page, .automations-page and .notif-page, NOT .pro-home's saturated hero. */
+.help-page .hp-hero {
+  min-width: 0;
+  padding: 28px;
+  border: 1px solid var(--ph-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-hero-soft);
+  color: var(--ph-ink);
+}
+
+.help-page .hp-hero .hp-eyebrow {
+  color: var(--ph-accent);
+}
+
+.help-page .hp-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+}
+
+.help-page .hp-hero__sub {
+  margin: 8px 0 0;
+  max-width: 68ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+/* --- Channel cards ---------------------------------------------------------------------------- */
+
+.help-page .hp-channels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.help-page .hp-channel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  font-family: inherit;
+  text-align: left;
+  transform: none;
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+
+.help-page button.hp-channel:hover {
+  border-color: var(--ph-accent);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+  transform: none;
+}
+
+.help-page .hp-channel:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+/* Dimmed, but never the ONLY signal: the card also carries a "Not available" pill and a sentence
+   saying why, and it is not a button at all, so there is nothing to click. */
+.help-page .hp-channel--disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.help-page .hp-channel__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.help-page .hp-channel__sub {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+/* --- Two-column row ---------------------------------------------------------------------------- */
+
+.help-page .hp-split {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  align-items: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* --- FAQ accordion ------------------------------------------------------------------------------ */
+
+.help-page .hp-faqs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.help-page .hp-faq {
+  min-width: 0;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  overflow: hidden;
+}
+
+.help-page .hp-faq--open {
+  border-color: var(--ph-accent);
+  background: var(--ph-surface);
+}
+
+.help-page .hp-faq__heading {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.help-page .hp-faq__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+.help-page .hp-faq__trigger:hover {
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.help-page .hp-faq__trigger:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: -2px;
+}
+
+.help-page .hp-faq__chevron {
+  transition: transform 200ms ease;
+}
+
+.help-page .hp-faq--open .hp-faq__chevron {
+  transform: rotate(180deg);
+}
+
+/* The panel uses `hidden`, so it is removed from the accessibility tree when closed rather than
+   just visually collapsed. Grid-rows animates the open transition without needing a measured
+   pixel height. */
+.help-page .hp-faq__panel {
+  display: grid;
+  grid-template-rows: 1fr;
+  padding: 0 14px 12px;
+  transition: grid-template-rows 200ms ease;
+}
+
+.help-page .hp-faq__panel[hidden] {
+  display: none;
+}
+
+.help-page .hp-faq__answer {
+  margin: 0;
+  min-height: 0;
+  max-width: 64ch;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+/* --- Feedback form -------------------------------------------------------------------------------- */
+
+.help-page .hp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.help-page .hp-fieldset {
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+
+.help-page .hp-legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ph-muted);
+}
+
+.help-page .hp-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.help-page .hp-chip {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.help-page .hp-chip:hover {
+  background: var(--ph-surface-sunk);
+}
+
+/* The real radio inside is visually hidden, so the focus ring has to be drawn on the label. */
+.help-page .hp-chip:has(input:focus-visible) {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.help-page .hp-chip--active,
+.help-page .hp-chip--active:hover {
+  border-color: transparent;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.help-page .hp-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ph-muted);
+}
+
+.help-page .hp-textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+  outline: none;
+}
+
+.help-page .hp-textarea:focus {
+  border-color: var(--ph-accent);
+}
+
+.help-page .hp-textarea::placeholder {
+  color: var(--ph-muted);
+}
+
+.help-page .hp-footnote {
+  margin: 0;
+  max-width: 56ch;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+/* --- Your conversations ---------------------------------------------------------------------------- */
+
+.help-page .hp-convos__split {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  align-items: start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.help-page .hp-tickets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.help-page .hp-ticket {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--ph-border);
+  border-left: 3px solid transparent;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  text-align: left;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.help-page .hp-ticket:hover {
+  background: var(--ph-surface);
+  box-shadow: none;
+  transform: none;
+}
+
+.help-page .hp-ticket:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.help-page .hp-ticket--selected,
+.help-page .hp-ticket--selected:hover {
+  border-left-color: var(--ph-accent);
+  background: var(--ph-accent-soft);
+}
+
+.help-page .hp-ticket__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.help-page .hp-ticket__subject {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.help-page .hp-ticket__unread {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.help-page .hp-ticket__preview {
+  display: block;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.help-page .hp-ticket__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.help-page .hp-thread {
+  min-width: 0;
+}
+
+.help-page .hp-thread__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ph-border);
+}
+
+.help-page .hp-thread__identity {
+  min-width: 0;
+}
+
+.help-page .hp-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding-right: 4px;
+  min-width: 0;
+}
+
+.help-page .hp-msg {
+  display: flex;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.help-page .hp-msg--mine {
+  justify-content: flex-end;
+}
+
+.help-page .hp-bubble {
+  width: fit-content;
+  max-width: 85%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 12px;
+  background: var(--ph-surface);
+}
+
+.help-page .hp-bubble--mine {
+  border-color: transparent;
+  background: var(--ph-accent-soft);
+}
+
+.help-page .hp-bubble__sender {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.help-page .hp-bubble__body {
+  margin: 5px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ph-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.help-page .hp-bubble__time {
+  margin: 5px 0 0;
+  font-size: 10px;
+  color: var(--ph-muted);
+}
+
+.help-page .hp-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.help-page .hp-reply .hp-btn {
+  margin-top: 0;
+}
+
+/* --- Responsive ----------------------------------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  .help-page .hp-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .help-page .hp-channels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .help-page .hp-convos__split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .help-page .hp-panel--fill {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 620px) {
+  .help-page {
+    gap: 16px;
+  }
+
+  .help-page .hp-hero {
+    padding: 20px;
+  }
+
+  .help-page .hp-hero__title {
+    font-size: 23px;
+  }
+
+  .help-page .hp-card {
+    padding: 16px;
+  }
+
+  .help-page .hp-bubble {
+    max-width: 100%;
+  }
+}
+
+/* =============================================================================================
+   Settings (/pro/settings) — pages/pro/SettingsPage.jsx
+   =============================================================================================
+   Tenth Pro surface on the shared --ph-* palette, alongside .pro-home, .ai-gen, .jobs-page,
+   .job-detail, .applied-page, .automations-page, .chat-page, .notif-page and .help-page. It
+   declares NO colours of its own — every value below reads a token.
+
+   The root .settings-page is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no
+   border, no radius. .main-panel already pads and scrolls this region, and a root that paints its
+   own surface is exactly what made .pro-home render as one giant card in dark mode.
+   ============================================================================================= */
+
+.settings-page {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives ---------------------------------------------------------------------- */
+
+.settings-page .st-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.settings-page .st-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.settings-page .st-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.settings-page .st-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.settings-page .st-eyebrow--danger {
+  color: var(--ph-danger);
+}
+
+.settings-page .st-hint {
+  margin: 0;
+  max-width: 78ch;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+.settings-page .st-error {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-danger);
+}
+
+.settings-page .st-empty {
+  margin: 0;
+  padding: 20px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+.settings-page .st-link {
+  color: var(--ph-accent);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.settings-page .st-tile {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.settings-page .st-tile--muted {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.settings-page .st-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.settings-page .st-pill--accent {
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+}
+
+.settings-page .st-pill--ok {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+/* Buttons — the class carries specificity (0,2,0) so it beats the unlayered global `button` rule
+   (0,0,1) that would otherwise repaint the background and re-apply a transform on hover. */
+.settings-page .st-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 9px 16px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.settings-page .st-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.settings-page .st-btn:active:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+.settings-page .st-btn:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.settings-page .st-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-page .st-btn--primary,
+.settings-page .st-btn--primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.settings-page .st-btn--danger,
+.settings-page .st-btn--danger:hover:not(:disabled) {
+  border-color: var(--ph-danger);
+  background: transparent;
+  color: var(--ph-danger);
+}
+
+.settings-page .st-btn--danger:hover:not(:disabled) {
+  background: var(--ph-danger);
+  color: #ffffff;
+}
+
+/* Sits on the saturated plan card, so it borrows that card's white ink rather than --ph-ink.
+   Both hover selectors carry :not(:disabled) so they reach (0,4,0) and can actually beat
+   `.settings-page .st-btn:hover:not(:disabled)` above — without it the base rule would repaint
+   this button with --ph-surface-sunk on hover, since it is the more specific of the two. */
+.settings-page .st-btn--on-dark,
+.settings-page .st-btn--on-dark:hover:not(:disabled) {
+  align-self: flex-start;
+  margin-top: 4px;
+  border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+.settings-page .st-btn--on-dark:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.settings-page .st-btn--on-dark:focus-visible {
+  outline-color: #ffffff;
+}
+
+.settings-page .st-btn--sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+/* --- Hero ------------------------------------------------------------------------------------ */
+
+/* Light lavender wash with DARK ink — the --ph-hero-soft family shared with .ai-gen, .jobs-page,
+   .applied-page, .automations-page, .notif-page and .help-page, NOT .pro-home's saturated hero.
+   The saturated gradient appears exactly once on this page, on the plan card. */
+.settings-page .st-hero {
+  min-width: 0;
+  padding: 28px;
+  border: 1px solid var(--ph-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-hero-soft);
+  color: var(--ph-ink);
+}
+
+.settings-page .st-hero .st-eyebrow {
+  color: var(--ph-accent);
+}
+
+.settings-page .st-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+}
+
+.settings-page .st-hero__sub {
+  margin: 8px 0 0;
+  max-width: 68ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+/* --- Rail + content -------------------------------------------------------------------------- */
+
+.settings-page .st-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* Sticky against .main-panel's scroll. `top` is small because .main-panel scrolls inside its own
+   box below the app header — there is no overlapping bar to clear. */
+.settings-page .st-rail {
+  position: sticky;
+  top: 0;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.settings-page .st-rail__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-page .st-rail__link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--ph-radius-tile);
+  color: var(--ph-muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.settings-page .st-rail__link:hover {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+}
+
+.settings-page .st-rail__link:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.settings-page .st-rail__link--active,
+.settings-page .st-rail__link--active:hover {
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+}
+
+.settings-page .st-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* --- Cards ----------------------------------------------------------------------------------- */
+
+.settings-page .st-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+  /* Sections take focus when the rail jumps to them; the browser default ring is fine but the
+     scroll offset is not, so give the jump a little breathing room. */
+  scroll-margin-top: 12px;
+}
+
+.settings-page .st-card:focus {
+  outline: none;
+}
+
+.settings-page .st-card:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.settings-page .st-card--danger {
+  border-color: var(--ph-danger);
+  background: var(--ph-surface);
+}
+
+.settings-page .st-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.settings-page .st-card__title {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.settings-page .st-card__sub {
+  margin: 4px 0 0;
+  max-width: 68ch;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* --- Account form ----------------------------------------------------------------------------- */
+
+.settings-page .st-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.settings-page .st-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.settings-page .st-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-page .st-field--wide {
+  grid-column: 1 / -1;
+}
+
+.settings-page .st-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ph-muted);
+}
+
+.settings-page .st-input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+}
+
+.settings-page .st-input:focus {
+  border-color: var(--ph-accent);
+}
+
+.settings-page .st-input::placeholder {
+  color: var(--ph-muted);
+}
+
+.settings-page .st-input:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.settings-page .st-subhead {
+  padding-top: 4px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.settings-page .st-subhead__title {
+  margin: 12px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.settings-page .st-subhead__sub {
+  margin: 4px 0 0;
+  max-width: 72ch;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+.settings-page .st-form__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+
+.settings-page .st-form__state {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+}
+
+/* --- Rows (notifications, integrations, danger zone) ------------------------------------------- */
+
+.settings-page .st-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+.settings-page .st-notice .st-icon {
+  margin-top: 2px;
+  color: var(--ph-accent);
+}
+
+.settings-page .st-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.settings-page .st-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+/* Dimmed, but never the ONLY signal that the control does nothing: each row also carries a
+   "Not built" pill, and the card above them explains why in a sentence. */
+.settings-page .st-row--inert {
+  opacity: 0.75;
+}
+
+.settings-page .st-row__text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.settings-page .st-row__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.settings-page .st-row__sub {
+  margin: 4px 0 0;
+  max-width: 76ch;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.settings-page .st-row__control {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* A real checkbox, restyled — same construction as .automations-page's switch, so keyboard
+   behaviour, form semantics and the accessibility tree all come free. */
+.settings-page .st-switch {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--ph-track-off);
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.settings-page .st-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 150ms ease;
+}
+
+.settings-page .st-switch:checked {
+  background: var(--ph-tile-gradient);
+}
+
+.settings-page .st-switch:checked::after {
+  transform: translateX(16px);
+}
+
+.settings-page .st-switch:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.settings-page .st-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Visibility choices ------------------------------------------------------------------------ */
+
+.settings-page .st-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+
+.settings-page .st-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.settings-page .st-choice:hover {
+  border-color: var(--ph-accent);
+}
+
+.settings-page .st-choice--active {
+  border-color: var(--ph-accent);
+  background: var(--ph-accent-soft);
+}
+
+.settings-page .st-choice--locked {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.settings-page .st-choice--locked:hover {
+  border-color: var(--ph-border);
+}
+
+/* The radio stays a real, visible radio — this is a choice the user is making, not a decorative
+   card, so the control that carries the state should be the one they can see. */
+.settings-page .st-radio {
+  margin: 2px 0 0;
+  flex-shrink: 0;
+  accent-color: var(--ph-accent);
+  cursor: inherit;
+}
+
+.settings-page .st-choice:has(.st-radio:focus-visible) {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.settings-page .st-choice__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-page .st-choice__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.settings-page .st-choice__sub {
+  max-width: 76ch;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+/* --- Plan card ---------------------------------------------------------------------------------- */
+
+/* The one saturated surface on this page — .pro-home's hero gradient, white ink on top. */
+.settings-page .st-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 20px;
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-hero-gradient);
+  color: #ffffff;
+}
+
+.settings-page .st-plan__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.settings-page .st-plan__eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.settings-page .st-plan__name {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 20px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.settings-page .st-plan__status {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.settings-page .st-plan__price {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: #ffffff;
+}
+
+.settings-page .st-plan__period {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.settings-page .st-plan__meta {
+  margin: 0;
+  max-width: 72ch;
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.settings-page .st-plan__meta--dim {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* --- Responsive ----------------------------------------------------------------------------------- */
+
+/* The rail collapses ABOVE the content and lays its entries out in a row. It stops being sticky
+   here — a horizontal bar pinned over a narrow column eats too much of the reading area. */
+@media (max-width: 940px) {
+  .settings-page .st-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-page .st-rail {
+    position: static;
+  }
+
+  .settings-page .st-rail__list {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 620px) {
+  .settings-page {
+    gap: 16px;
+  }
+
+  .settings-page .st-hero {
+    padding: 20px;
+  }
+
+  .settings-page .st-hero__title {
+    font-size: 23px;
+  }
+
+  .settings-page .st-card {
+    padding: 16px;
+  }
+
+  .settings-page .st-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The rail's entries scroll sideways INSIDE the rail rather than letting the page scroll. */
+  .settings-page .st-rail__list {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .settings-page .st-rail__link {
+    white-space: nowrap;
+  }
+
+  /* The control drops under the text instead of squeezing the description to nothing. */
+  .settings-page .st-row {
+    flex-wrap: wrap;
+  }
+
+  .settings-page .st-row__control {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .settings-page .st-plan {
+    padding: 16px;
+  }
+
+  .settings-page .st-plan__price {
+    font-size: 22px;
+  }
+}
+
+/* =============================================================================================
+   Upgrade / subscription (/upgrade) — pages/subscriptions/UpgradePage.jsx
+   =============================================================================================
+   Eleventh Pro surface on the shared --ph-* palette, alongside .pro-home, .ai-gen, .jobs-page,
+   .job-detail, .applied-page, .automations-page, .chat-page, .notif-page, .help-page and
+   .settings-page. It declares NO colours of its own — every value below reads a token.
+
+   The root .upgrade-page is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no
+   border, no radius. .main-panel already pads and scrolls the region, and a root that paints its
+   own surface is what made .pro-home render as one giant card in dark mode.
+   ============================================================================================= */
+
+.upgrade-page {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives ---------------------------------------------------------------------- */
+
+.upgrade-page .up-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.upgrade-page .up-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.upgrade-page .up-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.upgrade-page .up-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.upgrade-page .up-error {
+  margin: 0;
+  padding: 16px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-danger);
+}
+
+.upgrade-page .up-empty {
+  margin: 0;
+  padding: 20px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+.upgrade-page .up-link {
+  color: var(--ph-accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.upgrade-page .up-link:hover {
+  text-decoration: underline;
+}
+
+.upgrade-page .up-link:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.upgrade-page .up-tile {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.upgrade-page .up-tile--muted {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.upgrade-page .up-tile--lg {
+  width: 44px;
+  height: 44px;
+}
+
+/* Status pills never rely on colour alone — the state word is the pill's own text, so a
+   monochrome or colour-blind reading still says "Expired" rather than just looking amber. */
+.upgrade-page .up-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.upgrade-page .up-pill--ok {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+.upgrade-page .up-pill--warn {
+  background: var(--ph-danger-soft);
+  color: var(--ph-danger);
+}
+
+.upgrade-page .up-pill--accent {
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+}
+
+.upgrade-page .up-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+.upgrade-page .up-notice .up-icon {
+  margin-top: 2px;
+  color: var(--ph-accent);
+}
+
+.upgrade-page .up-notice--warn {
+  border-color: var(--ph-danger);
+  background: var(--ph-danger-soft);
+}
+
+.upgrade-page .up-notice--warn .up-icon {
+  color: var(--ph-danger);
+}
+
+/* Buttons — the class carries specificity (0,2,0) so it beats the unlayered global `button` rule
+   (0,0,1) that would otherwise repaint the background and re-apply a transform on hover. */
+.upgrade-page .up-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 10px 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.upgrade-page .up-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.upgrade-page .up-btn:active:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+.upgrade-page .up-btn:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.upgrade-page .up-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.upgrade-page .up-btn--primary,
+.upgrade-page .up-btn--primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+/* --- Hero ------------------------------------------------------------------------------------ */
+
+/* Light lavender wash with DARK ink — the --ph-hero-soft family shared with every sibling Pro
+   surface, NOT .pro-home's saturated hero. Compact: this page's substance is below it. */
+.upgrade-page .up-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 22px 24px;
+  border: 1px solid var(--ph-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-hero-soft);
+  color: var(--ph-ink);
+}
+
+.upgrade-page .up-hero__text {
+  min-width: 0;
+}
+
+.upgrade-page .up-hero .up-eyebrow {
+  color: var(--ph-accent);
+}
+
+.upgrade-page .up-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 27px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+}
+
+.upgrade-page .up-hero__sub {
+  margin: 6px 0 0;
+  max-width: 66ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+/* --- Cards ----------------------------------------------------------------------------------- */
+
+.upgrade-page .up-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.upgrade-page .up-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.upgrade-page .up-card__title {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.upgrade-page .up-card__sub {
+  margin: 4px 0 0;
+  max-width: 62ch;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* The non-billable fallback is a single centred card, not a page layout. */
+.upgrade-page .up-blocked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 40px 18px;
+}
+
+/* --- Status KPIs ------------------------------------------------------------------------------ */
+
+.upgrade-page .up-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.upgrade-page .up-kpi {
+  display: flex;
+  flex-direction: column;
+}
+
+.upgrade-page .up-kpi__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.upgrade-page .up-kpi__label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+.upgrade-page .up-kpi__value {
+  margin: 10px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+/* The em dash for a value the API did not return is muted so it never reads as a value. */
+.upgrade-page .up-kpi__value--none {
+  color: var(--ph-muted);
+}
+
+.upgrade-page .up-kpi__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.upgrade-page .up-kpi__helper {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ph-muted);
+}
+
+/* --- Two-column layout ------------------------------------------------------------------------- */
+
+.upgrade-page .up-split {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  align-items: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* Already-Pro seekers get plan selection demoted: it keeps working, it just stops competing with
+   the hero's "Open Pro tools" for attention. */
+.upgrade-page .up-plans--secondary {
+  background: var(--ph-surface-sunk);
+}
+
+/* --- Plan cards --------------------------------------------------------------------------------- */
+
+.upgrade-page .up-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+
+.upgrade-page .up-plan {
+  position: relative;
+  display: block;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.upgrade-page .up-plan:hover {
+  border-color: var(--ph-accent);
+}
+
+/* The selected card gets the gradient accent as a top rule rather than a full fill, so the price
+   and features keep reading against --ph-surface at full contrast. */
+.upgrade-page .up-plan--selected {
+  border-color: var(--ph-accent);
+  background: var(--ph-accent-soft);
+}
+
+.upgrade-page .up-plan--selected::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  right: -1px;
+  height: 4px;
+  border-radius: var(--ph-radius-card) var(--ph-radius-card) 0 0;
+  background: var(--ph-tile-gradient);
+}
+
+.upgrade-page .up-plan:has(.up-plan__radio:focus-visible) {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+/* A real radio, kept visible: this is a single-select choice, so the control that carries the
+   state should be the one the user can see, and `checked` reaches the accessibility tree without
+   any aria-* mirror that could drift out of sync with it. */
+.upgrade-page .up-plan__radio {
+  position: absolute;
+  top: 18px;
+  right: 16px;
+  margin: 0;
+  accent-color: var(--ph-accent);
+  cursor: inherit;
+}
+
+.upgrade-page .up-plan__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-right: 24px;
+}
+
+.upgrade-page .up-plan__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.upgrade-page .up-plan__label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ph-muted);
+}
+
+/* Real text, not a background image or a ::before glyph — it is read out, selectable and
+   translatable like any other content. */
+.upgrade-page .up-plan__saving {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.upgrade-page .up-plan__price {
+  font-family: var(--font-display, inherit);
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+.upgrade-page .up-plan__price-none {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+.upgrade-page .up-plan__term {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.upgrade-page .up-plan--selected .up-plan__term {
+  background: var(--ph-surface);
+}
+
+.upgrade-page .up-plan__features {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.upgrade-page .up-plan__feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-ink);
+}
+
+.upgrade-page .up-plan__tick {
+  margin-top: 3px;
+  color: var(--ph-success);
+}
+
+.upgrade-page .up-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+/* --- Checkout panel ------------------------------------------------------------------------------ */
+
+.upgrade-page .up-session {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+.upgrade-page .up-session__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.upgrade-page .up-session__plan {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.upgrade-page .up-session__amount {
+  margin: 10px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+.upgrade-page .up-session__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0 14px;
+  font-size: 11px;
+}
+
+.upgrade-page .up-session__meta dt {
+  font-weight: 700;
+  color: var(--ph-muted);
+}
+
+.upgrade-page .up-session__meta dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--ph-ink);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.upgrade-page .up-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 190px;
+  padding: 24px 16px;
+  border: 1px dashed var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  text-align: center;
+}
+
+.upgrade-page .up-empty-state__title {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.upgrade-page .up-empty-state__sub {
+  margin: 0;
+  max-width: 34ch;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+/* --- Responsive ------------------------------------------------------------------------------------ */
+
+@media (max-width: 1100px) {
+  .upgrade-page .up-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .upgrade-page .up-empty-state {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .upgrade-page .up-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .upgrade-page {
+    gap: 16px;
+  }
+
+  .upgrade-page .up-hero {
+    padding: 20px;
+  }
+
+  .upgrade-page .up-hero__title {
+    font-size: 22px;
+  }
+
+  .upgrade-page .up-card {
+    padding: 16px;
+  }
+
+  .upgrade-page .up-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .upgrade-page .up-plan-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .upgrade-page .up-plan__price,
+  .upgrade-page .up-session__amount {
+    font-size: 23px;
+  }
+}

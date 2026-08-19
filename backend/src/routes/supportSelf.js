@@ -3,7 +3,8 @@ const requireAuth = require("../middleware/requireAuth");
 const {
   listMyTickets,
   getMyTicket,
-  replyToMyTicket
+  replyToMyTicket,
+  getMyResponseTime
 } = require("../controllers/supportSelfController");
 
 const router = express.Router();
@@ -24,6 +25,10 @@ const router = express.Router();
 // Authorization is per-row instead: every handler scopes its query to the requester derived from
 // the verified session, and resolveRequesterScope rejects any role that cannot own a ticket.
 router.use(requireAuth);
+
+// Registered ABOVE /tickets/:id so a future rename can never let ":id" swallow it. It returns an
+// aggregate only — see the controller for why this one is safe outside the requester scope.
+router.get("/response-time", getMyResponseTime);
 
 router.get("/tickets", listMyTickets);
 router.get("/tickets/:id", getMyTicket);

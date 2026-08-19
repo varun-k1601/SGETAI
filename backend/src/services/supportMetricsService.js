@@ -136,8 +136,32 @@ async function buildSupportMetrics({ slaTargetMinutes }) {
   };
 }
 
+// The ONLY support measurement that is safe to show a requester: a single aggregate median over
+// the same window the admin desk uses, with the sample size so a reading taken from two tickets
+// cannot be mistaken for a stable one.
+//
+// Deliberately returns nothing else. buildSupportMetrics() above reports open counts, unread
+// counts, SLA breach rates and assignee spread — desk-internal figures that tell a requester about
+// other people's tickets. This function touches no ticket contents, no ids, and no per-ticket
+// fields; it reduces the window to two numbers before it returns.
+//
+// null minutes = no ticket received a first response in the window. The caller must render that as
+// "not enough data", never as 0 minutes.
+async function buildPublicResponseStat() {
+  const tickets = await loadRespondedTickets(daysAgo(RESPONSE_WINDOW_DAYS));
+  const minutes = tickets.map(toResponseMinutes).filter((value) => value !== null);
+  const value = median(minutes);
+
+  return {
+    windowDays: RESPONSE_WINDOW_DAYS,
+    sampleSize: minutes.length,
+    medianMinutes: value === null ? null : Math.round(value)
+  };
+}
+
 module.exports = {
   RESPONSE_WINDOW_DAYS,
   buildSupportMetrics,
+  buildPublicResponseStat,
   median
 };

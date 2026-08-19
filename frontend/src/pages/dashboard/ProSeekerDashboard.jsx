@@ -3,100 +3,118 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest, apiFormRequest } from "../../services/api";
 import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
-import { HeroBanner } from "../../components/HeroBanner";
-import { AutomationSection } from "../../components/AutomationSection";
-import { getMediaUrl } from "../../components/CompanyLogo";
+import { PostCard, formatRelativeTime, getInitials } from "../../components/feedPostKit";
 
-function getInitials(name) {
-  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
-  const initials = `${parts[0]?.[0] || ""}${parts[1]?.[0] || ""}`;
-  return initials.toUpperCase() || "?";
-}
+// STYLING APPROACH — scoped global CSS (`.pro-home ...` in styles.css), not Tailwind and not
+// inline style objects. This file previously mixed all three; it now uses exactly one.
+//
+// Tailwind was not a real option here. index.css contains `@import "tailwindcss"` plus an `@theme`
+// block that declares FONTS ONLY — no colour tokens are wired into Tailwind v4's engine, and
+// styles.css defines no fallback classes either. So `bg-card`, `border-border`,
+// `text-muted-foreground`, `bg-primary` and friends generate zero CSS anywhere in this app: they
+// are silent no-ops (grep styles.css for `.bg-card` — there is no such rule). On top of that, the
+// global `button { background; border-radius; padding; border; box-shadow; transform; transition }`
+// rule in styles.css is unlayered, so it beats any Tailwind utility applied to a <button>. Those
+// two facts together are the entire reason the inline style objects existed.
+//
+// Scoped CSS sidesteps both: `.pro-home .ph-btn` (0,2,0) outranks bare `button` (0,0,1), and every
+// colour is a real custom property, which is also what makes the dark-mode swap possible — the
+// palette is declared once as tokens and overridden under `:root[data-theme="dark"] .pro-home`.
+// This is the same pattern the admin console already uses.
+//
+// PostCard and its button style objects were moved to components/feedPostKit.jsx: three pages
+// imported them from here, and they render on pages that have no `.pro-home` ancestor.
 
-// Post content has no dedicated tags field — these pills are parsed straight out of the real
-// text the author typed (e.g. "...open to #backend roles"), not a fabricated taxonomy.
-function extractHashtags(content) {
-  const matches = String(content || "").match(/#[a-zA-Z0-9_]+/g) || [];
-  return [...new Set(matches)];
-}
-
-const ORGANIZATION_POST_TYPE_LABELS = {
-  CompanyUpdate: "Company Update",
-  HiringPost: "Hiring Post",
-  Promotion: "Promotion",
-  Announcement: "Announcement",
+const ICON_PATHS = {
+  radar: (
+    <>
+      <path d="M19.07 4.93A10 10 0 0 0 6.99 3.34" />
+      <path d="M4 6h.01" />
+      <path d="M2.29 9.62A10 10 0 1 0 21.31 8.35" />
+      <path d="M16.24 7.76A6 6 0 1 0 8.23 16.67" />
+      <path d="M12 18h.01" />
+      <path d="M17.99 11.66A6 6 0 0 1 15.77 16.67" />
+      <circle cx="12" cy="12" r="2" />
+    </>
+  ),
+  target: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </>
+  ),
+  "trending-up": (
+    <>
+      <path d="M16 7h6v6" />
+      <path d="m22 7-8.5 8.5-5-5L2 17" />
+    </>
+  ),
+  "user-plus": (
+    <>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <line x1="19" x2="19" y1="8" y2="14" />
+      <line x1="22" x2="16" y1="11" y2="11" />
+    </>
+  ),
+  briefcase: (
+    <>
+      <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+      <rect width="20" height="14" x="2" y="6" rx="2" />
+    </>
+  ),
+  "message-square": <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
+  refresh: (
+    <>
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+      <path d="M8 16H3v5" />
+    </>
+  ),
+  close: (
+    <>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z" />
+      <circle cx="12" cy="13" r="3" />
+    </>
+  ),
+  video: (
+    <>
+      <path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" />
+      <rect x="2" y="6" width="14" height="12" rx="2" />
+    </>
+  ),
 };
 
-// This app's global `button { background, border-radius, padding, border, box-shadow, color,
-// transform, transition }` rule in styles.css is unlayered, so it silently wins over any Tailwind
-// utility class applied directly to a <button> (see AutomationSection.jsx's FeatureToggle for the
-// original diagnosis). Every ghost/flat button below needs these specific properties reset inline;
-// layout classes (flex, gap, flex-1, text size, etc.) are unaffected and stay as Tailwind classes.
-export const ghostButtonStyle = {
-  border: "none",
-  background: "transparent",
-  boxShadow: "none",
-  color: "inherit",
-  fontWeight: 500,
-  transform: "none",
-  transition: "none",
-};
+function Icon({ name, className = "ph-icon" }) {
+  const paths = ICON_PATHS[name];
 
-export const pillTriggerStyle = {
-  ...ghostButtonStyle,
-  borderRadius: "9999px",
-  padding: "0.625rem 1rem",
-  border: "1px solid var(--border)",
-  background: "var(--surface-muted)",
-  textAlign: "left",
-};
-
-export const actionButtonStyle = {
-  ...ghostButtonStyle,
-  borderRadius: "0.5rem",
-  padding: "0.5rem 0.75rem",
-};
-
-const dismissIconButtonStyle = {
-  border: "1px solid var(--border)",
-  borderRadius: "9999px",
-  background: "var(--surface)",
-  boxShadow: "none",
-  color: "var(--text-muted)",
-  fontWeight: 500,
-  padding: "0.3rem",
-  transform: "none",
-  transition: "none",
-};
-
-function formatRelativeTime(dateValue) {
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) {
-    return "just now";
+  if (!paths) {
+    return null;
   }
 
-  const diffSeconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
-
-  if (diffSeconds < 60) {
-    return "just now";
-  }
-
-  const diffMinutes = Math.floor(diffSeconds / 60);
-  if (diffMinutes < 60) {
-    return `${diffMinutes}m ago`;
-  }
-
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) {
-    return `${diffHours}h ago`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) {
-    return "yesterday";
-  }
-
-  return `${diffDays}d ago`;
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      {paths}
+    </svg>
+  );
 }
 
 function isWithinDays(dateValue, days) {
@@ -117,192 +135,45 @@ function humanizeSkipReason(reason) {
   return String(reason).replace(/_/g, " ");
 }
 
-function PostMedia({ media }) {
-  const [hasFailed, setHasFailed] = useState(false);
-  const mediaUrl = getMediaUrl(media);
+// Applications written by the auto-apply worker. Both spellings are live in the Application
+// model's own source enum (["Manual", "AutoApply", "auto"]), so matching only one would undercount.
+const AUTO_APPLY_SOURCES = new Set(["auto", "AutoApply"]);
 
-  if (!mediaUrl || hasFailed) {
-    return null;
-  }
+// Rendered wherever a figure has no source in this system. A single sentinel rather than scattered
+// literals, so "we cannot measure this" can never be confused with a measured zero.
+const NOT_TRACKED = null;
 
-  if (media.fileType === "image") {
-    return (
-      <img
-        src={mediaUrl}
-        alt="Post attachment"
-        className="max-h-96 w-full rounded-xl object-cover"
-        onError={() => setHasFailed(true)}
-      />
-    );
-  }
-
-  if (media.fileType === "video") {
-    return (
-      <video src={mediaUrl} controls className="max-h-96 w-full rounded-xl" onError={() => setHasFailed(true)} />
-    );
-  }
+function HeroStat({ icon, value, label, note }) {
+  const isAvailable = value !== NOT_TRACKED && value !== undefined;
 
   return (
-    <a href={mediaUrl} target="_blank" rel="noreferrer" className="text-sm font-medium text-primary underline">
-      Open attachment
-    </a>
+    <div className="ph-stat">
+      <Icon name={icon} className="ph-stat__icon" />
+      <p className="ph-stat__value">{isAvailable ? value : "—"}</p>
+      <p className="ph-stat__label">{label}</p>
+      {!isAvailable && note ? <p className="ph-stat__note">{note}</p> : null}
+    </div>
   );
 }
 
-export function PostCard({ post, session, commentValue, onCommentChange, isMutating, onLike, onComment, onDelete, isDeleting }) {
-  const [showComments, setShowComments] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
-  const isOrganization = post.authorModel === "Organization";
-  const postTypeLabel = isOrganization
-    ? ORGANIZATION_POST_TYPE_LABELS[post.postType] || "Company Update"
-    : null;
-  const avatarUrl = getMediaUrl(post.author?.avatar);
-  const hashtags = extractHashtags(post.content);
-  // Mirrors the backend's own ownership check in deletePost (authorId === req.user.id) — this only
-  // controls whether the option is shown, the real enforcement lives server-side. Not scoped to
-  // JobSeeker authors only: this card is shared with RecruiterCompanyPostsPage.jsx, so an
-  // organization viewing its own post needs the same delete option.
-  const isOwnPost = String(post.authorId) === String(session?.userId);
-
+// A real checkbox with role="switch". The visible track/knob is the ::before/::after of the
+// adjacent span, so the control the user clicks IS the input — not a <button> imitating one.
+function Switch({ id, checked, disabled, onChange, label }) {
   return (
-    <article className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-xl shadow-elegant hover:shadow-xl transition">
-      <div className="flex items-start gap-3 p-5">
-        {avatarUrl ? (
-          <img
-            src={avatarUrl}
-            alt={post.author?.name || "Author"}
-            className="h-11 w-11 shrink-0 rounded-full object-cover"
-          />
-        ) : (
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-linear-to-r from-purple-500 to-blue-500 text-sm font-semibold text-white">
-            {getInitials(post.author?.name)}
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold leading-tight">{post.author?.name || "Platform user"}</h3>
-            {isOrganization && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                {postTypeLabel}
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground">{post.author?.subtitle}</p>
-          <p className="text-xs text-muted-foreground">{formatRelativeTime(post.createdAt)}</p>
-        </div>
-        {isOwnPost && (
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowMenu((current) => !current)}
-              style={actionButtonStyle}
-              className="rounded-full p-1.5 text-muted-foreground"
-              aria-label="Post options"
-            >
-              ⋯
-            </button>
-            {showMenu && (
-              <div
-                className="absolute right-0 top-full z-10 mt-1 min-w-36 rounded-lg border border-border/60 bg-card shadow-elegant overflow-hidden"
-              >
-                <button
-                  type="button"
-                  disabled={isDeleting}
-                  onClick={() => {
-                    setShowMenu(false);
-                    onDelete(post._id);
-                  }}
-                  style={{ ...ghostButtonStyle, padding: "0.5rem 0.75rem", width: "100%" }}
-                  className="text-left text-sm text-red-500 hover:bg-surface"
-                >
-                  {isDeleting ? "Deleting…" : "Delete post"}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="px-5 pb-4 space-y-3">
-        <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{post.content}</p>
-
-        {post.media?.length ? (
-          <div className="grid gap-2">
-            {post.media.map((media) => (
-              <PostMedia key={media.filePath || media.url} media={media} />
-            ))}
-          </div>
-        ) : null}
-
-        {hashtags.length ? (
-          <div className="flex flex-wrap gap-1.5">
-            {hashtags.map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium text-primary"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        ) : null}
-      </div>
-
-      <div className="flex items-center justify-between border-t border-border/60 px-3 py-2 text-sm text-muted-foreground">
-        <button
-          type="button"
-          onClick={() => onLike(post._id)}
-          disabled={isMutating}
-          style={{ ...actionButtonStyle, color: post.likedByMe ? "var(--brand)" : "inherit" }}
-          className="flex flex-1 items-center justify-center gap-2 text-xs"
-        >
-          {post.likedByMe ? "❤️" : "🤍"} {post.likesCount || 0}
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowComments((current) => !current)}
-          style={actionButtonStyle}
-          className="flex flex-1 items-center justify-center gap-2 text-xs"
-        >
-          💬 {post.commentsCount || 0}
-        </button>
-      </div>
-
-      {showComments && (
-        <div className="border-t border-border/60 px-5 py-3 space-y-3">
-          {post.recentComments?.length ? (
-            <div className="space-y-2">
-              {post.recentComments.map((comment) => (
-                <div key={comment._id} className="text-sm">
-                  <span className="font-semibold">{comment.userName || "User"}</span>{" "}
-                  <span className="text-muted-foreground">{comment.content}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">No comments yet.</p>
-          )}
-          <form
-            className="flex items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onComment(post._id);
-            }}
-          >
-            <input
-              type="text"
-              value={commentValue || ""}
-              onChange={(event) => onCommentChange(post._id, event.target.value)}
-              placeholder="Write a comment..."
-              className="flex-1 rounded-full border border-border bg-surface/60 px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-            />
-            <button type="submit" disabled={isMutating || !String(commentValue || "").trim()}>
-              Comment
-            </button>
-          </form>
-        </div>
-      )}
-    </article>
+    <span className="ph-switch">
+      <input
+        id={id}
+        type="checkbox"
+        role="switch"
+        className="ph-switch__input"
+        checked={checked}
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="ph-switch__track" aria-hidden="true" />
+    </span>
   );
 }
 
@@ -440,6 +311,15 @@ export function ProSeekerDashboard() {
     enabled: Boolean(session?.accessToken),
   });
 
+  // Nothing the seeker already fetches exposes RecruiterIntroduction, so the auto-connects tile
+  // had no source until this endpoint was added to proFeaturesController.
+  const introductionStatsQuery = useQuery({
+    queryKey: ["automations", "recruiter-introductions", "stats"],
+    queryFn: () =>
+      apiRequest("/pro/recruiter-introductions/stats", { token: session.accessToken }),
+    enabled: Boolean(session?.accessToken),
+  });
+
   const updatePreferencesMutation = useMutation({
     mutationFn: (patch) =>
       apiRequest("/pro/auto-apply/preferences", {
@@ -458,7 +338,7 @@ export function ProSeekerDashboard() {
 
   // Activity rows are computed from AutoApplyRun.results[], not their own documents, so there's
   // nothing to soft-delete server-side — dismissing just records the row's stable key so it gets
-  // filtered out of `activityStream` above. The underlying run history is never touched.
+  // filtered out of `activityStream` below. The underlying run history is never touched.
   const dismissActivityMutation = useMutation({
     mutationFn: (key) =>
       apiRequest("/pro/agent/activity/dismiss", {
@@ -493,20 +373,36 @@ export function ProSeekerDashboard() {
   const runs = runsQuery.data?.runs || [];
   const applications = applicationsQuery.data?.applications || [];
 
-  const runsLast7Days = runs.filter((run) => isWithinDays(run.ranAt || run.createdAt, 7));
-  const autoAppliesThisWeek = runsLast7Days.reduce((sum, run) => sum + (run.applicationsCreated || 0), 0);
+  // ---- Hero figures. Every one of these is computed from a real document; nothing is a literal.
+  const autoAppliedThisWeek = applications.filter(
+    (app) => AUTO_APPLY_SOURCES.has(app.source) && isWithinDays(app.createdAt, 7)
+  ).length;
+  const interviewsScheduled = applications.filter((app) => app.status === "Interview").length;
   const jobsScanned = runs.reduce((sum, run) => sum + (run.jobsChecked || 0), 0);
-  const matchingJobs = runs.reduce((sum, run) => sum + (run.matchingJobs || 0), 0);
-  const applicationsThisWeek = applications.filter((app) => isWithinDays(app.createdAt, 7)).length;
-  const interviewsCount = applications.filter((app) => app.status === "Interview").length;
 
-  // Average ATS match across the seeker's own real applications — more representative
-  // of actual outcomes than averaging only auto-apply run results, and simpler than
-  // reconciling two different score populations.
-  const avgMatch = applications.length
-    ? Math.round(applications.reduce((sum, app) => sum + (app.atsScore || 0), 0) / applications.length)
-    : null;
-  const avgMatchDisplay = avgMatch === null ? "—" : `${avgMatch}%`;
+  // Averaged over applications that actually carry a score. atsScore has no schema default, so an
+  // unscored application is `undefined` — counting those as 0 would drag the mean toward zero and
+  // report a worse match rate than the seeker actually has.
+  const scoredApplications = applications.filter((app) => Number.isFinite(app.atsScore));
+  const avgMatch = scoredApplications.length
+    ? Math.round(
+        scoredApplications.reduce((sum, app) => sum + app.atsScore, 0) / scoredApplications.length
+      )
+    : NOT_TRACKED;
+
+  const autoConnects = introductionStatsQuery.data?.stats?.total ?? NOT_TRACKED;
+
+  // NO SOURCE EXISTS for either of these.
+  //
+  // "Recruiters responded": Application has no reply/response field at all, and although
+  // RecruiterIntroduction.status carries Accepted/Declined with a respondedAt date, NOTHING in the
+  // codebase ever writes them — every introduction stays Pending for its whole life. Rendering a
+  // count would mean rendering a permanent 0 that reads as "no recruiter ever replied".
+  //
+  // "Reply rate": there is no baseline anywhere to compare against, so the reference's "4.2x" is
+  // not a number this system could ever produce.
+  const recruitersResponded = NOT_TRACKED;
+  const replyRate = NOT_TRACKED;
 
   const dismissedActivityKeys = preferencesQuery.data?.dismissedActivityKeys || [];
   const dismissedActivityKeySet = new Set(dismissedActivityKeys);
@@ -529,7 +425,8 @@ export function ProSeekerDashboard() {
       if (result.status === "applied") {
         return {
           key: result.key,
-          icon: "💼",
+          tone: "applied",
+          icon: "briefcase",
           title: `Applied to ${result.title}`,
           subtitle: `${result.companyName || "Company"} · ${result.score}% match · tailored resume`,
           time: formatRelativeTime(result.ranAt),
@@ -538,7 +435,8 @@ export function ProSeekerDashboard() {
 
       return {
         key: result.key,
-        icon: "🚫",
+        tone: "skipped",
+        icon: "close",
         title: `Skipped: ${result.title}`,
         subtitle: `${result.companyName || "Company"} · ${
           Number.isFinite(result.score) ? `${result.score}% match · ` : ""
@@ -562,74 +460,270 @@ export function ProSeekerDashboard() {
     dismissAllActivityMutation.mutate(activityStream.map((activity) => activity.key));
   }
 
-  function handleToggleAutomation(featureId, nextEnabled) {
+  function handleToggleAutomation(field, nextEnabled) {
     if (updatePreferencesMutation.isPending) {
       return;
     }
-
-    if (featureId === "autoApply") {
-      updatePreferencesMutation.mutate({ enabled: nextEnabled });
-    } else if (featureId === "autoConnect") {
-      updatePreferencesMutation.mutate({ autoConnectEnabled: nextEnabled });
-    } else if (featureId === "autoDM") {
-      updatePreferencesMutation.mutate({ autoDMEnabled: nextEnabled });
-    }
+    updatePreferencesMutation.mutate({ [field]: nextEnabled });
   }
 
-  const automationFeatures = [
+  const isAutoApplyOn = Boolean(preferences.enabled);
+  // The master consent for reaching out to a named human. Auto-connect and auto-DM are only
+  // CHANNEL choices underneath it: recruiterIntroductionWorker's candidate filter requires
+  // autoIntroduceToRecruiters before it ever looks at the two flags below. Surfacing that here
+  // rather than letting someone flip a switch that provably does nothing.
+  const introductionsOptedIn = Boolean(preferences.autoIntroduceToRecruiters);
+  const isAutoConnectOn = Boolean(preferences.autoConnectEnabled);
+  const isAutoDMOn = Boolean(preferences.autoDMEnabled);
+
+  const automationRows = [
     {
-      id: "autoApply",
+      field: "enabled",
       icon: "briefcase",
-      name: "Auto-apply engine",
-      description: "Apply to jobs that meet your benchmark — automatically.",
-      enabled: Boolean(preferences.enabled),
+      title: "Auto-apply engine",
+      description: "Applies to roles that clear the platform match threshold, with a tailored resume.",
+      enabled: isAutoApplyOn,
+      note: null,
     },
     {
-      id: "autoConnect",
-      icon: "linkedin",
-      name: "Auto-connect",
-      description: "Connect with recruiters automatically.",
-      enabled: Boolean(preferences.autoConnectEnabled),
+      field: "autoConnectEnabled",
+      icon: "user-plus",
+      title: "Auto-connect to recruiters",
+      description:
+        "Sends a connection request to the hiring contact on a matched role, on your behalf.",
+      enabled: isAutoConnectOn,
+      note: introductionsOptedIn
+        ? null
+        : "Recruiter introductions are off, so this has no effect yet — turn them on in Automations.",
     },
     {
-      id: "autoDM",
+      field: "autoDMEnabled",
       icon: "message-square",
-      name: "Auto-DM intros",
-      description: "Send a first message after connecting.",
-      enabled: Boolean(preferences.autoDMEnabled),
+      title: "Auto-DM warm intros",
+      // Reference copy said "after a connection is accepted". There is no acceptance step:
+      // recruiterIntroductionWorker writes the connection and the message in the same pass, and
+      // nothing ever moves an introduction out of Pending. Worded to match what actually happens.
+      description:
+        "Sends an AI-drafted first message under your name at the same time the connection is made.",
+      enabled: isAutoDMOn,
+      note: !introductionsOptedIn
+        ? "Recruiter introductions are off, so this has no effect yet — turn them on in Automations."
+        : !isAutoConnectOn
+          ? "Needs auto-connect: a message is never sent without the connection it belongs to."
+          : null,
     },
   ];
 
+  const matchThreshold =
+    typeof preferences.matchThreshold === "number" ? preferences.matchThreshold : null;
+
   return (
-    <main className="flex-1 overflow-y-auto px-6 py-6 lg:px-8 lg:py-8 bg-muted/30">
+    <main className="pro-home">
       <AutoDismissFeedback
         feedback={feedback}
         onClear={() => setFeedback({ type: "", message: "" })}
       />
 
-      <HeroBanner
-        headline={`${autoAppliesThisWeek} jobs auto-applied this week`}
-        subheadline={`avg match ${avgMatchDisplay} · ${interviewsCount} interview${interviewsCount === 1 ? "" : "s"} scheduled`}
-        metrics={[
-          { icon: "⚡", value: jobsScanned, label: "Jobs scanned" },
-          { icon: "🎯", value: avgMatchDisplay, label: "Avg match" },
-          { icon: "📊", value: matchingJobs, label: "Matching jobs" },
-          { icon: "📅", value: applicationsThisWeek, label: "Applications this wk" },
-        ]}
-      />
+      {/* ---------------------------------------------------------------- Hero */}
+      <section className="ph-hero">
+        <p className="ph-hero__badge">
+          <span aria-hidden="true">✨</span> AI is working for you
+        </p>
+        <h1 className="ph-hero__title">
+          {autoAppliedThisWeek} job{autoAppliedThisWeek === 1 ? "" : "s"} auto-applied this week
+        </h1>
+        <p className="ph-hero__sub">
+          <span>{recruitersResponded === NOT_TRACKED ? "—" : recruitersResponded} recruiters responded</span>
+          <span aria-hidden="true"> · </span>
+          <span>
+            {interviewsScheduled} interview{interviewsScheduled === 1 ? "" : "s"} scheduled
+          </span>
+          <span aria-hidden="true"> · </span>
+          <span>avg match {avgMatch === NOT_TRACKED ? "—" : `${avgMatch}%`}</span>
+        </p>
 
-      <div className="grid grid-cols-12 gap-6">
-        {/* Main column: post composer + real social feed */}
-        <div className="col-span-12 lg:col-span-8 space-y-4">
-          {/* Post Creation Widget */}
-          <div
-            className="rounded-2xl p-4 backdrop-blur-xl"
-            style={{
-              border: "1px solid var(--border)",
-              background: "var(--surface)",
-              boxShadow: "0 18px 44px rgba(88, 109, 151, 0.08)",
-            }}
-          >
+        <div className="ph-hero__stats">
+          <HeroStat icon="radar" value={jobsScanned} label="Jobs scanned" />
+          <HeroStat
+            icon="target"
+            value={avgMatch === NOT_TRACKED ? NOT_TRACKED : `${avgMatch}%`}
+            label="Avg match"
+            note="No scored applications yet"
+          />
+          <HeroStat
+            icon="trending-up"
+            value={replyRate}
+            label="Reply rate"
+            note="Not tracked by this platform"
+          />
+          <HeroStat icon="user-plus" value={autoConnects} label="Auto-connects" note="Unavailable" />
+        </div>
+      </section>
+
+      {/* ---------------------------------- Row 2: community feed + automation rail
+
+          The rail is FIRST in the DOM on purpose. Stacked, this reads
+          hero -> automation -> activity -> community: on a phone the controls a Pro seeker opened
+          the page for sit above the feed rather than below an infinite scroll of it. The desktop
+          two-column arrangement is pure CSS grid placement (.ph-rail is assigned column 2), so the
+          visual order is achieved without a second copy of the markup and without a reading order
+          that disagrees with the DOM.
+
+          <aside> because the rail is complementary to the feed, which is the page's main content;
+          the centre column stays inside <main> and outside any complementary landmark. */}
+      <div className="ph-split">
+        <aside className="ph-rail" aria-label="Automation">
+          <section className="ph-card">
+            <div className="ph-card__head">
+              <div>
+                <p className="ph-eyebrow">Automation engine</p>
+                <h2 className="ph-card__title">Pro AI is on duty</h2>
+              </div>
+              <p className={`ph-status ${isAutoApplyOn ? "ph-status--on" : "ph-status--off"}`}>
+                <span className="ph-status__dot" aria-hidden="true" />
+                {/* The word carries the state; the dot only reinforces it. */}
+                {isAutoApplyOn ? "Active" : "Paused"}
+              </p>
+            </div>
+
+            <ul className="ph-toggles">
+              {automationRows.map((row) => (
+                <li key={row.field} className="ph-toggle">
+                  <span className="ph-tile" aria-hidden="true">
+                    <Icon name={row.icon} />
+                  </span>
+                  <div className="ph-toggle__body">
+                    <label className="ph-toggle__title" htmlFor={`ph-toggle-${row.field}`}>
+                      {row.title}
+                    </label>
+                    <p className="ph-toggle__desc">{row.description}</p>
+                    {row.note ? <p className="ph-toggle__note">{row.note}</p> : null}
+                  </div>
+                  <Switch
+                    id={`ph-toggle-${row.field}`}
+                    checked={row.enabled}
+                    disabled={updatePreferencesMutation.isPending}
+                    label={row.title}
+                    onChange={(next) => handleToggleAutomation(row.field, next)}
+                  />
+                </li>
+              ))}
+            </ul>
+
+            {/* Match threshold — READ-ONLY BY DESIGN, not by omission.
+                getAutoApplyPreferences overwrites the seeker's stored matchThreshold with
+                platformPolicy.matchThreshold before responding, updateAutoApplyPreferences ignores
+                any matchThreshold in the body, and autoApplyWorker resolves it from
+                job.autoApplyThreshold ?? platformPolicy — the seeker's own value is never read by
+                anything. A draggable control here would be a lie the backend silently discards. */}
+            {matchThreshold === null ? null : (
+              <div className="ph-threshold">
+                <div className="ph-threshold__head">
+                  <p className="ph-eyebrow">Match threshold</p>
+                  <p className="ph-threshold__value">{matchThreshold}%+</p>
+                </div>
+                <input
+                  type="range"
+                  className="ph-threshold__slider"
+                  /* Data, not styling: the platform value drives how far the filled portion runs. */
+                  style={{ "--ph-threshold-fill": `${matchThreshold}%` }}
+                  min="0"
+                  max="100"
+                  value={matchThreshold}
+                  disabled
+                  readOnly
+                  aria-disabled="true"
+                  aria-label={`Match threshold, set by platform policy to ${matchThreshold} percent`}
+                  aria-describedby="ph-threshold-caption"
+                />
+                <p className="ph-threshold__caption" id="ph-threshold-caption">
+                  Set by platform policy and the same for every seeker — auto-apply only fires at
+                  {" "}
+                  {matchThreshold}% match or above. This is not adjustable from your account.
+                </p>
+              </div>
+            )}
+          </section>
+
+          {/* ------------------------------------------------------- AI activity feed */}
+          <section className="ph-card">
+            <div className="ph-card__head">
+              <div>
+                <p className="ph-eyebrow ph-eyebrow--live">
+                  <span className="ph-status__dot" aria-hidden="true" /> Live
+                </p>
+                <h2 className="ph-card__title">AI activity feed</h2>
+              </div>
+              <div className="ph-card__actions">
+                {activityStream.length ? (
+                  <button
+                    type="button"
+                    className="ph-btn ph-btn--ghost"
+                    disabled={dismissAllActivityMutation.isPending}
+                    onClick={handleDismissAllActivity}
+                  >
+                    {dismissAllActivityMutation.isPending ? "Closing…" : "Close all"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="ph-btn ph-btn--ghost"
+                  disabled={runsQuery.isFetching}
+                  onClick={() => runsQuery.refetch()}
+                >
+                  <Icon name="refresh" />
+                  {runsQuery.isFetching ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
+            </div>
+
+            {activityStream.length ? (
+              <ul className="ph-activity">
+                {activityStream.map((activity) => (
+                  <li key={activity.key} className="ph-activity__row">
+                    <span
+                      className={`ph-tile ph-tile--${activity.tone === "applied" ? "brand" : "muted"}`}
+                      aria-hidden="true"
+                    >
+                      <Icon name={activity.icon} />
+                    </span>
+                    <div className="ph-activity__body">
+                      <p className="ph-activity__title">{activity.title}</p>
+                      <p className="ph-activity__sub">{activity.subtitle}</p>
+                      <p className="ph-activity__time">{activity.time}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="ph-btn ph-btn--icon"
+                      title="Dismiss"
+                      aria-label={`Dismiss: ${activity.title}`}
+                      disabled={dismissActivityMutation.isPending}
+                      onClick={() => handleDismissActivity(activity.key)}
+                    >
+                      <Icon name="close" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="ph-empty">
+                {runsQuery.isLoading
+                  ? "Loading activity…"
+                  : hasAnyRawActivity
+                    ? "No activity to show — everything here has been closed."
+                    : "No auto-apply activity yet. Turn on the auto-apply engine above to get started."}
+              </p>
+            )}
+          </section>
+        </aside>
+
+        <section className="ph-centre" aria-label="Community feed">
+          {/* --------------------------------------------------------- Community feed
+              Not part of the reference crop, but real, working functionality on this route — the
+              composer posts to /posts and the list is the shared social feed. Restyled to sit under
+              the same tokens rather than removed. */}
+          <section className="ph-card ph-composer">
+            <p className="ph-eyebrow">Community</p>
             <form
               onSubmit={(event) => {
                 event.preventDefault();
@@ -637,26 +731,31 @@ export function ProSeekerDashboard() {
                 createPostMutation.mutate();
               }}
             >
-              <div className="flex items-center gap-3">
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-linear-to-r from-purple-500 to-blue-500 text-sm font-semibold text-white">
+              <div className="ph-composer__row">
+                <span className="ph-avatar" aria-hidden="true">
                   {getInitials(`${session?.profile?.firstName || ""} ${session?.profile?.lastName || ""}`)}
-                </div>
+                </span>
                 {isComposerOpen ? (
-                  <textarea
-                    autoFocus
-                    rows={3}
-                    value={postContent}
-                    onChange={(event) => setPostContent(event.target.value)}
-                    placeholder="Share an update, a job opening, or a win…"
-                    className="flex-1 rounded-xl border border-border bg-surface/60 p-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                    required
-                  />
+                  <>
+                    <label className="ph-sr-only" htmlFor="ph-post-content">
+                      Share an update
+                    </label>
+                    <textarea
+                      id="ph-post-content"
+                      autoFocus
+                      rows={3}
+                      value={postContent}
+                      onChange={(event) => setPostContent(event.target.value)}
+                      placeholder="Share an update, a job opening, or a win…"
+                      className="ph-textarea"
+                      required
+                    />
+                  </>
                 ) : (
                   <button
                     type="button"
                     onClick={() => setIsComposerOpen(true)}
-                    style={pillTriggerStyle}
-                    className="flex-1 text-sm text-muted-foreground"
+                    className="ph-btn ph-btn--field"
                   >
                     Share an update, a job opening, or a win…
                   </button>
@@ -664,9 +763,7 @@ export function ProSeekerDashboard() {
               </div>
 
               {postFiles.length ? (
-                <p className="mt-2 pl-13 text-xs text-muted-foreground">
-                  {postFiles.map((file) => file.name).join(", ")}
-                </p>
+                <p className="ph-composer__files">{postFiles.map((file) => file.name).join(", ")}</p>
               ) : null}
 
               <input
@@ -692,164 +789,63 @@ export function ProSeekerDashboard() {
                 }}
               />
 
-              <div className="mt-3 flex items-center gap-1 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+              <div className="ph-composer__actions">
                 <button
                   type="button"
                   onClick={() => photoInputRef.current?.click()}
-                  style={actionButtonStyle}
-                  className="flex flex-1 items-center justify-center gap-1.5 font-medium"
+                  className="ph-btn ph-btn--ghost"
                 >
-                  📷 Photo
+                  <Icon name="camera" /> Photo
                 </button>
                 <button
                   type="button"
                   onClick={() => videoInputRef.current?.click()}
-                  style={actionButtonStyle}
-                  className="flex flex-1 items-center justify-center gap-1.5 font-medium"
+                  className="ph-btn ph-btn--ghost"
                 >
-                  🎥 Video
+                  <Icon name="video" /> Video
                 </button>
-                {isComposerOpen && (
+                {isComposerOpen ? (
                   <button
                     type="submit"
+                    className="ph-btn ph-btn--primary"
                     disabled={createPostMutation.isPending || !postContent.trim()}
-                    className="flex-1"
                   >
                     {createPostMutation.isPending ? "Posting…" : "Post"}
                   </button>
-                )}
+                ) : null}
               </div>
             </form>
+          </section>
+
+          <div className="ph-feed">
+            {feedQuery.isLoading ? (
+              <p className="ph-empty">Loading feed…</p>
+            ) : feedQuery.isError ? (
+              <p className="ph-empty">We could not load posts right now.</p>
+            ) : posts.length ? (
+              posts.map((post) => (
+                <PostCard
+                  key={post._id}
+                  post={post}
+                  session={session}
+                  commentValue={commentDrafts[post._id]}
+                  onCommentChange={(postId, value) =>
+                    setCommentDrafts((current) => ({ ...current, [postId]: value }))
+                  }
+                  isMutating={likePostMutation.isPending || commentPostMutation.isPending}
+                  onLike={handleLikePost}
+                  onComment={handleCommentPost}
+                  onDelete={handleDeletePost}
+                  isDeleting={deletePostMutation.isPending}
+                />
+              ))
+            ) : (
+              <p className="ph-empty">No posts yet. Be the first to share an update.</p>
+            )}
           </div>
-
-          {/* Feed */}
-          {feedQuery.isLoading ? (
-            <div
-              className="rounded-2xl p-8 text-center"
-              style={{ border: "1px solid var(--border)", background: "var(--surface)" }}
-            >
-              <p className="text-muted-foreground">Loading feed…</p>
-            </div>
-          ) : feedQuery.isError ? (
-            <div
-              className="rounded-2xl p-8 text-center"
-              style={{ border: "1px solid var(--border)", background: "var(--surface)" }}
-            >
-              <p className="text-muted-foreground">We could not load posts right now.</p>
-            </div>
-          ) : posts.length ? (
-            posts.map((post) => (
-              <PostCard
-                key={post._id}
-                post={post}
-                session={session}
-                commentValue={commentDrafts[post._id]}
-                onCommentChange={(postId, value) =>
-                  setCommentDrafts((current) => ({ ...current, [postId]: value }))
-                }
-                isMutating={likePostMutation.isPending || commentPostMutation.isPending}
-                onLike={handleLikePost}
-                onComment={handleCommentPost}
-                onDelete={handleDeletePost}
-                isDeleting={deletePostMutation.isPending}
-              />
-            ))
-          ) : (
-            <div
-              className="rounded-2xl p-8 text-center"
-              style={{ border: "1px solid var(--border)", background: "var(--surface)" }}
-            >
-              <p className="text-muted-foreground">No posts yet. Be the first to share an update.</p>
-            </div>
-          )}
-        </div>
-
-        {/* Right sidebar: Automation Engine + AI Activity Stream */}
-        <div className="col-span-12 lg:col-span-4 space-y-6">
-          <AutomationSection
-            isActive={Boolean(preferences.enabled)}
-            features={automationFeatures}
-            onToggleFeature={handleToggleAutomation}
-            matchThreshold={typeof preferences.matchThreshold === "number" ? preferences.matchThreshold : null}
-          />
-
-          <div
-            className="rounded-2xl p-6"
-            style={{
-              border: "1px solid var(--border)",
-              background: "var(--surface)",
-              boxShadow: "0 18px 44px rgba(88, 109, 151, 0.08)",
-            }}
-          >
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="font-display text-lg font-bold text-foreground">AI Activity Stream</h2>
-              {activityStream.length ? (
-                <button
-                  type="button"
-                  style={actionButtonStyle}
-                  className="text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={dismissAllActivityMutation.isPending}
-                  onClick={handleDismissAllActivity}
-                >
-                  {dismissAllActivityMutation.isPending ? "Closing…" : "Close all"}
-                </button>
-              ) : null}
-            </div>
-            <div className="space-y-3">
-              {activityStream.length ? (
-                activityStream.map((activity, index) => (
-                  <div
-                    key={activity.key}
-                    className="flex items-start gap-4 pb-4"
-                    style={index < activityStream.length - 1 ? { borderBottom: "1px solid var(--border)" } : undefined}
-                  >
-                    <div className="text-2xl">{activity.icon}</div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-foreground">{activity.title}</p>
-                      <p className="text-sm text-muted-foreground">{activity.subtitle}</p>
-                      <p className="text-xs text-muted-foreground/70 mt-1">{activity.time}</p>
-                    </div>
-                    <button
-                      type="button"
-                      title="Dismiss"
-                      aria-label="Dismiss activity entry"
-                      style={dismissIconButtonStyle}
-                      className="grid h-6 w-6 shrink-0 place-items-center disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={dismissActivityMutation.isPending}
-                      onClick={() => handleDismissActivity(activity.key)}
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="24"
-                        height="24"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="h-3 w-3"
-                        aria-hidden="true"
-                      >
-                        <path d="M18 6 6 18"></path>
-                        <path d="m6 6 12 12"></path>
-                      </svg>
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {runsQuery.isLoading
-                    ? "Loading activity…"
-                    : hasAnyRawActivity
-                      ? "No activity to show — everything here has been closed."
-                      : "No auto-apply activity yet. Enable auto-apply above to get started."}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
+        </section>
       </div>
+
     </main>
   );
 }

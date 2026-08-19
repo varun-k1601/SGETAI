@@ -1,18 +1,100 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest, apiFormRequest } from "../../services/api";
 import { formatSalary } from "../../utils/formatSalary";
+import { CompanyLogo } from "../../components/CompanyLogo";
+
+// STYLING APPROACH — scoped global CSS (`.job-detail ...` in styles.css) on the shared --ph-*
+// palette, the same system as .pro-home, .ai-gen and .jobs-page. This page is opened directly
+// from the Jobs list, so it must not be the one surface still on Tailwind utilities: the
+// semantic colour utilities this file used ("bg-card", "text-muted-foreground", "bg-foreground")
+// generate NO CSS in this app, and the unlayered global `button { ... }` rule outranks any
+// Tailwind utility on a <button>. Every colour below comes from --ph-* at :root.
+
+const ICON_PATHS = {
+  arrowLeft: (
+    <>
+      <path d="m12 19-7-7 7-7" />
+      <path d="M19 12H5" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    </>
+  ),
+};
+
+function Icon({ name, className = "jd-icon" }) {
+  const paths = ICON_PATHS[name];
+
+  if (!paths) {
+    return null;
+  }
+
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      {paths}
+    </svg>
+  );
+}
+
+function formatPostedOn(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+// The shell paints no page background of its own here, so these states are cards on the same
+// canvas as the loaded page rather than the flat slab they used to be.
+function JobDetailState({ backTo, children }) {
+  return (
+    <main className="job-detail">
+      <Link to={backTo} className="jd-back">
+        <Icon name="arrowLeft" className="jd-icon jd-icon--sm" />
+        Back to jobs
+      </Link>
+      <p className="jd-state">{children}</p>
+    </main>
+  );
+}
 
 export function JobDetailPage() {
   const { jobId } = useParams();
+  const { pathname } = useLocation();
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const [resumeFile, setResumeFile] = useState(null);
   const [fileError, setFileError] = useState("");
   const [applyError, setApplyError] = useState("");
   const [successResult, setSuccessResult] = useState(null);
+
+  // Routed at both /jobs/:jobId and /pro/jobs/:jobId. Returning a Pro seeker to /jobs would drop
+  // them out of the Pro section they came from.
+  const backTo = pathname.startsWith("/pro/") ? "/pro/jobs" : "/jobs";
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
@@ -71,23 +153,11 @@ export function JobDetailPage() {
   };
 
   if (jobQuery.isLoading) {
-    return (
-      <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-8 text-center text-muted-foreground">
-          Loading job...
-        </div>
-      </main>
-    );
+    return <JobDetailState backTo={backTo}>Loading job…</JobDetailState>;
   }
 
   if (jobQuery.isError || !jobQuery.data?.job) {
-    return (
-      <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-8 text-center text-muted-foreground">
-          Job not found.
-        </div>
-      </main>
-    );
+    return <JobDetailState backTo={backTo}>Job not found.</JobDetailState>;
   }
 
   const { job, alreadyApplied, applicationStatus } = jobQuery.data;
@@ -99,157 +169,237 @@ export function JobDetailPage() {
   const currentStatus = successResult ? "Pending" : applicationStatus;
   const showApplyForm = !alreadyApplied || currentStatus === "Withdrawn";
 
+  const companyName = organization.companyName || "Company";
+  const salaryLabel = formatSalary(job.salary);
+  const postedOn = formatPostedOn(job.createdAt);
+  // The backend rejects an application to a job that is not Active with a 400, so the form would
+  // be a control that can never succeed. Both fields come straight off the Job document.
+  const acceptingApplications = job.isActive !== false && job.status === "Active";
+  // Only seekers can apply — applyToJob() throws 403 for anyone else, and /jobs/:jobId is also
+  // reachable by SuperAdmin and Moderator sessions.
+  const isSeeker = session?.role === "seeker";
+
+  const metaParts = [companyName, job.location || "Remote", job.type].filter(Boolean);
+
   return (
-    <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
-      <Link
-        to="/jobs"
-        className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
-      >
-        ← Back to jobs
+    <main className="job-detail">
+      <Link to={backTo} className="jd-back">
+        <Icon name="arrowLeft" className="jd-icon jd-icon--sm" />
+        Back to jobs
       </Link>
 
-      <div className="rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-6 shadow-elegant">
-        <div className="flex items-start gap-4">
-          <div className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-surface text-2xl font-bold">
-            {organization.companyName?.[0]?.toUpperCase() || "J"}
-          </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="font-display text-2xl font-semibold tracking-tight">{job.title}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {organization.companyName || "Company"} · {job.location || "Remote"}
-              {job.type ? ` · ${job.type}` : ""}
-            </p>
-            {formatSalary(job.salary) && (
-              <p className="mt-1 text-sm text-muted-foreground">{formatSalary(job.salary)}</p>
-            )}
-          </div>
+      <header className="jd-header">
+        <CompanyLogo organization={organization} size="lg" />
+
+        <div className="jd-header__body">
+          <h1 className="jd-title">{job.title}</h1>
+          <p className="jd-meta">{metaParts.join(" · ")}</p>
+          {salaryLabel && <p className="jd-salary">{salaryLabel}</p>}
+          {postedOn && <p className="jd-posted">Posted {postedOn}</p>}
         </div>
 
-        {requiredSkills.length > 0 && (
-          <div className="mt-4">
-            <p className="text-xs font-medium text-muted-foreground">Required skills</p>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {requiredSkills.map((skill, idx) => (
-                <span
-                  key={idx}
-                  className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium"
-                >
-                  {skill}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {preferredSkills.length > 0 && (
-          <div className="mt-3">
-            <p className="text-xs font-medium text-muted-foreground">Preferred skills</p>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {preferredSkills.map((skill, idx) => (
-                <span
-                  key={idx}
-                  className="inline-flex items-center gap-1 rounded-full border border-dashed border-border/60 px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
-                >
-                  {skill}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {job.description && (
-          <div className="mt-6">
-            <h2 className="font-display text-lg font-semibold">Description</h2>
-            <p className="mt-2 whitespace-pre-line text-sm text-muted-foreground">{job.description}</p>
-          </div>
-        )}
-
-        {requirements.length > 0 && (
-          <div className="mt-6">
-            <h2 className="font-display text-lg font-semibold">Requirements</h2>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-              {requirements.map((requirement, idx) => (
-                <li key={idx}>{requirement}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {customFields.length > 0 && (
-          <div className="mt-6">
-            <h2 className="font-display text-lg font-semibold">Additional details</h2>
-            <dl className="mt-2 grid gap-2 sm:grid-cols-2">
-              {customFields.map((field, idx) => (
-                <div key={idx} className="rounded-lg border border-border/60 bg-surface/50 px-3 py-2">
-                  <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                  <dd className="text-sm font-medium">{field.value || "—"}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        )}
-
-        {(organization.description || organization.websiteUrl) && (
-          <div className="mt-6 rounded-xl border border-border/60 bg-surface/50 p-4">
-            <h2 className="font-display text-lg font-semibold">About {organization.companyName || "the company"}</h2>
-            {organization.description && (
-              <p className="mt-2 text-sm text-muted-foreground">{organization.description}</p>
+        {((isSeeker && alreadyApplied) || !acceptingApplications) && (
+          <div className="jd-header__side">
+            {isSeeker && alreadyApplied && (
+              <span className="jd-pill jd-pill--success">
+                Applied · {currentStatus || "Pending"}
+              </span>
             )}
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              {organization.industry && <span>{organization.industry}</span>}
-              {organization.companySize && <span>{organization.companySize} employees</span>}
-              {organization.foundedYear && <span>Founded {organization.foundedYear}</span>}
-              {organization.headquartersLocation && <span>{organization.headquartersLocation}</span>}
-              {organization.websiteUrl && (
-                <a
-                  href={organization.websiteUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-foreground hover:underline"
-                >
-                  {organization.websiteUrl}
-                </a>
-              )}
-            </div>
+            {!acceptingApplications && <span className="jd-pill jd-pill--muted">Closed</span>}
           </div>
         )}
+      </header>
 
-        {/* Apply Section */}
-        <div id="apply" className="mt-8 border-t border-border/60 pt-6">
-          <h2 className="font-display text-lg font-semibold">Apply</h2>
+      <div className="jd-split">
+        {/* First in the DOM so that on a stacked layout the primary action sits above the
+            description. Grid placement below moves it to the right rail on desktop — the visual
+            order differs from the reading order without duplicating any markup. */}
+        <section className="jd-card jd-apply" id="apply" aria-labelledby="jd-apply-heading">
+          <h2 className="jd-card__title" id="jd-apply-heading">
+            Apply
+          </h2>
 
-          {!showApplyForm ? (
-            <div className="mt-3 rounded-xl border border-border/60 bg-surface/50 p-4 text-sm">
-              <p className="font-medium">Already applied</p>
-              <p className="mt-1 text-muted-foreground">Status: {currentStatus || "Pending"}</p>
+          {!isSeeker ? (
+            <p className="jd-note">
+              Applications are submitted by job seeker accounts. You are viewing this posting with
+              a {session?.role || "staff"} account.
+            </p>
+          ) : !acceptingApplications ? (
+            <p className="jd-note">This job is no longer accepting applications.</p>
+          ) : !showApplyForm ? (
+            <div className="jd-applied">
+              <p className="jd-applied__title">Already applied</p>
+              <p className="jd-applied__status">Status: {currentStatus || "Pending"}</p>
             </div>
           ) : successResult ? (
-            <div className="mt-3 rounded-xl border border-border/60 bg-surface/50 p-4 text-sm">
-              <p className="font-medium">Application submitted — ATS match: {Math.round(successResult.ats?.score ?? 0)}%</p>
+            <div className="jd-applied">
+              <p className="jd-applied__title">
+                Application submitted — ATS match: {Math.round(successResult.ats?.score ?? 0)}%
+              </p>
               {successResult.ats?.tag && (
-                <p className="mt-1 text-muted-foreground">{successResult.ats.tag}</p>
+                <p className="jd-applied__status">{successResult.ats.tag}</p>
               )}
             </div>
           ) : (
-            <form onSubmit={handleSubmitApplication} className="mt-3 space-y-3">
+            <form onSubmit={handleSubmitApplication} className="jd-form">
+              <label className="jd-label" htmlFor="jd-resume">
+                Resume (PDF)
+              </label>
               <input
+                id="jd-resume"
                 type="file"
                 accept="application/pdf"
                 onChange={handleFileChange}
-                className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-foreground"
+                className="jd-file"
               />
-              {fileError && <p className="text-xs font-medium text-red-500">{fileError}</p>}
-              {applyError && <p className="text-xs font-medium text-red-500">{applyError}</p>}
+              {fileError && (
+                <p className="jd-error" role="alert">
+                  {fileError}
+                </p>
+              )}
+              {applyError && (
+                <p className="jd-error" role="alert">
+                  {applyError}
+                </p>
+              )}
               <button
                 type="submit"
                 disabled={!resumeFile || applyMutation.isPending}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-transparent bg-foreground px-4 text-xs font-semibold text-background hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="jd-btn jd-btn--primary"
               >
-                {applyMutation.isPending ? "Submitting..." : "Submit Application"}
+                {applyMutation.isPending ? "Submitting…" : "Submit application"}
               </button>
             </form>
           )}
+        </section>
+
+        <div className="jd-main">
+          {(requiredSkills.length > 0 || preferredSkills.length > 0) && (
+            <section className="jd-card" aria-labelledby="jd-skills-heading">
+              <h2 className="jd-card__title" id="jd-skills-heading">
+                Skills
+              </h2>
+
+              {requiredSkills.length > 0 && (
+                <div className="jd-skillgroup">
+                  <p className="jd-eyebrow">Required</p>
+                  <div className="jd-tags">
+                    {requiredSkills.map((skill, idx) => (
+                      <span key={idx} className="jd-tag">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {preferredSkills.length > 0 && (
+                <div className="jd-skillgroup">
+                  <p className="jd-eyebrow">Preferred</p>
+                  <div className="jd-tags">
+                    {preferredSkills.map((skill, idx) => (
+                      <span key={idx} className="jd-tag jd-tag--preferred">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {job.description && (
+            <section className="jd-card" aria-labelledby="jd-description-heading">
+              <h2 className="jd-card__title" id="jd-description-heading">
+                Description
+              </h2>
+              {/* Recruiter-authored free text. Rendered verbatim — whitespace-pre-line keeps the
+                  author's own line and paragraph breaks; the string is never parsed or reflowed. */}
+              <p className="jd-prose">{job.description}</p>
+            </section>
+          )}
+
+          {requirements.length > 0 && (
+            <section className="jd-card" aria-labelledby="jd-requirements-heading">
+              <h2 className="jd-card__title" id="jd-requirements-heading">
+                Requirements
+              </h2>
+              <ul className="jd-list">
+                {requirements.map((requirement, idx) => (
+                  <li key={idx}>{requirement}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {customFields.length > 0 && (
+            <section className="jd-card" aria-labelledby="jd-details-heading">
+              <h2 className="jd-card__title" id="jd-details-heading">
+                Additional details
+              </h2>
+              <dl className="jd-dl">
+                {customFields.map((field, idx) => (
+                  <div key={idx} className="jd-dl__row">
+                    <dt className="jd-dl__label">{field.label}</dt>
+                    <dd className="jd-dl__value">{field.value || "—"}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
         </div>
+
+        {(organization.description || organization.websiteUrl || organization.industry) && (
+          <section className="jd-card jd-about" aria-labelledby="jd-about-heading">
+            <p className="jd-eyebrow">About the company</p>
+            <h2 className="jd-card__title" id="jd-about-heading">
+              {companyName}
+            </h2>
+
+            {organization.description && (
+              <p className="jd-about__text">{organization.description}</p>
+            )}
+
+            <dl className="jd-facts">
+              {organization.industry && (
+                <div className="jd-facts__row">
+                  <dt>Industry</dt>
+                  <dd>{organization.industry}</dd>
+                </div>
+              )}
+              {organization.companySize && (
+                <div className="jd-facts__row">
+                  <dt>Size</dt>
+                  <dd>{organization.companySize} employees</dd>
+                </div>
+              )}
+              {organization.foundedYear && (
+                <div className="jd-facts__row">
+                  <dt>Founded</dt>
+                  <dd>{organization.foundedYear}</dd>
+                </div>
+              )}
+              {organization.headquartersLocation && (
+                <div className="jd-facts__row">
+                  <dt>Headquarters</dt>
+                  <dd>{organization.headquartersLocation}</dd>
+                </div>
+              )}
+            </dl>
+
+            {organization.websiteUrl && (
+              <a
+                href={organization.websiteUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="jd-weblink"
+              >
+                <Icon name="link" className="jd-icon jd-icon--sm" />
+                {organization.websiteUrl}
+              </a>
+            )}
+          </section>
+        )}
       </div>
     </main>
   );

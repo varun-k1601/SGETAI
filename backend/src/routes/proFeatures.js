@@ -25,7 +25,8 @@ const {
   linkedinCallback,
   getLinkedInStatus,
   disconnectLinkedIn,
-  publishLinkedInPost
+  publishLinkedInPost,
+  getRecruiterIntroductionStats
 } = require("../controllers/proFeaturesController");
 
 const router = express.Router();
@@ -58,6 +59,7 @@ router.post("/agent/debug-context", requirePro, getCareerAgentDebugContext);
 router.get("/auto-apply/preferences", requirePro, getAutoApplyPreferences);
 router.put("/auto-apply/preferences", requirePro, updateAutoApplyPreferences);
 router.get("/auto-apply/runs", requirePro, getAutoApplyRuns);
+router.get("/recruiter-introductions/stats", requirePro, getRecruiterIntroductionStats);
 router.post("/auto-apply/test-run", requirePro, runAutoApplyTest);
 router.patch("/agent/activity/dismiss-all", requirePro, dismissAllActivityEntries);
 router.patch("/agent/activity/dismiss", requirePro, dismissActivityEntry);

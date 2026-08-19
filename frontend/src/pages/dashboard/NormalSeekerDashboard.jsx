@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest, apiFormRequest } from "../../services/api";
 import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
-import { PostCard, pillTriggerStyle, actionButtonStyle } from "./ProSeekerDashboard";
+import { PostCard, pillTriggerStyle, actionButtonStyle } from "../../components/feedPostKit";
 
 function flattenSkillGroups(groups) {
   return (Array.isArray(groups) ? groups : [])

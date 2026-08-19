@@ -1,17 +1,120 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest } from "../../services/api";
 import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
 
+// STYLING APPROACH — scoped global CSS (`.help-page ...` in styles.css) on the shared --ph-*
+// palette, the same system as .pro-home, .ai-gen, .jobs-page, .job-detail, .applied-page,
+// .automations-page, .chat-page and .notif-page. Tailwind's semantic colour utilities generate no
+// CSS in this app, and the unlayered global `button { ... }` rule outranks any Tailwind utility.
+
 // ---------------------------------------------------------------------------------------------
 // Your conversations
 //
-// Until now this page was write-only: the form below POSTs /feedback, shows a toast, and the user
-// never hears back in-product no matter how many times support replies. The desk's replies live on
+// This page was once write-only: the form POSTs /feedback, shows a toast, and the user never hears
+// back in-product no matter how many times support replies. The desk's replies live on
 // SupportTicket/SupportMessage and are read here through /api/support/me, which scopes every query
 // to the authenticated requester. No sockets — the rest of this app polls, and so does this.
+//
+// The reference design has no slot for this section. It is kept regardless: removing it would
+// re-open the exact bug it was built to fix.
 // ---------------------------------------------------------------------------------------------
+
+// Feedback.type is a free-form String defaulting to "user_feedback", and the controller already
+// does `type: req.body.type || "user_feedback"` — so these chips need NO backend change. The value
+// is sent verbatim as `type` on the existing POST /api/feedback.
+const FEEDBACK_CATEGORIES = [
+  { id: "bug", label: "Bug" },
+  { id: "idea", label: "Idea" },
+  { id: "praise", label: "Praise" },
+  { id: "other", label: "Other" },
+];
+
+const DEFAULT_CATEGORY = "other";
+
+const FAQS = [
+  {
+    id: "match-scoring",
+    question: "How does match scoring work?",
+    answer:
+      "Your profile is scored against the job description across skills, seniority and tooling. The platform sets a single match threshold for every Pro member — auto-apply only acts on jobs above it, and you can see the current value on the Automations page.",
+  },
+  {
+    id: "linkedin-auto-connect",
+    question: "Does LinkedIn allow auto-connect?",
+    // The honest answer. LinkedIn's public API exposes no endpoint for sending connection requests
+    // on a member's behalf, so no amount of scopes or partner approval makes this possible. This
+    // app's auto-connect is in-platform only.
+    answer:
+      "No. LinkedIn's public API provides no way for a third-party app to send connection requests on your behalf, and no approval or extra permission changes that. Auto-connect in SGETAI is in-platform only: it creates a connection with the recruiter who posted the job here, and sends the intro through SGETAI chat. Your LinkedIn account is never used.",
+  },
+  {
+    id: "stealth",
+    question: "Can I hide my profile from recruiters?",
+    answer: "Yes — turn on Stealth mode under Settings → Privacy.",
+  },
+  {
+    id: "pro-vs-normal",
+    question: "How is Pro different from Normal?",
+    answer:
+      "Pro adds the automation layer: auto-apply, auto-introduce to recruiters, auto-DM intros and the safety guardrails that decide when they should not run.",
+  },
+  {
+    id: "support-replies",
+    question: "Where do support replies show up?",
+    answer:
+      "In “Your conversations” at the bottom of this page. Anything you send with the feedback form opens a ticket, and every reply from the team appears in that thread — you will also get a notification.",
+  },
+];
+
+const ICON_PATHS = {
+  message: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
+  inbox: (
+    <>
+      <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+      <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+    </>
+  ),
+  book: (
+    <>
+      <path d="M12 7v14" />
+      <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" />
+    </>
+  ),
+  chevron: <path d="m6 9 6 6 6-6" />,
+  send: (
+    <>
+      <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+      <path d="m21.854 2.147-10.94 10.939" />
+    </>
+  ),
+};
+
+function Icon({ name, className = "hp-icon" }) {
+  const paths = ICON_PATHS[name];
+
+  if (!paths) {
+    return null;
+  }
+
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      {paths}
+    </svg>
+  );
+}
 
 function formatWhen(value) {
   if (!value) {
@@ -30,25 +133,38 @@ function formatWhen(value) {
   });
 }
 
-// Two states, reusing the pill vocabulary already on the applications page rather than
-// introducing a colour scale this page does not otherwise have.
+// Turns the aggregate median into copy. null minutes means no ticket got a first response in the
+// window — that is "not measured yet", never "0 minutes".
+function formatResponseTime(stat) {
+  if (!stat || stat.medianMinutes === null || stat.medianMinutes === undefined) {
+    return "Typical reply time isn't measured yet.";
+  }
+
+  const minutes = stat.medianMinutes;
+  const readable =
+    minutes < 60
+      ? `${minutes} min`
+      : minutes < 60 * 24
+        ? `${Math.round(minutes / 60)} hr`
+        : `${Math.round(minutes / (60 * 24))} days`;
+
+  return `Median first reply ~${readable}, last ${stat.windowDays} days (${stat.sampleSize} ${
+    stat.sampleSize === 1 ? "ticket" : "tickets"
+  }).`;
+}
+
+// Two states, reusing the pill vocabulary the other Pro surfaces already use.
 function StatusPill({ ticket }) {
   const isLive = ticket.status === "Open" || ticket.status === "Pending";
 
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-        isLive
-          ? "border-primary/30 bg-primary/10 text-primary"
-          : "border-border/60 bg-surface/70 text-muted-foreground"
-      }`}
-    >
+    <span className={`hp-pill${isLive ? " hp-pill--accent" : ""}`}>
       {ticket.statusLabel || ticket.status}
     </span>
   );
 }
 
-function SupportConversations() {
+function SupportConversations({ sectionRef }) {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState(null);
@@ -115,154 +231,118 @@ function SupportConversations() {
   };
 
   return (
-    <div className="relative mt-6 rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
+    <section className="hp-card hp-convos" ref={sectionRef} aria-labelledby="hp-convos-heading">
+      <div className="hp-card__head">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Conversations
-          </p>
-          <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">
+          <p className="hp-eyebrow">Conversations</p>
+          <h2 className="hp-card__title" id="hp-convos-heading">
             Your conversations
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Replies from the support team land here.
-          </p>
+          <p className="hp-card__sub">Replies from the support team land here.</p>
         </div>
-        {conversationsQuery.isFetching ? (
-          <span className="text-xs text-muted-foreground">Refreshing…</span>
-        ) : null}
+        {conversationsQuery.isFetching ? <span className="hp-muted">Refreshing…</span> : null}
       </div>
 
       {conversationsQuery.isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading your conversations…</p>
+        <p className="hp-empty">Loading your conversations…</p>
       ) : conversationsQuery.isError ? (
-        <div className="rounded-xl border border-border/40 bg-surface/40 p-4">
-          <p className="text-sm font-medium">We could not load your conversations.</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+        <div className="hp-panel">
+          <p className="hp-panel__title">We could not load your conversations.</p>
+          <p className="hp-panel__body">
             {conversationsQuery.error?.message || "Please try again in a moment."}
           </p>
-          <button
-            type="button"
-            onClick={() => conversationsQuery.refetch()}
-            className="mt-3 rounded-full border border-border/60 bg-surface/70 px-3 py-1.5 text-xs font-medium hover:bg-surface"
-          >
+          <button type="button" className="hp-btn hp-btn--sm" onClick={() => conversationsQuery.refetch()}>
             Try again
           </button>
         </div>
       ) : tickets.length === 0 ? (
-        <div className="rounded-xl border border-border/40 bg-surface/40 p-6 text-center">
-          <p className="text-sm font-semibold">No conversations yet</p>
-          <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-            Send us a message using the feedback box above and it will appear here, along with
-            every reply from the team.
+        <div className="hp-panel hp-panel--centred">
+          <p className="hp-panel__title">No conversations yet</p>
+          <p className="hp-panel__body">
+            Send us a message with the feedback form above and it will appear here, along with every
+            reply from the team.
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-12 gap-4">
-          {/* Conversation list */}
-          <div className="col-span-12 lg:col-span-5">
-            <ul className="space-y-2">
-              {tickets.map((ticket) => {
-                const isSelected = ticket._id === selectedId;
+        <div className="hp-convos__split">
+          <ul className="hp-tickets" aria-label="Your support tickets">
+            {tickets.map((ticket) => {
+              const isSelected = ticket._id === selectedId;
 
-                return (
-                  <li key={ticket._id}>
-                    <button
-                      type="button"
-                      onClick={() => handleSelect(ticket._id)}
-                      aria-expanded={isSelected}
-                      className={`w-full rounded-xl border p-3 text-left transition ${
-                        isSelected
-                          ? "border-primary/40 bg-primary/5"
-                          : "border-border/40 bg-surface/40 hover:bg-surface/70"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="truncate text-sm font-semibold">{ticket.subject}</p>
-                        {ticket.hasUnread ? (
-                          <span className="mt-1 flex shrink-0 items-center gap-1">
-                            <span className="h-2 w-2 rounded-full bg-primary" aria-hidden="true"></span>
-                            {/* The dot is decorative. The meaning is carried in text so it does
-                                not rely on colour perception alone. */}
-                            <span className="sr-only">Unread reply</span>
-                          </span>
-                        ) : null}
-                      </div>
-                      {ticket.preview ? (
-                        <p className="mt-1 truncate text-xs text-muted-foreground">
-                          {ticket.preview.senderType === "admin" ? "Support: " : "You: "}
-                          {ticket.preview.body}
-                        </p>
-                      ) : null}
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <StatusPill ticket={ticket} />
-                        <span className="text-[10px] text-muted-foreground">
-                          {formatWhen(ticket.lastMessageAt)}
+              return (
+                <li key={ticket._id}>
+                  <button
+                    type="button"
+                    onClick={() => handleSelect(ticket._id)}
+                    aria-expanded={isSelected}
+                    className={`hp-ticket${isSelected ? " hp-ticket--selected" : ""}`}
+                  >
+                    <span className="hp-ticket__top">
+                      <span className="hp-ticket__subject">{ticket.subject}</span>
+                      {ticket.hasUnread ? (
+                        <span className="hp-ticket__unread">
+                          <span className="hp-dot" aria-hidden="true" />
+                          {/* The dot is decorative. The meaning is carried in text so it does not
+                              rely on colour perception alone. */}
+                          <span className="hp-sr-only">Unread reply</span>
                         </span>
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+                      ) : null}
+                    </span>
+                    {ticket.preview ? (
+                      <span className="hp-ticket__preview">
+                        {ticket.preview.senderType === "admin" ? "Support: " : "You: "}
+                        {ticket.preview.body}
+                      </span>
+                    ) : null}
+                    <span className="hp-ticket__foot">
+                      <StatusPill ticket={ticket} />
+                      <span className="hp-muted">{formatWhen(ticket.lastMessageAt)}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
 
-          {/* Thread */}
-          <div className="col-span-12 lg:col-span-7">
+          <div className="hp-thread">
             {!selectedId ? (
-              <div className="flex h-full min-h-45 items-center justify-center rounded-xl border border-border/40 bg-surface/40 p-6">
-                <p className="text-center text-xs text-muted-foreground">
-                  Select a conversation to read it and reply.
-                </p>
+              <div className="hp-panel hp-panel--centred hp-panel--fill">
+                <p className="hp-panel__body">Select a conversation to read it and reply.</p>
               </div>
             ) : threadQuery.isLoading ? (
-              <div className="rounded-xl border border-border/40 bg-surface/40 p-6">
-                <p className="text-sm text-muted-foreground">Loading conversation…</p>
+              <div className="hp-panel">
+                <p className="hp-panel__body">Loading conversation…</p>
               </div>
             ) : threadQuery.isError ? (
-              <div className="rounded-xl border border-border/40 bg-surface/40 p-6">
-                <p className="text-sm font-medium">We could not open this conversation.</p>
-                <p className="mt-1 text-xs text-muted-foreground">
+              <div className="hp-panel">
+                <p className="hp-panel__title">We could not open this conversation.</p>
+                <p className="hp-panel__body">
                   {threadQuery.error?.message || "Please try again in a moment."}
                 </p>
               </div>
             ) : (
-              <div className="rounded-xl border border-border/40 bg-surface/40 p-4">
-                <div className="mb-3 flex flex-wrap items-start justify-between gap-2 border-b border-border/40 pb-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{thread?.ticket?.subject}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Started {formatWhen(thread?.ticket?.createdAt)}
-                    </p>
+              <div className="hp-panel">
+                <div className="hp-thread__head">
+                  <div className="hp-thread__identity">
+                    <p className="hp-panel__title">{thread?.ticket?.subject}</p>
+                    <p className="hp-muted">Started {formatWhen(thread?.ticket?.createdAt)}</p>
                   </div>
                   {thread?.ticket ? <StatusPill ticket={thread.ticket} /> : null}
                 </div>
 
-                <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
+                <div className="hp-messages">
                   {(thread?.messages || []).map((message) => {
                     const fromSupport = message.senderType === "admin";
 
                     return (
                       <div
                         key={message._id}
-                        className={`flex ${fromSupport ? "justify-start" : "justify-end"}`}
+                        className={`hp-msg${fromSupport ? "" : " hp-msg--mine"}`}
                       >
-                        <div
-                          className={`max-w-[85%] rounded-xl border p-3 ${
-                            fromSupport
-                              ? "border-border/60 bg-surface/70"
-                              : "border-primary/30 bg-primary/10"
-                          }`}
-                        >
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                            {message.senderName}
-                          </p>
-                          <p className="mt-1 whitespace-pre-wrap wrap-break-word text-sm">
-                            {message.body}
-                          </p>
-                          <p className="mt-1 text-[10px] text-muted-foreground">
-                            {formatWhen(message.createdAt)}
-                          </p>
+                        <div className={`hp-bubble${fromSupport ? "" : " hp-bubble--mine"}`}>
+                          <p className="hp-bubble__sender">{message.senderName}</p>
+                          <p className="hp-bubble__body">{message.body}</p>
+                          <p className="hp-bubble__time">{formatWhen(message.createdAt)}</p>
                         </div>
                       </div>
                     );
@@ -270,13 +350,13 @@ function SupportConversations() {
                 </div>
 
                 <form
-                  className="mt-3 space-y-2 border-t border-border/40 pt-3"
-                  onSubmit={(e) => {
-                    e.preventDefault();
+                  className="hp-reply"
+                  onSubmit={(event) => {
+                    event.preventDefault();
                     handleReply();
                   }}
                 >
-                  <label className="sr-only" htmlFor="support-reply">
+                  <label className="hp-sr-only" htmlFor="support-reply">
                     Reply to support
                   </label>
                   <textarea
@@ -284,14 +364,18 @@ function SupportConversations() {
                     rows="3"
                     placeholder="Write a reply…"
                     value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    className="w-full rounded-xl border border-border/60 bg-surface/70 p-3 text-sm outline-none focus:bg-surface transition"
+                    onChange={(event) => setReplyText(event.target.value)}
+                    className="hp-textarea"
                   />
-                  {replyError ? <p className="text-xs text-red-600">{replyError}</p> : null}
+                  {replyError ? (
+                    <p className="hp-error" role="alert">
+                      {replyError}
+                    </p>
+                  ) : null}
                   <button
                     type="submit"
+                    className="hp-btn hp-btn--primary hp-btn--sm"
                     disabled={replyMutation.isPending || !replyText.trim()}
-                    className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background hover:opacity-90 disabled:opacity-50"
                   >
                     {replyMutation.isPending ? "Sending…" : "Send reply"}
                   </button>
@@ -301,7 +385,7 @@ function SupportConversations() {
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -309,18 +393,36 @@ export function HelpPage() {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const [feedbackText, setFeedbackText] = useState("");
+  const [category, setCategory] = useState(DEFAULT_CATEGORY);
   const [feedback, setFeedback] = useState({ type: "", message: "" });
+  const [openFaq, setOpenFaq] = useState(FAQS[0].id);
+  const feedbackRef = useRef(null);
+  const conversationsRef = useRef(null);
+
+  // Aggregate only — a median and its sample size, from GET /api/support/me/response-time. The
+  // admin desk's /api/support/metrics stays admin-gated; this endpoint exists so the card below
+  // can print a measured number instead of a hardcoded promise.
+  const responseTimeQuery = useQuery({
+    queryKey: ["support-response-time"],
+    queryFn: () => apiRequest("/support/me/response-time", { token: session.accessToken }),
+    enabled: Boolean(session?.accessToken),
+    staleTime: 5 * 60 * 1000,
+  });
 
   const feedbackMutation = useMutation({
-    mutationFn: (text) =>
+    mutationFn: ({ text, type }) =>
       apiRequest("/feedback", {
         method: "POST",
         token: session.accessToken,
-        body: { message: text, type: "user_feedback" },
+        // Same endpoint and same shape as before — only `type` now carries the selected chip
+        // instead of a constant. POST /feedback still creates the Feedback row AND the
+        // SupportTicket AND its first SupportMessage, which is how this reaches the admin inbox.
+        body: { message: text, type },
       }),
     onSuccess: (response) => {
       setFeedback({ type: "success", message: response.message || "Feedback sent successfully!" });
       setFeedbackText("");
+      setCategory(DEFAULT_CATEGORY);
       // POST /feedback also opens a support ticket, so the new conversation should appear below
       // immediately rather than on the next poll.
       queryClient.invalidateQueries({ queryKey: ["support-conversations", session?.email] });
@@ -331,202 +433,201 @@ export function HelpPage() {
     },
   });
 
+  const canSubmit = Boolean(feedbackText.trim()) && Boolean(category) && !feedbackMutation.isPending;
+
   const handleFeedbackSubmit = () => {
-    if (feedbackText.trim()) {
-      feedbackMutation.mutate(feedbackText);
+    if (!canSubmit) {
+      return;
     }
+    feedbackMutation.mutate({ text: feedbackText.trim(), type: category || DEFAULT_CATEGORY });
   };
 
-  const faqs = [
-    {
-      question: "How does match scoring work?",
-      answer: "We score your profile against the JD across skills, seniority, and tooling. Anything above 80% is considered strong.",
-    },
-    {
-      question: "Can I hide my profile from recruiters?",
-      answer: "Yes — toggle Stealth mode in Settings → Privacy.",
-    },
-    {
-      question: "How is Pro different from Normal?",
-      answer: "Pro adds always-on AI: auto-apply, auto-connect, auto-DM with smart safety guardrails.",
-    },
-  ];
+  function focusFeedback() {
+    feedbackRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    feedbackRef.current?.focus({ preventScroll: true });
+  }
+
+  function scrollToConversations() {
+    conversationsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
-    <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
+    <main className="help-page">
       <AutoDismissFeedback
         feedback={feedback}
         onClear={() => setFeedback({ type: "", message: "" })}
       />
 
-      {/* Hero Banner */}
-      <div className="relative mb-6 overflow-hidden rounded-3xl border border-border/60 bg-linear-to-br p-6 lg:p-8 from-primary/10 via-transparent to-transparent">
-        <div className="absolute -right-20 -top-20 h-60 w-60 bg-primary/20 rounded-full blur-3xl"></div>
-        <div className="relative">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                Support
-              </p>
-              <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight lg:text-4xl">
-                Help &amp; feedback
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground lg:text-base">
-                Browse the docs or talk to the team.
-              </p>
-            </div>
-          </div>
+      <header className="hp-hero">
+        <p className="hp-eyebrow">Support</p>
+        <h1 className="hp-hero__title">How can we help?</h1>
+        <p className="hp-hero__sub">
+          Read the most-asked questions, send the team a message, or pick up a conversation you have
+          already started. Everything here reaches the same support desk.
+        </p>
+      </header>
+
+      <div className="hp-channels">
+        {/* Accurate name: there is no live chat for support. The mechanism is an async ticket
+            thread (SupportTicket / SupportMessage), and this opens the form that starts one. */}
+        <button type="button" className="hp-card hp-channel" onClick={focusFeedback}>
+          <span className="hp-tile" aria-hidden="true">
+            <Icon name="message" className="hp-icon hp-icon--sm" />
+          </span>
+          <span className="hp-channel__title">Message support</span>
+          <span className="hp-channel__sub">
+            {responseTimeQuery.isLoading
+              ? "Checking typical reply time…"
+              : formatResponseTime(responseTimeQuery.data?.responseTime)}
+          </span>
+        </button>
+
+        <button type="button" className="hp-card hp-channel" onClick={scrollToConversations}>
+          <span className="hp-tile" aria-hidden="true">
+            <Icon name="inbox" className="hp-icon hp-icon--sm" />
+          </span>
+          <span className="hp-channel__title">Your conversations</span>
+          <span className="hp-channel__sub">
+            Read every reply from the team and continue a thread.
+          </span>
+        </button>
+
+        {/* No docs system, no article model, no content — so no count and no destination. Rendered
+            visibly disabled rather than as a link that goes nowhere. */}
+        <div className="hp-card hp-channel hp-channel--disabled" aria-disabled="true">
+          <span className="hp-tile hp-tile--muted" aria-hidden="true">
+            <Icon name="book" className="hp-icon hp-icon--sm" />
+          </span>
+          <span className="hp-channel__title">
+            Docs &amp; guides
+            <span className="hp-pill">Not available</span>
+          </span>
+          <span className="hp-channel__sub">
+            There is no documentation site yet. Ask here and the answer comes from a person.
+          </span>
         </div>
       </div>
 
-      {/* Support Options */}
-      <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-3">
-        {/* Docs & Guides */}
-        <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="lucide h-5 w-5 text-primary"
-            aria-hidden="true"
-          >
-            <path d="M12 7v14"></path>
-            <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"></path>
-          </svg>
-          <p className="mt-2 font-semibold">Docs &amp; guides</p>
-          <p className="text-xs text-muted-foreground">Walkthroughs for every feature.</p>
-        </div>
-
-        {/* Community */}
-        <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="lucide h-5 w-5 text-primary"
-            aria-hidden="true"
-          >
-            <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path>
-          </svg>
-          <p className="mt-2 font-semibold">Community</p>
-          <p className="text-xs text-muted-foreground">Tips from 12k+ job seekers.</p>
-        </div>
-
-        {/* Contact Support */}
-        <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="lucide h-5 w-5 text-primary"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="12" r="10"></circle>
-            <path d="m4.93 4.93 4.24 4.24"></path>
-            <path d="m14.83 9.17 4.24-4.24"></path>
-            <path d="m14.83 14.83 4.24 4.24"></path>
-            <path d="m9.17 14.83-4.24 4.24"></path>
-            <circle cx="12" cy="12" r="4"></circle>
-          </svg>
-          <p className="mt-2 font-semibold">Contact support</p>
-          <p className="text-xs text-muted-foreground">Avg reply under 4 hours.</p>
-        </div>
-      </div>
-
-      {/* Content Grid */}
-      <div className="grid grid-cols-12 gap-6">
-        {/* FAQs Section */}
-        <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant col-span-12 lg:col-span-7">
-          <div className="mb-4 flex items-end justify-between gap-4">
+      <div className="hp-split">
+        <section className="hp-card" aria-labelledby="hp-faq-heading">
+          <div className="hp-card__head">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                FAQ
-              </p>
-              <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Most asked</h2>
+              <p className="hp-eyebrow">FAQ</p>
+              <h2 className="hp-card__title" id="hp-faq-heading">
+                Most asked
+              </h2>
             </div>
           </div>
 
-          <div className="space-y-2">
-            {faqs.map((faq, index) => (
-              <details key={index} className="group rounded-xl border border-border/40 bg-surface/40 p-3">
-                <summary className="cursor-pointer text-sm font-semibold">{faq.question}</summary>
-                <p className="mt-2 text-sm text-muted-foreground">{faq.answer}</p>
-              </details>
-            ))}
-          </div>
-        </div>
+          <div className="hp-faqs">
+            {FAQS.map((faq) => {
+              const isOpen = openFaq === faq.id;
 
-        {/* Feedback Section */}
-        <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant col-span-12 lg:col-span-5">
-          <div className="mb-4 flex items-end justify-between gap-4">
+              return (
+                <div key={faq.id} className={`hp-faq${isOpen ? " hp-faq--open" : ""}`}>
+                  <h3 className="hp-faq__heading">
+                    <button
+                      type="button"
+                      className="hp-faq__trigger"
+                      id={`hp-faq-trigger-${faq.id}`}
+                      aria-expanded={isOpen}
+                      aria-controls={`hp-faq-panel-${faq.id}`}
+                      onClick={() => setOpenFaq(isOpen ? null : faq.id)}
+                    >
+                      <span>{faq.question}</span>
+                      <Icon name="chevron" className="hp-icon hp-icon--sm hp-faq__chevron" />
+                    </button>
+                  </h3>
+                  <div
+                    className="hp-faq__panel"
+                    id={`hp-faq-panel-${faq.id}`}
+                    role="region"
+                    aria-labelledby={`hp-faq-trigger-${faq.id}`}
+                    hidden={!isOpen}
+                  >
+                    <p className="hp-faq__answer">{faq.answer}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="hp-card" aria-labelledby="hp-feedback-heading">
+          <div className="hp-card__head">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Feedback
-              </p>
-              <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Tell us what's missing</h2>
+              <p className="hp-eyebrow">Feedback</p>
+              <h2 className="hp-card__title" id="hp-feedback-heading">
+                Tell us anything
+              </h2>
             </div>
           </div>
 
           <form
-            className="space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault();
+            className="hp-form"
+            onSubmit={(event) => {
+              event.preventDefault();
               handleFeedbackSubmit();
             }}
           >
+            {/* A single-select radio group, not loose buttons: only one category can apply, and
+                arrow keys move between them for free. */}
+            <fieldset className="hp-fieldset">
+              <legend className="hp-legend">What kind of message is this?</legend>
+              <div className="hp-chips">
+                {FEEDBACK_CATEGORIES.map((option) => (
+                  <label
+                    key={option.id}
+                    className={`hp-chip${category === option.id ? " hp-chip--active" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name="feedback-category"
+                      value={option.id}
+                      checked={category === option.id}
+                      onChange={() => setCategory(option.id)}
+                      className="hp-sr-only"
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <label className="hp-label" htmlFor="hp-feedback-message">
+              Your message
+            </label>
             <textarea
-              rows="5"
+              id="hp-feedback-message"
+              ref={feedbackRef}
+              rows="6"
               placeholder="What could be better?"
               value={feedbackText}
-              onChange={(e) => setFeedbackText(e.target.value)}
-              className="w-full rounded-xl border border-border/60 bg-surface/70 p-3 text-sm outline-none focus:bg-surface transition"
+              onChange={(event) => setFeedbackText(event.target.value)}
+              className="hp-textarea"
             />
+
             <button
               type="submit"
-              disabled={feedbackMutation.isPending || !feedbackText.trim()}
-              className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background hover:opacity-90 disabled:opacity-50"
+              className="hp-btn hp-btn--primary"
+              disabled={!canSubmit}
+              aria-busy={feedbackMutation.isPending}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="lucide h-4 w-4"
-                aria-hidden="true"
-              >
-                <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"></path>
-                <path d="m21.854 2.147-10.94 10.939"></path>
-              </svg>
-              Send feedback
+              <Icon name="send" className="hp-icon hp-icon--sm" />
+              {feedbackMutation.isPending ? "Sending…" : "Send feedback"}
             </button>
+
+            {/* No SLA. Nothing in this system enforces a response deadline, so the footnote says
+                what actually happens instead of promising a turnaround. */}
+            <p className="hp-footnote">
+              This opens a support ticket. The reply appears in “Your conversations” below and you
+              will get a notification when it arrives.
+            </p>
           </form>
-        </div>
+        </section>
       </div>
 
-      <SupportConversations />
+      <SupportConversations sectionRef={conversationsRef} />
     </main>
   );
 }
