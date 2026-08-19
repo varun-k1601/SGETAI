@@ -85,6 +85,17 @@ const supportTicketSchema = new mongoose.Schema(
       default: 0,
       min: 0
     },
+    // The mirror of unreadForAdmin, for the requester's side of the thread. A boolean rather than
+    // a count: the user's own conversation list shows a dot ("support replied"), not a tally, and
+    // "2 replies waiting" is not more actionable to them than "there is something new".
+    //
+    // No backfill is needed. Every existing ticket simply has the field absent, which reads as
+    // falsy — exactly the state we want for a thread the user has never been shown. Writing a
+    // migration to stamp `false` onto historical rows would touch every document to change nothing.
+    unreadForRequester: {
+      type: Boolean,
+      default: false
+    },
     // Copied onto the row at creation from the platform-wide default (see
     // getSupportPolicy in platformSettingsService) so that changing the policy later does not
     // silently rewrite the SLA that historical tickets were actually judged against.

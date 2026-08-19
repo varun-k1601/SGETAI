@@ -42,6 +42,7 @@ const adminRoutes = require("./routes/admin");
 const dashboardRoutes = require("./routes/dashboard");
 const feedbackRoutes = require("./routes/feedback");
 const supportRoutes = require("./routes/support");
+const supportSelfRoutes = require("./routes/supportSelf");
 const organizationMemberRoutes = require("./routes/organizationMembers");
 
 function createApp() {
@@ -109,6 +110,12 @@ function createApp() {
   app.use("/api/admin", adminRoutes);
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/feedback", feedbackRoutes);
+  // ORDER IS LOAD-BEARING. Express matches app.use mounts in registration order, and
+  // "/api/support" is a prefix of "/api/support/me" — so if the admin router were registered
+  // first it would match /api/support/me/tickets, strip "/api/support", and hand "/me/tickets"
+  // straight into its router.use(requireRole(["SuperAdmin","Moderator"])) gate. Every requester
+  // would get 403 on their own conversations. Keep the more specific mount above the general one.
+  app.use("/api/support/me", supportSelfRoutes);
   app.use("/api/support", supportRoutes);
   app.use("/api/organization/members", organizationMemberRoutes);
 

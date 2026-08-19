@@ -5,6 +5,8 @@ const { requireNonEmptyString, normalizePagination } = require("../utils/validat
 const { emitToUser } = require("../utils/socketServer");
 const { getSupportPolicy } = require("../services/platformSettingsService");
 const { buildSupportMetrics } = require("../services/supportMetricsService");
+const { createNotification } = require("../services/notificationService");
+const { SUPPORT_DISPLAY_NAME, previewLine } = require("../utils/supportPresentation");
 
 const SupportTicket = require("../models/SupportTicket");
 const SupportMessage = require("../models/SupportMessage");
@@ -199,17 +201,46 @@ const replyToTicket = asyncHandler(async (req, res) => {
   if (ticket.status === "Open") {
     ticket.status = "Pending";
   }
+  // The user now has something waiting on their side of the thread (HelpPage renders this dot).
+  ticket.unreadForRequester = true;
   await ticket.save();
 
   const admin = await Admin.findById(req.user.id).select("email role").lean();
+  // One mapping, used by both the notification and the socket emit below, so the two can never
+  // drift apart on which room/role a requester belongs to.
+  const requesterRole = ticket.requesterModel === "JobSeeker" ? "seeker" : "organization";
+
+  // The notification is what actually reaches the requester today. AppShell already polls
+  // GET /notifications every 30s and renders the unread badge, so this lands without any new
+  // client machinery — unlike the emit below, which has no listener (the frontend has no
+  // socket.io-client). Notification.type is a free-form String and recipientRole already permits
+  // "seeker" and "organization", so no schema change is involved.
+  //
+  // Wrapped: the admin's reply is already persisted and the request has succeeded. A failure to
+  // notify must be logged, never turned into a 500 that makes the admin re-send a message that
+  // was in fact delivered.
+  try {
+    await createNotification({
+      recipientId: ticket.requesterId,
+      recipientRole: requesterRole,
+      type: "support_reply",
+      title: "Support replied to your request",
+      message: previewLine(body) || `${SUPPORT_DISPLAY_NAME} replied to "${ticket.subject}".`,
+      // Carries what a deep link into the thread needs.
+      metadata: {
+        ticketId: ticket._id,
+        messageId: message._id,
+        subject: ticket.subject
+      }
+    });
+  } catch (error) {
+    console.error("Failed to notify requester of a support reply:", error.message);
+  }
 
   // Pushes the reply to the requester's own room. Rooms are `user:{role}:{id}` (socketServer), and
   // the requester's role token differs from their model name.
   emitToUser(
-    {
-      id: ticket.requesterId.toString(),
-      role: ticket.requesterModel === "JobSeeker" ? "seeker" : "organization"
-    },
+    { id: ticket.requesterId.toString(), role: requesterRole },
     "support:message",
     { ticketId: ticket._id, message }
   );
