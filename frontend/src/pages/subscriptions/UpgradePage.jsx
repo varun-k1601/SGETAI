@@ -89,7 +89,7 @@ function computeYearlySaving(plans) {
   const monthly = plans.find((plan) => plan.id === "monthly");
   const yearly = plans.find((plan) => plan.id === "yearly");
 
-  if (!monthly || !yearly) {
+  if (!monthly || !yearly || monthly.currency !== yearly.currency) {
     return null;
   }
 

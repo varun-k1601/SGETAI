@@ -29,6 +29,14 @@
   --shadow-soft: 0 18px 44px rgba(88, 109, 151, 0.08);
   --shadow-card: 0 22px 48px rgba(88, 109, 151, 0.11);
   --footer-bg: #4f5f8b;
+  /* The raised active pill in the seeker/recruiter sidebar. It needs its own pair because the
+     rail itself is painted with --surface: in light the pill is the same white and is separated
+     purely by elevation, but in dark --surface is #1e1e1e, so a pill using it would vanish.
+     --nav-pill-bg therefore sits ABOVE the rail in dark and above --surface-soft (#2a2a2a, the
+     hover colour) so hover and active stay distinguishable. The admin rail does not read these
+     — it has its own --rail-* family. */
+  --nav-pill-bg: #ffffff;
+  --nav-pill-shadow: 0 1px 2px rgba(31, 39, 55, 0.06), 0 2px 6px rgba(31, 39, 55, 0.07);
 
   /* === DESIGN TOKENS: COLORS === */
   --color-primary: #2f80ff;
@@ -117,6 +125,8 @@
   --shadow-soft: 0 18px 44px rgba(0, 0, 0, 0.4);
   --shadow-card: 0 22px 48px rgba(0, 0, 0, 0.5);
   --footer-bg: #0f0f0f;
+  --nav-pill-bg: #2f2f2f;
+  --nav-pill-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
 
   /* === DARK MODE: DESIGN TOKENS === */
   --text-primary: #ffffff;
@@ -555,7 +565,7 @@ body {
 .sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.65rem;
   flex: 1;
   padding: 0 0.75rem;
 }
@@ -563,8 +573,12 @@ body {
 .sidebar-nav__item {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 0.9rem 1rem;
+  gap: 0.85rem;
+  padding: 1rem;
+  /* Transparent by default so the active row's hairline costs no layout shift — the row is the
+     same height whether or not it is active. The admin rail sets `border: none` to keep its own
+     geometry byte for byte. */
+  border: 1px solid transparent;
   border-radius: 12px;
   text-decoration: none;
   color: var(--text-muted);
@@ -579,19 +593,30 @@ body {
   color: var(--text-strong);
 }
 
+/* A RAISED PILL, not a brand tint: surface-coloured fill, soft elevation and a hairline. The row
+   colour deliberately stays --text-muted so the ICON stays muted; only the label goes dark and
+   semibold (see the .sidebar-nav__label rule below). */
 .sidebar-nav__item.active {
-  background: color-mix(in srgb, var(--brand) 12%, transparent);
-  color: var(--brand);
+  background: var(--nav-pill-bg);
+  border-color: var(--border-soft);
+  box-shadow: var(--nav-pill-shadow);
+}
+
+.sidebar-nav__item.active .sidebar-nav__label {
+  color: var(--text-heading);
   font-weight: 600;
 }
 
+/* Inset from the pill's top and bottom rather than full-bleed, and rounded on its outer edge. */
 .sidebar-nav__item.active::before {
   content: '';
   position: absolute;
   left: 0;
-  top: 0;
-  bottom: 0;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
   width: 4px;
+  height: 20px;
   background: var(--brand);
   border-radius: 0 4px 4px 0;
 }
@@ -603,6 +628,20 @@ body {
   width: 24px;
   height: 24px;
   flex-shrink: 0;
+}
+
+/* .linkedin-svg-icon is 25px for the LinkedIn-style header nav that also uses it, which overflows
+   this 24px box by a pixel and lands the icons a hair off-centre. Corrected in the sidebar scope
+   only. The admin rail's own 18px rule is more specific and still wins. */
+.sidebar-nav__icon .linkedin-svg-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Lighter stroke, matching the reference's icon weight. Scoped away from the admin rail, which
+   shares the same icon class and must not change weight. */
+.app-sidebar:not(.app-sidebar--console) .sidebar-nav__icon .linkedin-svg-icon--stroke {
+  stroke-width: 1.75;
 }
 
 .sidebar-nav__label {
@@ -624,6 +663,9 @@ body {
   border-top: 1px solid var(--border-soft);
 }
 
+/* Borderless in the reference — the transparent border is kept only so the button's height does
+   not change, and so the admin rail's own `border: 1px solid var(--rail-line)` still has a border
+   box to paint into. Hover is a soft background tint rather than a hardening outline. */
 .sidebar-collapse {
   width: 100%;
   display: flex;
@@ -631,7 +673,7 @@ body {
   justify-content: center;
   padding: 0.75rem 1rem;
   background: transparent;
-  border: 1px solid var(--border-soft);
+  border: 1px solid transparent;
   border-radius: 10px;
   color: var(--text-muted);
   font-size: 0.9rem;
@@ -644,7 +686,7 @@ body {
 .sidebar-collapse:hover {
   background: var(--surface-soft);
   color: var(--text-strong);
-  border-color: var(--border);
+  border-color: transparent;
 }
 
 /* Collapsed Sidebar State */
@@ -816,6 +858,18 @@ body {
   gap: 0.65rem;
 }
 
+/* Promoted out of the .app-sidebar--console block so the seeker/recruiter lockup can stack too
+   (wordmark on line one, Pro badge on line two). The console's own rule is more specific and
+   keeps its 2px gap, so the admin lockup is unchanged. align-items keeps the badge from
+   stretching to the wordmark's width. */
+.brand-lockup__stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
 .brand-mark {
   width: 46px;
   height: 46px;
@@ -904,10 +958,28 @@ body {
   color: var(--text-heading);
 }
 
+/* The literal #2f6fee stays put: BrandLogo also renders on the login, register, team-invite,
+   OAuth-callback and LinkedIn-callback pages, which all rely on this blue as the brand accent on
+   a white auth card. Rather than change the shared default and repaint six pages nobody asked
+   about, the near-black reference wordmark is applied as a sidebar-scoped variant below. */
 .brand-title--compact {
   font-size: 1.35rem;
   color: #2f6fee;
   letter-spacing: -0.04em;
+}
+
+/* Token-driven, so it is near-black in light and near-white in dark. The admin rail's
+   `.app-sidebar--console .brand-lockup .brand-title` rule is more specific and still wins. */
+.app-sidebar .brand-title--compact {
+  color: var(--text-heading);
+}
+
+/* The reference mark is a CIRCLE; BrandLogo draws rect rx="10". SVG geometry properties are
+   settable from CSS, so the shape changes here instead of in the component — the auth pages keep
+   the rounded square, and the admin rail is excluded so it keeps it too. Half of the rect's
+   30-unit side = a full circle. */
+.app-sidebar:not(.app-sidebar--console) .brand-logo-mark rect {
+  rx: 15px;
 }
 
 .brand-pro-badge {
@@ -12678,6 +12750,10 @@ body.career-agent-resizing {
 .app-sidebar--console .sidebar-nav__item {
   gap: 0.75rem;
   padding: 0.7rem 0.75rem;
+  /* The base rule now carries `border: 1px solid transparent` so its active pill can draw a
+     hairline without shifting layout. The console rail must not inherit that box at all, or every
+     row here grows 2px. Removing it restores this rail's geometry exactly. */
+  border: none;
   border-radius: 8px;
   color: var(--rail-ink);
   font-size: 0.875rem;
@@ -12690,9 +12766,21 @@ body.career-agent-resizing {
   color: var(--rail-ink-strong);
 }
 
+/* Explicit resets for the two properties the base active rule gained. Without them the white
+   raised pill and its hairline would render on this dark rail — the base rule sets them and this
+   modifier would only have overridden `background`. */
 .app-sidebar--console .sidebar-nav__item.active {
   background: var(--rail-active);
   color: var(--rail-ink-strong);
+  font-weight: 600;
+  box-shadow: none;
+  border-color: transparent;
+}
+
+/* The base rule colours the active LABEL directly, which beats the inherited colour set on the
+   row above. Handing inheritance back keeps the console's active label on --rail-ink-strong. */
+.app-sidebar--console .sidebar-nav__item.active .sidebar-nav__label {
+  color: inherit;
   font-weight: 600;
 }
 
