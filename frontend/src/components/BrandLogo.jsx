@@ -10,7 +10,7 @@
 // LinkedIn callback), none of which pass a subtitle and none of which are Pro, so none of them
 // gain a wrapper element they did not have before.
 export function BrandLogo({ isPro = false, subtitle = "" }) {
-  const isStacked = Boolean(subtitle);
+  const isStacked = true;
 
   return (
     <div className="brand-lockup" aria-label="sgetai">
