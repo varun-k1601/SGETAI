@@ -68,9 +68,11 @@ function ListSection({ title, items, emptyText, onDelete, onEdit, editingItemId,
                   <button type="button" className="outline-button" onClick={() => onEdit(item)}>
                     Edit
                   </button>
+                  {/* Marked destructive rather than sharing the neutral Edit treatment — this
+                      removes the entry and its uploaded file permanently. */}
                   <button
                     type="button"
-                    className="outline-button"
+                    className="outline-button danger-button"
                     onClick={() => onDelete(item._id)}
                   >
                     Delete

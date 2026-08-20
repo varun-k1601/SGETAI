@@ -6,13 +6,16 @@ const { signVerificationToken, verifyVerificationToken } = require("../utils/ver
 const { getTrustScoreTag, normalizeManagerRating } = require("../utils/trustScore");
 const { createVerificationSchedule } = require("../utils/verificationSchedule");
 const { createNotification } = require("../services/notificationService");
-const { optionalString, requireNonEmptyString } = require("../utils/validation");
+const { optionalString, requireNonEmptyString, normalizePagination } = require("../utils/validation");
 
 const Application = require("../models/Application");
 const Job = require("../models/Job");
 const JobSeeker = require("../models/JobSeeker");
 const Organization = require("../models/Organization");
 const VerificationRequest = require("../models/VerificationRequest");
+
+// The model's real enum (VerificationRequest.status) — nothing else is ever assigned.
+const VERIFICATION_STATUSES = ["Pending", "Submitted", "Expired"];
 
 function buildVerificationLink(token) {
   const baseUrl = (process.env.FRONTEND_URL || "").replace(/\/$/, "");
@@ -236,7 +239,94 @@ const submitVerification = asyncHandler(async (req, res) => {
   });
 });
 
+// GET /api/verification/mine — org-scoped list of this organization's VerificationRequests, with
+// real status counts computed over the WHOLE set (not just the current page/filter) so KPI cards
+// stay accurate as the recruiter pages through or filters. Nothing here is summarised/embedded
+// inside another endpoint's payload the way getMyJobsOverview's backgroundChecks[] is — this is
+// the request list itself.
+const getMyVerificationRequests = asyncHandler(async (req, res) => {
+  if (req.user.role !== "organization") {
+    throw new ApiError(403, "Only organizations can view their verification requests.");
+  }
+
+  const organizationId = req.user.id;
+  const { page, limit, skip } = normalizePagination(req.query);
+  const statusFilter = String(req.query.status || "All").trim();
+
+  if (statusFilter !== "All" && !VERIFICATION_STATUSES.includes(statusFilter)) {
+    throw new ApiError(400, `status must be one of: All, ${VERIFICATION_STATUSES.join(", ")}.`);
+  }
+
+  const listFilter = { organizationId };
+  if (statusFilter !== "All") {
+    listFilter.status = statusFilter;
+  }
+
+  // "Needs attention" is not a status — it is Pending requests where verificationCron has already
+  // sent at least one reminder and the manager still has not responded. Both fields it reads
+  // (status, reminderCount) are real, persisted values; nothing here is estimated.
+  const needsAttentionFilter = { organizationId, status: "Pending", reminderCount: { $gte: 1 } };
+
+  const [requests, listTotal, statusCounts, needsAttention] = await Promise.all([
+    VerificationRequest.find(listFilter)
+      .sort({ requestedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate("jobSeekerId", "firstName lastName")
+      .populate({
+        path: "applicationId",
+        select: "jobId",
+        populate: { path: "jobId", select: "title" }
+      })
+      .lean(),
+    VerificationRequest.countDocuments(listFilter),
+    Promise.all(
+      VERIFICATION_STATUSES.map((status) =>
+        VerificationRequest.countDocuments({ organizationId, status })
+      )
+    ),
+    VerificationRequest.countDocuments(needsAttentionFilter)
+  ]);
+
+  const summary = {
+    total: statusCounts.reduce((sum, count) => sum + count, 0),
+    needsAttention
+  };
+  VERIFICATION_STATUSES.forEach((status, index) => {
+    summary[status] = statusCounts[index];
+  });
+
+  return sendSuccess(res, {
+    message: "Verification requests fetched successfully.",
+    summary,
+    pagination: {
+      page,
+      limit,
+      total: listTotal,
+      totalPages: Math.max(Math.ceil(listTotal / limit), 1)
+    },
+    requests: requests.map((request) => ({
+      _id: request._id,
+      status: request.status,
+      managerEmail: request.managerEmail,
+      requestedAt: request.requestedAt,
+      gracePeriodEndsAt: request.gracePeriodEndsAt,
+      nextReminderAt: request.nextReminderAt,
+      submittedAt: request.submittedAt,
+      lastReminderSentAt: request.lastReminderSentAt,
+      reminderCount: request.reminderCount,
+      applicationId: request.applicationId?._id || request.applicationId,
+      jobId: request.applicationId?.jobId?._id || null,
+      jobTitle: request.applicationId?.jobId?.title || null,
+      candidateName:
+        `${request.jobSeekerId?.firstName || ""} ${request.jobSeekerId?.lastName || ""}`.trim() ||
+        "Unknown candidate"
+    }))
+  });
+});
+
 module.exports = {
   triggerVerification,
-  submitVerification
+  submitVerification,
+  getMyVerificationRequests
 };

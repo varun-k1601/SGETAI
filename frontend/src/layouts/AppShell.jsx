@@ -207,7 +207,11 @@ const proOnlyNavItems = [
 const recruiterNavItems = [
   { to: "/recruiter/overview", label: "Overview", icon: "layout-grid" },
   { to: "/recruiter/job-postings", label: "Job Postings", icon: "briefcase" },
-  { to: "/recruiter/applications", label: "Candidates", icon: "users" },
+  // "Candidates" now points at the cross-job candidate pool. It used to point at
+  // /recruiter/applications, which is a JOB PICKER ("Select a job"), not a candidate list — so the
+  // label named one thing and led to another, and /recruiter/candidates was unreachable entirely.
+  { to: "/recruiter/candidates", label: "Candidates", icon: "users" },
+  { to: "/recruiter/applications", label: "Applications", icon: "clipboard" },
   { to: "/recruiter/company-posts", label: "Company Posts", icon: "megaphone" },
   { to: "/recruiter/background-check", label: "Background Check", icon: "shield-check" },
   { to: "/recruiter/integrations", label: "Integrations", icon: "plug" },

@@ -3,6 +3,39 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest } from "../../services/api";
 
+/* ===============================================================================================
+   Recruiter overview (/recruiter/overview) — organization accounts only.
+   ===============================================================================================
+   DATA SOURCE IS UNCHANGED. All three queries and their keys are exactly what this page already
+   used: /jobs/mine?status=All, /jobs/mine/overview and /chat/sessions. Nothing here reads
+   /dashboard/recruiter — that controller invents match scores with Math.random(), hardcodes
+   viewCount: 0, and filters Application on "Interviewed"/"OfferSent", which are not in the
+   status enum, so those counts are structurally always zero.
+
+   WHAT THE RESTYLE DID *NOT* ADD, AND WHY
+     AI-screened funnel stage  The endpoint's funnel has five keys and none of them is an
+                               AI-screening stage; the pipeline genuinely does not have one.
+                               The honest alternative the brief allows — "applications carrying
+                               an atsScore" — is not derivable either, because the endpoint
+                               returns funnel COUNTS, not the underlying rows, and topCandidates
+                               is capped at five. Adding it would need a backend change, so the
+                               bar is omitted rather than faked.
+     Profile views             Nothing counts views anywhere — not Organization, not Job, not
+                               JobSeeker. The fourth KPI is verificationReadyForReview instead,
+                               which is a real count off the same payload.
+     "n of 5 checks complete"  VerificationRequest has a three-value status enum
+                               (Pending / Submitted / Expired), not a checklist. Progress is
+                               derived from that status and the status word is always shown.
+
+   THE TEAL IS NEW IN A LITERAL SENSE: the previous version reached for bg-gradient-recruiter,
+   shadow-recruiter and text-recruiter-foreground, none of which generate any CSS in this app —
+   the @theme block declares fonts only. Every recruiter-accented element was rendering
+   unstyled. The accent now comes from real --rc-* tokens.
+
+   The root .recruiter-overview is a TRANSPARENT LAYOUT CONTAINER — no background, no padding of
+   its own. .main-panel already pads and scrolls the region.
+   =============================================================================================== */
+
 function timeAgo(dateString) {
   if (!dateString) return "—";
   const diffMs = Date.now() - new Date(dateString).getTime();
@@ -32,6 +65,78 @@ const VERIFICATION_LABELS = {
   Submitted: "Ready for review",
   Expired: "Expired"
 };
+
+// Tone per VerificationRequest status. The enum is Pending / Submitted / Expired; "NotStarted" is
+// synthesised by the controller for candidates with no request at all.
+const VERIFICATION_TONE = {
+  Submitted: "ok",
+  Pending: "accent",
+  Expired: "warn",
+  NotStarted: "muted"
+};
+
+// Progress derived from the real status, NOT an invented step count. Pending means the request is
+// out with the manager; Submitted means it came back and is waiting on the recruiter; Expired is
+// terminal without an answer. There is no further state in the enum to progress to.
+const VERIFICATION_PROGRESS = {
+  NotStarted: 0,
+  Pending: 50,
+  Submitted: 100,
+  Expired: 100
+};
+
+// Rendered visibly disabled with no Connect handler and no connected state. There is no
+// integration model, route, controller or OAuth for any of these anywhere in the backend.
+const ATS_PROVIDERS = ["Greenhouse", "Lever", "Workday", "BambooHR"];
+
+function Icon({ path, className = "ro-icon" }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {path}
+    </svg>
+  );
+}
+
+const ICONS = {
+  plus: <><path d="M5 12h14" /><path d="M12 5v14" /></>,
+  briefcase: <><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /><rect width="20" height="14" x="2" y="6" rx="2" /></>,
+  users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><path d="M16 3.128a4 4 0 0 1 0 7.744" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><circle cx="9" cy="7" r="4" /></>,
+  trend: <><path d="M16 7h6v6" /><path d="m22 7-8.5 8.5-5-5L2 17" /></>,
+  shield: <><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /></>,
+  arrow: <><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></>,
+  plug: <><path d="M12 22v-5" /><path d="M15 8V2" /><path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z" /><path d="M9 8V2" /></>,
+  inbox: <><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" /></>
+};
+
+function KpiCard({ icon, label, value, delta, helper }) {
+  return (
+    <li className="ro-card ro-kpi">
+      <div className="ro-kpi__head">
+        <p className="ro-kpi__label">{label}</p>
+        <span className="ro-tile ro-tile--muted">
+          <Icon path={icon} className="ro-icon ro-icon--sm" />
+        </span>
+      </div>
+      <p className={`ro-kpi__value${value === "—" ? " ro-kpi__value--none" : ""}`}>{value}</p>
+      <div className="ro-kpi__foot">
+        {/* Only rendered when a real prior-period comparison exists. */}
+        {delta ? (
+          <span className={`ro-pill ro-pill--${delta.tone}`}>{delta.label}</span>
+        ) : null}
+        <span className="ro-kpi__helper">{helper}</span>
+      </div>
+    </li>
+  );
+}
 
 export function RecruiterOverviewPage() {
   const navigate = useNavigate();
@@ -63,6 +168,8 @@ export function RecruiterOverviewPage() {
     .sort((left, right) => new Date(right.lastMessageAt || right.updatedAt || 0) - new Date(left.lastMessageAt || left.updatedAt || 0))
     .slice(0, 5);
 
+  // Five stages, matching the five keys the endpoint actually returns. `offer` counts
+  // Application status "Accepted" server-side — the label follows the endpoint, not the enum.
   const funnelStages = overview
     ? [
         { label: "Applied", count: overview.funnel.applied },
@@ -74,552 +181,377 @@ export function RecruiterOverviewPage() {
     : [];
   const funnelMax = Math.max(1, ...funnelStages.map((stage) => stage.count));
 
+  const readyForReview = overview?.verificationReadyForReview ?? 0;
+  const companyName =
+    session?.profile?.companyName || session?.username || "Hiring Team";
+
+  const hasMatchAverage =
+    overview?.avgMatchLast30Days !== null && overview?.avgMatchLast30Days !== undefined;
+
   return (
-    <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
-      {/* Hero Banner */}
-      <div className="relative mb-6 overflow-hidden rounded-3xl border border-border/60 bg-linear-to-br p-6 lg:p-8 from-recruiter/15 via-primary/10 to-transparent">
-        <div className="orb absolute -right-20 -top-20 h-60 w-60 bg-primary/20 rounded-full blur-3xl"></div>
-        <div className="orb absolute -bottom-24 -left-24 h-72 w-72 bg-recruiter/25 rounded-full blur-3xl"></div>
-        <div className="relative">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                Recruiter command center
-              </p>
-              <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight lg:text-4xl">
-                Welcome back, Hiring Team
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground lg:text-base">
-                {overviewQuery.isLoading
-                  ? "Loading your latest activity…"
-                  : `${overview?.newApplicantsThisWeek ?? 0} new applications this week. ${overview?.verificationReadyForReview ?? 0} background ${
-                      (overview?.verificationReadyForReview ?? 0) === 1 ? "check is" : "checks are"
-                    } ready for review.`}
-              </p>
-            </div>
-            <button
-              onClick={() => navigate("/recruiter/job-postings/new")}
-              className="inline-flex items-center gap-2 rounded-full bg-gradient-recruiter px-5 py-2.5 text-sm font-semibold text-recruiter-foreground shadow-recruiter hover:opacity-95"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="lucide h-4 w-4"
-                aria-hidden="true"
-              >
-                <path d="M5 12h14"></path>
-                <path d="M12 5v14"></path>
-              </svg>
-              Post a job
-            </button>
-          </div>
+    <section className="recruiter-overview" aria-labelledby="ro-hero-title">
+      <header className="ro-hero">
+        <div className="ro-hero__text">
+          <p className="ro-eyebrow">Recruiter command center</p>
+          <h1 className="ro-hero__title" id="ro-hero-title">
+            Welcome back, {companyName}
+          </h1>
+          <p className="ro-hero__sub">
+            {overviewQuery.isLoading
+              ? "Loading your latest activity…"
+              : `${overview?.newApplicantsThisWeek ?? 0} new applications this week. ${readyForReview} background ${
+                  readyForReview === 1 ? "check is" : "checks are"
+                } ready for review.`}
+          </p>
         </div>
-      </div>
+        <button
+          className="ro-btn ro-btn--primary"
+          type="button"
+          onClick={() => navigate("/recruiter/job-postings/new")}
+        >
+          <Icon path={ICONS.plus} className="ro-icon ro-icon--sm" />
+          Post a job
+        </button>
+      </header>
 
-      {/* Stats Cards */}
-      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-4 backdrop-blur">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="lucide h-3.5 w-3.5"
-              aria-hidden="true"
-            >
-              <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
-              <rect width="20" height="14" x="2" y="6" rx="2"></rect>
-            </svg>
-            Active postings
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <div className="font-display text-2xl font-semibold tabular-nums">
-              {overview?.activePostings ?? "—"}
-            </div>
-            {overview ? (
-              <div className="text-xs font-medium text-success">+{overview.postingsThisWeek} this wk</div>
-            ) : null}
-          </div>
-        </div>
+      <ul className="ro-kpis">
+        <KpiCard
+          icon={ICONS.briefcase}
+          label="Active postings"
+          value={overview?.activePostings ?? "—"}
+          helper={
+            overview
+              ? `${overview.postingsThisWeek} posted in the last 7 days`
+              : "Roles currently open"
+          }
+        />
+        <KpiCard
+          icon={ICONS.users}
+          label="New applicants (7d)"
+          value={overview?.newApplicantsThisWeek ?? "—"}
+          // The ONLY KPI on this page with a real prior-period comparison: the endpoint counts
+          // the 7–14 day window separately and returns the change itself.
+          delta={
+            overview
+              ? {
+                  tone: overview.newApplicantsChangePct >= 0 ? "ok" : "warn",
+                  label: `${overview.newApplicantsChangePct >= 0 ? "+" : ""}${overview.newApplicantsChangePct}% vs prior week`
+                }
+              : null
+          }
+          helper="Applications received"
+        />
+        <KpiCard
+          icon={ICONS.trend}
+          label="Avg match (30d)"
+          value={hasMatchAverage ? `${overview.avgMatchLast30Days}%` : "—"}
+          helper={hasMatchAverage ? "Mean ATS score across applicants" : "Not enough data yet"}
+        />
+        <KpiCard
+          icon={ICONS.shield}
+          label="Checks ready for review"
+          value={overview ? readyForReview : "—"}
+          helper="Background checks awaiting you"
+        />
+      </ul>
 
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-4 backdrop-blur">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="lucide h-3.5 w-3.5"
-              aria-hidden="true"
-            >
-              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
-              <path d="M16 3.128a4 4 0 0 1 0 7.744"></path>
-              <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
-              <circle cx="9" cy="7" r="4"></circle>
-            </svg>
-            New applicants (7d)
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <div className="font-display text-2xl font-semibold tabular-nums">
-              {overview?.newApplicantsThisWeek ?? "—"}
-            </div>
-            {overview ? (
-              <div className={`text-xs font-medium ${overview.newApplicantsChangePct >= 0 ? "text-success" : "text-red-500"}`}>
-                {overview.newApplicantsChangePct >= 0 ? "+" : ""}
-                {overview.newApplicantsChangePct}% vs prior wk
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-4 backdrop-blur">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="lucide h-3.5 w-3.5"
-              aria-hidden="true"
-            >
-              <path d="M16 7h6v6"></path>
-              <path d="m22 7-8.5 8.5-5-5L2 17"></path>
-            </svg>
-            Avg match (30d)
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            {overview?.avgMatchLast30Days !== null && overview?.avgMatchLast30Days !== undefined ? (
-              <div className="font-display text-2xl font-semibold tabular-nums">{overview.avgMatchLast30Days}%</div>
-            ) : (
-              <div className="font-display text-sm font-semibold text-muted-foreground">Not enough data yet</div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-12 gap-6">
-        <section className="col-span-12 space-y-5 lg:col-span-8">
-          {/* Hiring Funnel */}
-          <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-recruiter">
-            <div className="mb-4 flex items-end justify-between gap-4">
+      <div className="ro-split">
+        <div className="ro-column">
+          {/* ---- Hiring funnel ---------------------------------------------------------- */}
+          <article className="ro-card" aria-labelledby="ro-funnel-title">
+            <div className="ro-card__head">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Pipeline
-                </p>
-                <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Hiring funnel</h2>
+                <p className="ro-eyebrow">Pipeline</p>
+                <h2 className="ro-card__title" id="ro-funnel-title">
+                  Hiring funnel
+                </h2>
               </div>
-              <span className="text-xs text-muted-foreground">Last 30 days</span>
+              {/* Stated because it is what the endpoint computes, not a decorative label. */}
+              <span className="ro-pill">Last 30 days</span>
             </div>
+
             {overviewQuery.isLoading ? (
-              <p className="text-sm text-muted-foreground">Loading funnel…</p>
+              <p className="ro-empty">Loading funnel…</p>
+            ) : overviewQuery.isError ? (
+              <p className="ro-error">{overviewQuery.error?.message || "Could not load the funnel."}</p>
             ) : (
-              <div className="space-y-2.5">
+              // A real list with the count as text on every row — the bar is decorative and
+              // aria-hidden, so nothing here depends on being able to compare bar lengths.
+              <ul className="ro-funnel">
                 {funnelStages.map((stage) => (
-                  <div key={stage.label} className="flex items-center gap-3">
-                    <div className="w-36 text-xs font-medium text-muted-foreground">{stage.label}</div>
-                    <div className="relative h-8 flex-1 overflow-hidden rounded-lg bg-muted/50">
-                      <div
-                        className="h-full rounded-lg bg-gradient-recruiter"
+                  <li className="ro-funnel__row" key={stage.label}>
+                    <span className="ro-funnel__label">{stage.label}</span>
+                    <span className="ro-funnel__track" aria-hidden="true">
+                      <span
+                        className="ro-funnel__bar"
                         style={{ width: `${(stage.count / funnelMax) * 100}%` }}
-                      ></div>
-                      <div className="absolute inset-y-0 left-3 flex items-center text-xs font-semibold text-white mix-blend-difference">
-                        {stage.count}
-                      </div>
-                    </div>
-                  </div>
+                      />
+                    </span>
+                    <span className="ro-funnel__count">{stage.count}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-          </div>
+          </article>
 
-          {/* Top Candidates */}
-          <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-            <div className="mb-4 flex items-end justify-between gap-4">
+          {/* ---- Top candidates --------------------------------------------------------- */}
+          <article className="ro-card" aria-labelledby="ro-candidates-title">
+            <div className="ro-card__head">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Ranked by ATS score
-                </p>
-                <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Top candidates this week</h2>
+                <p className="ro-eyebrow">Ranked by ATS score</p>
+                <h2 className="ro-card__title" id="ro-candidates-title">
+                  Top candidates this week
+                </h2>
               </div>
-              <a
-                href="/recruiter/applications"
-                className="inline-flex items-center gap-1 text-xs font-medium text-primary"
-              >
+              <a className="ro-link" href="/recruiter/applications">
                 See all
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="lucide h-3 w-3"
-                  aria-hidden="true"
-                >
-                  <path d="M5 12h14"></path>
-                  <path d="m12 5 7 7-7 7"></path>
-                </svg>
+                <Icon path={ICONS.arrow} className="ro-icon ro-icon--sm" />
               </a>
             </div>
-            <div className="space-y-3">
-              {overviewQuery.isLoading ? (
-                <p className="text-sm text-muted-foreground">Loading candidates…</p>
-              ) : overview?.topCandidates?.length ? (
-                overview.topCandidates.map((candidate) => (
-                  <div
-                    key={candidate.applicationId}
-                    className="flex items-center gap-4 rounded-2xl border border-border/60 bg-surface/60 p-4 transition hover:bg-surface hover:shadow-elegant"
-                  >
-                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-recruiter text-sm font-semibold text-recruiter-foreground">
-                      {getInitials(candidate.name)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold">{candidate.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {candidate.title} · {candidate.location}
-                      </p>
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {candidate.skills.slice(0, 4).map((skill) => (
-                          <span
-                            key={skill}
-                            className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium"
-                          >
-                            {skill}
+
+            {overviewQuery.isLoading ? (
+              <p className="ro-empty">Loading candidates…</p>
+            ) : overview?.topCandidates?.length ? (
+              <ul className="ro-rows">
+                {overview.topCandidates.map((candidate) => {
+                  const statusLabel =
+                    VERIFICATION_LABELS[candidate.verificationStatus] || candidate.verificationStatus;
+
+                  return (
+                    <li key={candidate.applicationId}>
+                      {/* A real button, so the row is keyboard-reachable. Its accessible name
+                          carries the score and the check status as words, since the ring and the
+                          pill both convey those with colour. */}
+                      <button
+                        className="ro-candidate"
+                        type="button"
+                        onClick={() => navigate("/recruiter/applications")}
+                        aria-label={`${candidate.name}, ${candidate.atsScore}% match, ${statusLabel}`}
+                      >
+                        <span className="ro-avatar">{getInitials(candidate.name)}</span>
+
+                        <span className="ro-candidate__body">
+                          <span className="ro-candidate__name">{candidate.name}</span>
+                          <span className="ro-candidate__meta">
+                            {candidate.title} · {candidate.location}
                           </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <div
-                        className="relative grid shrink-0 place-items-center rounded-full font-semibold tabular-nums h-12 w-12 text-xs"
-                        style={{
-                          background: `conic-gradient(var(--gradient-recruiter) ${candidate.atsScore * 3.6}deg, oklch(0.93 0.01 250) 0deg)`
-                        }}
-                      >
-                        <div className="grid h-[calc(100%-6px)] w-[calc(100%-6px)] place-items-center rounded-full bg-card">
-                          {candidate.atsScore}%
-                        </div>
-                      </div>
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                          candidate.verificationStatus === "Submitted"
-                            ? "bg-success/15 text-success"
-                            : candidate.verificationStatus === "Pending"
-                              ? "bg-primary/15 text-primary"
-                              : candidate.verificationStatus === "Expired"
-                                ? "bg-red-500/15 text-red-500"
-                                : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {VERIFICATION_LABELS[candidate.verificationStatus] || candidate.verificationStatus}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No applications came in during the last 7 days.</p>
-              )}
-            </div>
-          </div>
+                          <span className="ro-tags">
+                            {candidate.skills.slice(0, 4).map((skill) => (
+                              <span className="ro-tag" key={skill}>
+                                {skill}
+                              </span>
+                            ))}
+                          </span>
+                        </span>
 
-          {/* Open Roles */}
-          <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-            <div className="mb-4 flex items-end justify-between gap-4">
+                        <span className="ro-candidate__side">
+                          <span
+                            className="ro-score"
+                            style={{ "--ro-score-deg": `${candidate.atsScore * 3.6}deg` }}
+                          >
+                            <span className="ro-score__inner">{candidate.atsScore}%</span>
+                          </span>
+                          <span
+                            className={`ro-pill ro-pill--${VERIFICATION_TONE[candidate.verificationStatus] || "muted"}`}
+                          >
+                            {statusLabel}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="ro-empty">No applications came in during the last 7 days.</p>
+            )}
+          </article>
+
+          {/* ---- Open roles ------------------------------------------------------------- */}
+          <article className="ro-card" aria-labelledby="ro-roles-title">
+            <div className="ro-card__head">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Job postings
-                </p>
-                <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Open roles</h2>
+                <p className="ro-eyebrow">Job postings</p>
+                <h2 className="ro-card__title" id="ro-roles-title">
+                  Open roles
+                </h2>
               </div>
             </div>
-            <div className="space-y-2">
-              {jobsQuery.isLoading ? (
-                <p className="text-sm text-muted-foreground">Loading job postings…</p>
-              ) : openRoles.length ? (
-                openRoles.map((role) => (
-                  <div
-                    key={role._id}
-                    onClick={() => navigate(`/recruiter/job-postings/${role._id}`)}
-                    className="flex cursor-pointer items-center gap-3 rounded-xl border border-border/40 bg-surface/40 p-3 hover:bg-surface/70"
-                  >
-                    <div
-                      className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
-                        role.status === "Active" ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
-                      }`}
+
+            {jobsQuery.isLoading ? (
+              <p className="ro-empty">Loading job postings…</p>
+            ) : openRoles.length ? (
+              <ul className="ro-rows">
+                {openRoles.map((role) => (
+                  <li key={role._id}>
+                    <button
+                      className="ro-role"
+                      type="button"
+                      onClick={() => navigate(`/recruiter/job-postings/${role._id}`)}
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="24"
-                        height="24"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="lucide h-4 w-4"
-                        aria-hidden="true"
+                      <span className={`ro-tile${role.status === "Active" ? "" : " ro-tile--muted"}`}>
+                        <Icon path={ICONS.briefcase} className="ro-icon ro-icon--sm" />
+                      </span>
+                      <span className="ro-role__body">
+                        <span className="ro-role__title">{role.title}</span>
+                        <span className="ro-role__meta">
+                          {role.industry || "General"} · {role.location || "Remote"} ·{" "}
+                          {timeAgo(role.createdAt)}
+                        </span>
+                      </span>
+                      <span className="ro-role__side">
+                        <span className="ro-pill">
+                          <Icon path={ICONS.users} className="ro-icon ro-icon--sm" />
+                          {role.applicationCount || 0}
+                        </span>
+                        <span className={`ro-pill ro-pill--${role.status === "Active" ? "ok" : "muted"}`}>
+                          {role.status}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="ro-empty">No job postings yet.</p>
+            )}
+          </article>
+        </div>
+
+        <aside className="ro-column">
+          {/* ---- Background checks ------------------------------------------------------- */}
+          <article className="ro-card" aria-labelledby="ro-checks-title">
+            <div className="ro-card__head">
+              <div>
+                <p className="ro-eyebrow">Free service</p>
+                <h2 className="ro-card__title" id="ro-checks-title">
+                  Background checks
+                </h2>
+              </div>
+            </div>
+
+            {overviewQuery.isLoading ? (
+              <p className="ro-empty">Loading…</p>
+            ) : overview?.backgroundChecks?.length ? (
+              <ul className="ro-rows">
+                {overview.backgroundChecks.map((check) => {
+                  const statusLabel = VERIFICATION_LABELS[check.status] || check.status;
+                  const progress = VERIFICATION_PROGRESS[check.status] ?? 0;
+
+                  return (
+                    <li className="ro-check" key={check.id}>
+                      <div className="ro-check__head">
+                        <span className="ro-check__name">{check.name}</span>
+                        <span className={`ro-pill ro-pill--${VERIFICATION_TONE[check.status] || "muted"}`}>
+                          {statusLabel}
+                        </span>
+                      </div>
+                      {/* Progress comes from the status, and the status word is always visible
+                          above it — the bar never carries information on its own. */}
+                      <div
+                        className="ro-progress"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={progress}
+                        aria-label={`${check.name}: ${statusLabel}`}
                       >
-                        <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
-                        <rect width="20" height="14" x="2" y="6" rx="2"></rect>
-                      </svg>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">{role.title}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {role.industry || "General"} · {role.location || "Remote"} · {timeAgo(role.createdAt)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="24"
-                          height="24"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="lucide h-3 w-3"
-                          aria-hidden="true"
-                        >
-                          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
-                          <path d="M16 3.128a4 4 0 0 1 0 7.744"></path>
-                          <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
-                          <circle cx="9" cy="7" r="4"></circle>
-                        </svg>
-                        {role.applicationCount || 0}
-                      </span>
-                      <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium capitalize">
-                        {role.status}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No job postings yet.</p>
-              )}
-            </div>
-          </div>
-        </section>
+                        <span
+                          className={`ro-progress__fill${check.status === "Expired" ? " ro-progress__fill--warn" : ""}`}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <p className="ro-check__meta">Requested {timeAgo(check.requestedAt)}</p>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="ro-empty">No background checks requested yet.</p>
+            )}
 
-        {/* Right Sidebar */}
-        <aside className="col-span-12 space-y-4 lg:col-span-4">
-          {/* Background Checks */}
-          <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-            <div className="mb-4 flex items-end justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Free service
-                </p>
-                <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Background checks</h2>
-              </div>
-            </div>
-            <div className="space-y-3">
-              {overviewQuery.isLoading ? (
-                <p className="text-sm text-muted-foreground">Loading…</p>
-              ) : overview?.backgroundChecks?.length ? (
-                overview.backgroundChecks.map((check) => (
-                  <div key={check.id} className="rounded-xl border border-border/60 bg-surface/60 p-3">
-                    <div className="flex items-center gap-2">
-                      {check.status === "Submitted" ? (
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="24"
-                          height="24"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="lucide h-4 w-4 text-success"
-                          aria-hidden="true"
-                        >
-                          <circle cx="12" cy="12" r="10"></circle>
-                          <path d="m9 12 2 2 4-4"></path>
-                        </svg>
-                      ) : check.status === "Pending" ? (
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="24"
-                          height="24"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="lucide h-4 w-4 text-primary"
-                          aria-hidden="true"
-                        >
-                          <circle cx="12" cy="12" r="10"></circle>
-                          <path d="M12 6v6l4 2"></path>
-                        </svg>
-                      ) : (
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="24"
-                          height="24"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="lucide h-4 w-4 text-muted-foreground"
-                          aria-hidden="true"
-                        >
-                          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path>
-                          <path d="M12 9v4"></path>
-                          <path d="M12 17h.01"></path>
-                        </svg>
-                      )}
-                      <span className="text-sm font-semibold">{check.name}</span>
-                      <span className="ml-auto text-[11px] text-muted-foreground">
-                        {VERIFICATION_LABELS[check.status] || check.status}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-[11px] text-muted-foreground">Requested {timeAgo(check.requestedAt)}</p>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No background checks requested yet.</p>
-              )}
-              <button
-                onClick={() => navigate("/recruiter/applications")}
-                className="w-full rounded-xl border border-dashed border-border bg-surface/40 py-2.5 text-sm font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
-              >
-                + New background check
-              </button>
-            </div>
-          </div>
+            {/* Kept, but labelled for what it does: a check is triggered per application
+                (POST /verification/:applicationId/trigger), so this goes to the list where an
+                application can be picked rather than pretending to create one from here. */}
+            <button
+              className="ro-btn ro-btn--dashed"
+              type="button"
+              onClick={() => navigate("/recruiter/applications")}
+            >
+              <Icon path={ICONS.plus} className="ro-icon ro-icon--sm" />
+              Request a check from an application
+            </button>
+          </article>
 
-          {/* ATS & HRIS Integrations */}
-          <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-            <div className="mb-4 flex items-end justify-between gap-4">
+          {/* ---- ATS & HRIS -------------------------------------------------------------- */}
+          <article className="ro-card" aria-labelledby="ro-ats-title">
+            <div className="ro-card__head">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Connect
-                </p>
-                <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">ATS &amp; HRIS</h2>
+                <p className="ro-eyebrow">Connect</p>
+                <h2 className="ro-card__title" id="ro-ats-title">
+                  ATS &amp; HRIS
+                </h2>
               </div>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="lucide h-4 w-4 text-muted-foreground"
-                aria-hidden="true"
-              >
-                <path d="M12 22v-5"></path>
-                <path d="M15 8V2"></path>
-                <path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z"></path>
-                <path d="M9 8V2"></path>
-              </svg>
+              <span className="ro-tile ro-tile--muted">
+                <Icon path={ICONS.plug} className="ro-icon ro-icon--sm" />
+              </span>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { name: "Greenhouse", emoji: "🌱" },
-                { name: "Lever", emoji: "🎚️" },
-                { name: "Workday", emoji: "💼" },
-                { name: "BambooHR", emoji: "🎋" }
-              ].map((integration) => (
-                <div key={integration.name} className="rounded-xl border border-border/60 bg-surface/60 p-3 opacity-70">
-                  <div className="text-2xl">{integration.emoji}</div>
-                  <p className="mt-1.5 truncate text-sm font-semibold">{integration.name}</p>
-                  <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground">
-                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground"></span>
-                    Coming soon
-                  </span>
-                </div>
+
+            <p className="ro-note">
+              None of these are built yet — there is no integration behind any of them, so none can
+              be connected. They are listed so it is clear what is planned, not what is running.
+            </p>
+
+            <ul className="ro-ats">
+              {ATS_PROVIDERS.map((name) => (
+                <li className="ro-ats__item" key={name} aria-disabled="true">
+                  <span className="ro-ats__name">{name}</span>
+                  <span className="ro-pill">Not built</span>
+                </li>
               ))}
-            </div>
-          </div>
+            </ul>
+          </article>
 
-          {/* Messages */}
-          <div className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-            <div className="mb-4 flex items-end justify-between gap-4">
+          {/* ---- Messages ---------------------------------------------------------------- */}
+          <article className="ro-card" aria-labelledby="ro-inbox-title">
+            <div className="ro-card__head">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Inbox
-                </p>
-                <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Messages</h2>
+                <p className="ro-eyebrow">Inbox</p>
+                <h2 className="ro-card__title" id="ro-inbox-title">
+                  Messages
+                </h2>
               </div>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="lucide h-4 w-4 text-muted-foreground"
-                aria-hidden="true"
-              >
-                <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path>
-              </svg>
+              <span className="ro-tile ro-tile--muted">
+                <Icon path={ICONS.inbox} className="ro-icon ro-icon--sm" />
+              </span>
             </div>
-            <div className="space-y-2 text-sm">
-              {chatQuery.isLoading ? (
-                <p className="text-sm text-muted-foreground">Loading messages…</p>
-              ) : recentMessages.length ? (
-                recentMessages.map((chatSession) => (
-                  <div
-                    key={chatSession._id}
-                    onClick={() => navigate("/chat")}
-                    className="flex cursor-pointer items-center gap-2 border-t border-border/40 py-2 first:border-t-0"
-                  >
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"></span>
-                    <p className="truncate text-sm">
-                      <strong>{chatSession.otherParticipant?.display?.name || "Conversation"}</strong>
-                      {chatSession.lastMessage ? `: ${chatSession.lastMessage}` : " — no messages yet"}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No conversations yet.</p>
-              )}
-            </div>
-          </div>
+
+            {chatQuery.isLoading ? (
+              <p className="ro-empty">Loading messages…</p>
+            ) : recentMessages.length ? (
+              <ul className="ro-rows">
+                {recentMessages.map((chatSession) => (
+                  <li key={chatSession._id}>
+                    <button className="ro-message" type="button" onClick={() => navigate("/chat")}>
+                      <span className="ro-dot" aria-hidden="true" />
+                      <span className="ro-message__body">
+                        <span className="ro-message__name">
+                          {chatSession.otherParticipant?.display?.name || "Conversation"}
+                        </span>
+                        <span className="ro-message__preview">
+                          {chatSession.lastMessage || "No messages yet"}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="ro-empty">No conversations yet.</p>
+            )}
+          </article>
         </aside>
       </div>
-    </main>
+    </section>
   );
 }

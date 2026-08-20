@@ -12924,6 +12924,16 @@ body.career-agent-resizing {
   --ph-hero-soft-border: rgba(124, 58, 237, 0.16);
   --ph-radius-card: 14px;
   --ph-radius-tile: 10px;
+
+  /* RECRUITER ACCENT (--rc-*). Deliberately NOT a second palette: surface, border, ink, muted,
+     shadow and both radii above stay shared, so a recruiter screen and a seeker screen read as
+     the same product. Only the accent and the two gradients fork, which is what makes the two
+     roles distinguishable at a glance — teal/green here against the seeker pages' purple. */
+  --rc-accent: #0d9488;
+  --rc-accent-soft: rgba(13, 148, 136, 0.1);
+  --rc-gradient: linear-gradient(135deg, #0d9488 0%, #059669 100%);
+  --rc-hero-soft: linear-gradient(115deg, #ccfbf1 0%, #d1fae5 48%, #dbeafe 100%);
+  --rc-hero-soft-border: rgba(13, 148, 136, 0.18);
 }
 
 /* Only the token VALUES are redefined for dark. Every rule that reads them swaps automatically,
@@ -12953,6 +12963,13 @@ body.career-agent-resizing {
   --ph-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   --ph-hero-soft: linear-gradient(115deg, #241b4d 0%, #1c2a5e 48%, #123049 100%);
   --ph-hero-soft-border: rgba(167, 139, 250, 0.22);
+
+  /* Lifted for dark: #0d9488 on a near-black rail is too low-contrast to read as an accent. */
+  --rc-accent: #2dd4bf;
+  --rc-accent-soft: rgba(45, 212, 191, 0.16);
+  --rc-gradient: linear-gradient(135deg, #14b8a6 0%, #10b981 100%);
+  --rc-hero-soft: linear-gradient(115deg, #0b3b36 0%, #0d3f31 48%, #0e3040 100%);
+  --rc-hero-soft-border: rgba(45, 212, 191, 0.22);
 }
 
 /* =============================================================================================
@@ -20596,5 +20613,4942 @@ body.career-agent-resizing {
   .upgrade-page .up-plan__price,
   .upgrade-page .up-session__amount {
     font-size: 23px;
+  }
+}
+
+/* =============================================================================================
+   Profile (/pro/profile) — pages/profile/ProfilePage.jsx + ProfilePortfolioManager.jsx
+   =============================================================================================
+   Twelfth Pro surface on the shared --ph-* palette. Shared by SEEKERS and ORGANIZATIONS: the
+   component picks seekerSections or organizationSections, but the shell, cards, forms and
+   buttons are role-agnostic, so this block styles BOTH branches. There is no role selector
+   anywhere below.
+
+   WHY THIS BLOCK OVERRIDES EXISTING CLASS NAMES INSTEAD OF RENAMING THEM
+   The page uses the older global vocabulary (.info-card, .form-field, .section-head,
+   .outline-button, .stat-surface, .portfolio-item …) across 138 className usages, and those
+   classes are shared with pages this task must not touch. Renaming them in the JSX would mean
+   editing every one of those 138 sites — exactly the kind of churn that loses behaviour in a
+   2000-line file. So the markup keeps its class names and this block re-skins them, scoped to
+   the page root.
+
+   THE SCOPE PREFIX IS `:root .profile-page`, NOT `.profile-page`
+   Roughly twenty-five rules of the form `:root[data-theme="dark"] .info-card` already exist to
+   patch the hardcoded hexes in the old light rules. Those are (0,3,0). A plain
+   `.profile-page .info-card` is (0,2,0) and would LOSE to them in dark mode — the page would
+   half-migrate and look broken with the theme switched. `:root .profile-page .info-card` is
+   also (0,3,0) and wins on source order, because this block is appended at the end of the
+   file. That ordering is load-bearing and is asserted by the verification harness.
+
+   The root .profile-page is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no
+   border, no radius. .main-panel already pads and scrolls the region, and a root that paints its
+   own surface is what made .pro-home render as one giant card in dark mode.
+   ============================================================================================= */
+
+:root .profile-page {
+  min-width: 0;
+  gap: 20px;
+}
+
+/* --- Shared primitives ------------------------------------------------------------------------ */
+
+:root .profile-page .pf-eyebrow,
+:root .profile-page .eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+/* --- Cards ------------------------------------------------------------------------------------- */
+
+/* .info-card hardcodes #ffffff / #dfe9fa / an rgba shadow and needs a dark-mode patch rule to be
+   readable at all. Re-pointed at the tokens, it needs no patch — one definition, both themes. */
+:root .profile-page .info-card,
+:root .profile-page .stat-surface,
+:root .profile-page .empty-state-card,
+:root .profile-page .resume-autofill-card,
+:root .profile-page .profile-welcome-card,
+:root .profile-page .profile-create-post-card,
+:root .profile-page .organization-logo-card {
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+/* --- Section headers --------------------------------------------------------------------------- */
+
+:root .profile-page .section-head,
+:root .profile-page .section-divider {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+:root .profile-page .section-head h3,
+:root .profile-page .section-divider h2,
+:root .profile-page .section-head h4 {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ph-ink);
+}
+
+:root .profile-page .section-head p,
+:root .profile-page .section-divider p:not(.eyebrow) {
+  margin: 4px 0 0;
+  max-width: 68ch;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+:root .profile-page .pill {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+:root .profile-page .pill.accent {
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+}
+
+/* --- Stat cards --------------------------------------------------------------------------------- */
+
+:root .profile-page .stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+:root .profile-page .stat-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+:root .profile-page .stat-surface > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+:root .profile-page .stat-surface > strong {
+  margin-top: 8px;
+  font-family: var(--font-display, inherit);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+:root .profile-page .stat-surface > small {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ph-muted);
+}
+
+/* --- Two-column layout ---------------------------------------------------------------------------- */
+
+:root .profile-page .profile-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  align-items: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+:root .profile-page .profile-layout > .dashboard-stack,
+:root .profile-page .profile-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* --- Buttons -------------------------------------------------------------------------------------- */
+
+/* The unlayered global `button` rule (0,0,1) paints a gradient, a shadow and a hover transform on
+   every bare <button>. These selectors carry enough specificity to replace it outright. */
+:root .profile-page button,
+:root .profile-page .outline-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 9px 16px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+:root .profile-page button:hover:not(:disabled),
+:root .profile-page button:active:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+:root .profile-page button:focus-visible,
+:root .profile-page .outline-button:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+:root .profile-page button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Ghost / secondary. Listed after the primary block so it wins for elements carrying both. */
+:root .profile-page .outline-button,
+:root .profile-page .outline-button:hover {
+  border-color: var(--ph-border);
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+}
+
+:root .profile-page .outline-button:hover {
+  background: var(--ph-surface-sunk);
+}
+
+/* Destructive. The base .danger-button rule uses !important on all three properties, so nothing
+   short of !important can replace it — specificity alone cannot beat an important declaration. */
+:root .profile-page .danger-button,
+:root .profile-page .danger-button:hover {
+  border-color: var(--ph-danger) !important;
+  background: var(--ph-danger-soft) !important;
+  color: var(--ph-danger) !important;
+}
+
+:root .profile-page .form-inline-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* --- Form controls ------------------------------------------------------------------------------------ */
+
+:root .profile-page .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+:root .profile-page .form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+:root .profile-page .form-field > span {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ph-muted);
+}
+
+:root .profile-page .form-field input,
+:root .profile-page .form-field select,
+:root .profile-page .form-field textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+}
+
+:root .profile-page .form-field textarea {
+  resize: vertical;
+}
+
+:root .profile-page .form-field input:focus,
+:root .profile-page .form-field select:focus,
+:root .profile-page .form-field textarea:focus {
+  border-color: var(--ph-accent);
+  box-shadow: none;
+}
+
+:root .profile-page .form-field input::placeholder,
+:root .profile-page .form-field textarea::placeholder {
+  color: var(--ph-muted);
+}
+
+:root .profile-page .form-field input:disabled,
+:root .profile-page .form-field select:disabled,
+:root .profile-page .form-field textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* File inputs keep the native control but stop inheriting the text-input chrome around it. */
+:root .profile-page .form-field input[type="file"] {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--ph-muted);
+}
+
+:root .profile-page .checkbox-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+:root .profile-page .checkbox-field input {
+  width: 18px;
+  height: 18px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 4px;
+  accent-color: var(--ph-accent);
+  box-shadow: none;
+}
+
+/* --- Repeating entry rows ------------------------------------------------------------------------------- */
+
+/* Experience, education, custom sections, skill groups and every portfolio list share ONE row
+   treatment. Today each of these drifts — different padding, radius, border and background. */
+:root .profile-page .experience-editor-list,
+:root .profile-page .skill-group-list,
+:root .profile-page .portfolio-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+:root .profile-page .experience-editor-card,
+:root .profile-page .skill-group-editor,
+:root .profile-page .skill-group-card,
+:root .profile-page .portfolio-item,
+:root .profile-page .custom-section-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+/* The portfolio row is text on the left, actions on the right, until it runs out of width. */
+:root .profile-page .portfolio-item {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+:root .profile-page .portfolio-item > div:first-child {
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+:root .profile-page .portfolio-item strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+:root .profile-page .portfolio-item p,
+:root .profile-page .experience-editor-card p,
+:root .profile-page .skill-group-editor p {
+  margin: 4px 0 0;
+  max-width: 72ch;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+:root .profile-page .skill-group-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+:root .profile-page .skill-group-footer,
+:root .profile-page .skill-category-grid {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+:root .profile-page .empty-state-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px 16px;
+  border-style: dashed;
+  background: var(--ph-surface-sunk);
+  text-align: center;
+}
+
+:root .profile-page .empty-state-card h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+:root .profile-page .empty-state-card p {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+:root .profile-page .tag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+:root .profile-page .tag-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+:root .profile-page .detail-summary {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ph-muted);
+}
+
+/* --- Cover ------------------------------------------------------------------------------------------------- */
+
+:root .profile-page .profile-cover-card {
+  overflow: hidden;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+:root .profile-page .profile-cover-card__media {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 150px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--ph-hero-soft);
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+:root .profile-page .profile-cover-card__media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+:root .profile-page .profile-cover-card__pattern {
+  width: 100%;
+  height: 100%;
+  background: var(--ph-hero-soft);
+}
+
+:root .profile-page .profile-cover-card__camera {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: var(--ph-shadow);
+}
+
+:root .profile-page .profile-cover-card__body {
+  position: relative;
+  padding: 0 20px 20px;
+}
+
+:root .profile-page .profile-cover-card__avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  margin-top: -48px;
+  padding: 0;
+  border: 3px solid var(--ph-surface);
+  border-radius: 999px;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 700;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+:root .profile-page .profile-cover-card__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+:root .profile-page .profile-cover-card__edit {
+  position: absolute;
+  top: 14px;
+  right: 20px;
+}
+
+:root .profile-page .profile-cover-card__content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  min-width: 0;
+}
+
+:root .profile-page .profile-cover-card__main {
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+:root .profile-page .profile-cover-card__main h1 {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 25px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+}
+
+:root .profile-page .profile-cover-card__main p {
+  margin: 6px 0 0;
+  max-width: 62ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+:root .profile-page .profile-cover-card__main span {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ph-muted);
+}
+
+:root .profile-page .profile-cover-card__main strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-accent);
+}
+
+:root .profile-page .profile-cover-card__institution {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+:root .profile-page .profile-cover-card__institution p {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+:root .profile-page .profile-cover-card__institution-logo {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+:root .profile-page .profile-cover-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+/* --- Résumé autofill ------------------------------------------------------------------------------------------ */
+
+:root .profile-page .resume-upload-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 22px 16px;
+  border: 1px dashed var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+
+:root .profile-page .resume-upload-dropzone:hover {
+  border-color: var(--ph-accent);
+}
+
+:root .profile-page .resume-upload-dropzone:has(input:focus-visible) {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+:root .profile-page .resume-upload-copy {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+:root .profile-page .resume-upload-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Visually hidden, but still focusable and still reachable by its label — display:none would take
+   it out of the accessibility tree and break the dropzone's keyboard path entirely. */
+:root .profile-page .resume-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+:root .profile-page .resume-autofill-status {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--ph-muted);
+}
+
+:root .profile-page .resume-autofill-actions,
+:root .profile-page .resume-autofill-review__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+:root .profile-page .resume-autofill-review__actions {
+  padding-top: 14px;
+  border-top: 1px solid var(--ph-border);
+}
+
+/* --- Media manager modal ---------------------------------------------------------------------------------------- */
+
+:root .profile-page .modal-backdrop,
+.modal-backdrop:has(.profile-media-modal) {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.28);
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__header h3 {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__close {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-muted);
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__close:hover {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__preview {
+  display: grid;
+  place-items: center;
+  min-height: 200px;
+  overflow: hidden;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__preview img,
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__preview video {
+  max-width: 100%;
+  max-height: 340px;
+  display: block;
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__empty {
+  padding: 24px;
+  font-size: 12px;
+  color: var(--ph-muted);
+  text-align: center;
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__feedback:empty {
+  display: none;
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__visibility {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__action:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__action svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+}
+
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__action--danger,
+.modal-backdrop:has(.profile-media-modal) .profile-media-modal__action--danger:hover:not(:disabled) {
+  border-color: var(--ph-danger);
+  background: var(--ph-danger-soft);
+  color: var(--ph-danger);
+}
+
+.modal-backdrop:has(.profile-media-modal) .resume-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Portfolio manager -------------------------------------------------------------------------------------------- */
+
+:root .profile-page .portfolio-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+/* The inline edit form sits INSIDE an entry row, so it drops the nested surface to avoid a card
+   inside a card inside a card. */
+:root .profile-page .portfolio-form--edit {
+  margin-bottom: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+:root .profile-page .portfolio-form .form-field input,
+:root .profile-page .portfolio-form .form-field select,
+:root .profile-page .portfolio-form .form-field textarea {
+  background: var(--ph-surface);
+}
+
+:root .profile-page .portfolio-form > button {
+  align-self: flex-start;
+}
+
+/* --- Welcome / create-post cards ------------------------------------------------------------------------------------- */
+
+:root .profile-page .profile-welcome-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-color: var(--ph-accent);
+  background: var(--ph-accent-soft);
+}
+
+:root .profile-page .profile-welcome-card h3 {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+:root .profile-page .profile-welcome-card p {
+  margin: 4px 0 0;
+  max-width: 64ch;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+/* --- Responsive ---------------------------------------------------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  :root .profile-page .profile-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  :root .profile-page .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  :root .profile-page {
+    gap: 16px;
+  }
+
+  :root .profile-page .info-card,
+  :root .profile-page .stat-surface {
+    padding: 16px;
+  }
+
+  :root .profile-page .stats-grid,
+  :root .profile-page .form-grid,
+  :root .profile-page .skill-group-inputs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :root .profile-page .profile-cover-card__body {
+    padding: 0 16px 16px;
+  }
+
+  :root .profile-page .profile-cover-card__avatar {
+    width: 76px;
+    height: 76px;
+    margin-top: -38px;
+    font-size: 24px;
+  }
+
+  :root .profile-page .profile-cover-card__main h1 {
+    font-size: 21px;
+  }
+
+  /* The floating Edit would collide with the avatar at this width. */
+  :root .profile-page .profile-cover-card__edit {
+    position: static;
+    margin-top: 12px;
+  }
+
+  .modal-backdrop:has(.profile-media-modal) .profile-media-modal {
+    padding: 16px;
+  }
+
+  .modal-backdrop:has(.profile-media-modal) .profile-media-modal__toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+/* =============================================================================================
+   Recruiter overview (/recruiter/overview) — pages/recruiter/RecruiterOverviewPage.jsx
+   =============================================================================================
+   First RECRUITER surface. It reuses the --ph-* structure wholesale — the same surface, border,
+   ink, muted, shadow and radius tokens as every seeker Pro page — and forks ONLY the accent, via
+   the --rc-* set defined next to --ph-* at the top of this file. That is the whole point: a
+   recruiter screen and a seeker screen should read as one product with two accents, not two
+   products. Nothing below declares a colour of its own.
+
+   The root .recruiter-overview is a TRANSPARENT LAYOUT CONTAINER — no page background, no
+   padding, no border, no radius. .main-panel already pads and scrolls the region, and a root
+   that paints its own surface is what made .pro-home render as one giant card in dark mode.
+   ============================================================================================= */
+
+.recruiter-overview {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives ------------------------------------------------------------------------ */
+
+.recruiter-overview .ro-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.recruiter-overview .ro-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.recruiter-overview .ro-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.recruiter-overview .ro-empty {
+  margin: 0;
+  padding: 20px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+.recruiter-overview .ro-error {
+  margin: 0;
+  padding: 16px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-danger);
+}
+
+.recruiter-overview .ro-note {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+.recruiter-overview .ro-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--rc-accent);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.recruiter-overview .ro-link:hover {
+  text-decoration: underline;
+}
+
+.recruiter-overview .ro-link:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.recruiter-overview .ro-tile {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--rc-gradient);
+  color: #ffffff;
+}
+
+.recruiter-overview .ro-tile--muted {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+/* Pills always carry their own text, so status is never conveyed by colour alone. */
+.recruiter-overview .ro-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.recruiter-overview .ro-pill--ok {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+.recruiter-overview .ro-pill--warn {
+  background: var(--ph-danger-soft);
+  color: var(--ph-danger);
+}
+
+.recruiter-overview .ro-pill--accent {
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+}
+
+.recruiter-overview .ro-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--rc-accent);
+}
+
+/* Buttons — the class carries specificity (0,2,0) so it beats the unlayered global `button` rule
+   (0,0,1) that would otherwise repaint the background and re-apply a transform on hover. */
+.recruiter-overview .ro-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 10px 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.recruiter-overview .ro-btn:hover:not(:disabled),
+.recruiter-overview .ro-btn:active:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.recruiter-overview .ro-btn:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.recruiter-overview .ro-btn--primary,
+.recruiter-overview .ro-btn--primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--rc-gradient);
+  color: #ffffff;
+}
+
+.recruiter-overview .ro-btn--dashed,
+.recruiter-overview .ro-btn--dashed:hover:not(:disabled) {
+  width: 100%;
+  margin-top: 12px;
+  border-style: dashed;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 12px;
+  white-space: normal;
+}
+
+.recruiter-overview .ro-btn--dashed:hover:not(:disabled) {
+  border-color: var(--rc-accent);
+  color: var(--ph-ink);
+}
+
+/* --- Hero -------------------------------------------------------------------------------------- */
+
+/* The recruiter counterpart of --ph-hero-soft: a light wash with DARK ink, but in teal/green
+   rather than lavender. Same anatomy as every other Pro hero, different accent family. */
+.recruiter-overview .ro-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid var(--rc-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--rc-hero-soft);
+  color: var(--ph-ink);
+}
+
+.recruiter-overview .ro-hero__text {
+  min-width: 0;
+}
+
+.recruiter-overview .ro-hero .ro-eyebrow {
+  color: var(--rc-accent);
+}
+
+.recruiter-overview .ro-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.recruiter-overview .ro-hero__sub {
+  margin: 8px 0 0;
+  max-width: 66ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+/* --- Cards -------------------------------------------------------------------------------------- */
+
+.recruiter-overview .ro-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.recruiter-overview .ro-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.recruiter-overview .ro-card__title {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+/* --- KPI cards ------------------------------------------------------------------------------------ */
+
+.recruiter-overview .ro-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.recruiter-overview .ro-kpi {
+  display: flex;
+  flex-direction: column;
+}
+
+.recruiter-overview .ro-kpi__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.recruiter-overview .ro-kpi__label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+.recruiter-overview .ro-kpi__value {
+  margin: 10px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+/* The em dash for a figure the endpoint did not return is muted so it never reads as a value. */
+.recruiter-overview .ro-kpi__value--none {
+  color: var(--ph-muted);
+}
+
+.recruiter-overview .ro-kpi__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.recruiter-overview .ro-kpi__helper {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ph-muted);
+}
+
+/* --- Two columns ----------------------------------------------------------------------------------- */
+
+.recruiter-overview .ro-split {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+.recruiter-overview .ro-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* --- Funnel ------------------------------------------------------------------------------------------ */
+
+.recruiter-overview .ro-funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.recruiter-overview .ro-funnel__row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.recruiter-overview .ro-funnel__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.recruiter-overview .ro-funnel__track {
+  display: block;
+  height: 26px;
+  min-width: 0;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  overflow: hidden;
+}
+
+.recruiter-overview .ro-funnel__bar {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--rc-gradient);
+}
+
+/* The count is real text in its own column, so it is legible regardless of bar width and is not
+   overlaid on the fill where a short bar would clip it. */
+.recruiter-overview .ro-funnel__count {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ph-ink);
+}
+
+/* --- Rows (candidates, roles, checks, messages) --------------------------------------------------------- */
+
+.recruiter-overview .ro-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.recruiter-overview .ro-candidate,
+.recruiter-overview .ro-role,
+.recruiter-overview .ro-message {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  text-align: left;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.recruiter-overview .ro-candidate:hover,
+.recruiter-overview .ro-role:hover,
+.recruiter-overview .ro-message:hover {
+  border-color: var(--rc-accent);
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.recruiter-overview .ro-candidate:focus-visible,
+.recruiter-overview .ro-role:focus-visible,
+.recruiter-overview .ro-message:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.recruiter-overview .ro-candidate {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.recruiter-overview .ro-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--rc-gradient);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.recruiter-overview .ro-candidate__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.recruiter-overview .ro-candidate__name,
+.recruiter-overview .ro-role__title,
+.recruiter-overview .ro-message__name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.recruiter-overview .ro-candidate__meta,
+.recruiter-overview .ro-role__meta,
+.recruiter-overview .ro-message__preview {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.recruiter-overview .ro-candidate__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.recruiter-overview .ro-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.recruiter-overview .ro-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* The match ring. The percentage is real text in the middle, so the ring is reinforcement, never
+   the only carrier — and the row's aria-label repeats it for screen readers. */
+.recruiter-overview .ro-score {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  background:
+    conic-gradient(var(--rc-accent) var(--ro-score-deg, 0deg), var(--ph-surface-sunk) 0deg);
+}
+
+.recruiter-overview .ro-score__inner {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.recruiter-overview .ro-role__body,
+.recruiter-overview .ro-message__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.recruiter-overview .ro-role__side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* --- Background checks ------------------------------------------------------------------------------------ */
+
+.recruiter-overview .ro-check {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+.recruiter-overview .ro-check__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.recruiter-overview .ro-check__name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.recruiter-overview .ro-check__meta {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+}
+
+.recruiter-overview .ro-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ph-surface);
+  overflow: hidden;
+}
+
+.recruiter-overview .ro-progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--rc-gradient);
+}
+
+/* Expired reached 100% without an answer, so it must not read as a completed check. */
+.recruiter-overview .ro-progress__fill--warn {
+  background: var(--ph-danger);
+}
+
+/* --- ATS & HRIS ---------------------------------------------------------------------------------------------- */
+
+.recruiter-overview .ro-ats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+/* Dimmed, but never the ONLY signal: each item also carries a "Not built" pill, the card opens
+   with a sentence saying none of them exist, and none of them is a button. */
+.recruiter-overview .ro-ats__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  opacity: 0.75;
+}
+
+.recruiter-overview .ro-ats__name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+/* --- Responsive ------------------------------------------------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  .recruiter-overview .ro-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .recruiter-overview .ro-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .recruiter-overview {
+    gap: 16px;
+  }
+
+  .recruiter-overview .ro-hero {
+    padding: 20px;
+  }
+
+  .recruiter-overview .ro-hero__title {
+    font-size: 22px;
+  }
+
+  .recruiter-overview .ro-card {
+    padding: 16px;
+  }
+
+  .recruiter-overview .ro-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The label column would squeeze the bar to nothing, so the label moves onto its own line and
+     the bar and count keep the full width. */
+  .recruiter-overview .ro-funnel__row {
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+
+  .recruiter-overview .ro-funnel__label {
+    grid-column: 1 / -1;
+  }
+
+  .recruiter-overview .ro-candidate__side {
+    align-items: flex-start;
+    flex-direction: row;
+    width: 100%;
+  }
+
+  .recruiter-overview .ro-ats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ==================================================================================================
+   JOB POSTINGS  (/recruiter/job-postings)
+   ==================================================================================================
+   Second RECRUITER surface, and it REUSES the --rc-* accent set introduced for .recruiter-overview
+   rather than defining a second one — there is exactly one recruiter accent in this stylesheet, and
+   both its light and dark values already live next to --ph-* at the top of the file. Everything
+   structural (surface, border, ink, muted, shadow, radius) stays on the shared --ph-* tokens, so a
+   recruiter screen and a seeker screen read as one product with two accents. No hex is declared
+   below except #ffffff for text sitting on the accent gradient.
+
+   The root .job-postings is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no
+   border, no radius. .main-panel already pads and scrolls the region, and a root that paints its
+   own surface is exactly what made .pro-home render as one giant card in dark mode.
+   ================================================================================================== */
+
+.job-postings {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives -------------------------------------------------------------------------- */
+
+.job-postings .jp-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.job-postings .jp-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.job-postings .jp-icon--lg {
+  width: 20px;
+  height: 20px;
+}
+
+.job-postings .jp-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--rc-accent);
+}
+
+.job-postings .jp-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.job-postings .jp-tile {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--rc-gradient);
+  color: #ffffff;
+}
+
+/* Pills always carry their own text, so status is never conveyed by colour alone. */
+.job-postings .jp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.job-postings .jp-pill--ok {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+.job-postings .jp-pill--accent {
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+}
+
+/* Buttons — the class carries specificity (0,2,0) so it beats the unlayered global element rule for
+   button (0,0,1) that would otherwise repaint the background and re-apply a transform on hover. */
+.job-postings .jp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 10px 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.job-postings .jp-btn:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.job-postings .jp-btn--primary,
+.job-postings .jp-btn--primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--rc-gradient);
+  color: #ffffff;
+  box-shadow: none;
+  transform: none;
+}
+
+.job-postings .jp-btn--primary:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+/* --- Hero -------------------------------------------------------------------------------------- */
+
+.job-postings .jp-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid var(--rc-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--rc-hero-soft);
+  color: var(--ph-ink);
+}
+
+.job-postings .jp-hero__text {
+  min-width: 0;
+}
+
+.job-postings .jp-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.job-postings .jp-hero__sub {
+  margin: 8px 0 0;
+  max-width: 66ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+/* --- KPI cards ----------------------------------------------------------------------------------- */
+
+.job-postings .jp-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.job-postings .jp-kpi {
+  display: flex;
+  flex-direction: column;
+}
+
+.job-postings .jp-kpi__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+.job-postings .jp-kpi__value {
+  margin: 10px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+/* The em dash for a figure that has no source yet is muted so it never reads as a value. */
+.job-postings .jp-kpi__value--none {
+  color: var(--ph-muted);
+}
+
+.job-postings .jp-kpi__helper {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ph-muted);
+}
+
+/* --- Filter chips -------------------------------------------------------------------------------- */
+
+.job-postings .jp-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.job-postings .jp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  padding: 7px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.job-postings .jp-chip:hover {
+  border-color: var(--rc-accent);
+  color: var(--ph-ink);
+  box-shadow: none;
+  transform: none;
+}
+
+.job-postings .jp-chip:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+/* The pressed chip is not distinguished by colour alone — it also carries aria-pressed, which is
+   what a screen reader announces. */
+.job-postings .jp-chip--on,
+.job-postings .jp-chip--on:hover {
+  border-color: transparent;
+  background: var(--rc-gradient);
+  color: #ffffff;
+}
+
+.job-postings .jp-chip__count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* --- Loading / empty / error --------------------------------------------------------------------- */
+
+.job-postings .jp-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 32px 18px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+.job-postings .jp-state p {
+  margin: 0;
+}
+
+.job-postings .jp-state__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.job-postings .jp-state--error {
+  color: var(--ph-danger);
+  font-weight: 600;
+}
+
+/* --- Job rows ------------------------------------------------------------------------------------- */
+
+.job-postings .jp-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.job-postings .jp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px;
+  transition: border-color 150ms ease;
+}
+
+.job-postings .jp-row:hover {
+  border-color: var(--rc-accent);
+}
+
+/* The navigating half of the row. It is a SIBLING of the action buttons, never their ancestor, so
+   there are no nested interactive elements and Tab reaches all three in order. */
+.job-postings .jp-row__main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1 1 340px;
+  min-width: 0;
+  padding: 6px;
+  border: none;
+  border-radius: var(--ph-radius-tile);
+  background: transparent;
+  color: var(--ph-ink);
+  font-family: inherit;
+  text-align: left;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+.job-postings .jp-row__main:hover {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.job-postings .jp-row__main:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.job-postings .jp-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.job-postings .jp-row__title {
+  font-family: var(--font-display, inherit);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.job-postings .jp-row__meta {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.job-postings .jp-row__pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.job-postings .jp-row__count {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+  gap: 1px;
+  min-width: 68px;
+}
+
+.job-postings .jp-row__countValue {
+  font-family: var(--font-display, inherit);
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+.job-postings .jp-row__countLabel {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ph-muted);
+}
+
+.job-postings .jp-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Close and delete are two separate buttons with two different glyphs, two different accessible
+   names and two different confirmation dialogs. They are deliberately NOT collapsed into one
+   ambiguous icon: one stops new applications, the other destroys the posting. */
+.job-postings .jp-action {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface);
+  color: var(--ph-muted);
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.job-postings .jp-action:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  box-shadow: none;
+  transform: none;
+}
+
+.job-postings .jp-action:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.job-postings .jp-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Delete reads as destructive on hover, so the two glyphs differ in colour as well as in shape. */
+.job-postings .jp-action--danger:hover:not(:disabled) {
+  border-color: var(--ph-danger);
+  background: var(--ph-danger-soft);
+  color: var(--ph-danger);
+}
+
+/* --- Confirmation dialog -------------------------------------------------------------------------- */
+
+/* ConfirmDeleteModal renders inside this page's root, so this stays page-scoped rather than adding
+   another global modal rule. It styles the NON-destructive confirm button (Close posting) — the
+   destructive one keeps the shared red .modal-button--delete treatment. */
+.job-postings .modal-button--confirm {
+  background: var(--ph-ink);
+  color: var(--ph-surface);
+  border: 1px solid var(--ph-ink);
+}
+
+.job-postings .modal-button--confirm:hover {
+  opacity: 0.9;
+}
+
+/* --- Responsive ------------------------------------------------------------------------------------ */
+
+@media (max-width: 900px) {
+  .job-postings .jp-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .job-postings {
+    gap: 16px;
+  }
+
+  .job-postings .jp-hero {
+    padding: 20px;
+  }
+
+  .job-postings .jp-hero__title {
+    font-size: 22px;
+  }
+
+  .job-postings .jp-card {
+    padding: 16px;
+  }
+
+  .job-postings .jp-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The count would otherwise be squeezed against the action buttons. It drops onto its own line
+     under the title block instead, left-aligned, and the actions keep the far edge. */
+  .job-postings .jp-row__main {
+    flex-wrap: wrap;
+  }
+
+  .job-postings .jp-row__count {
+    align-items: flex-start;
+    flex-direction: row;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .job-postings .jp-row__countLabel {
+    align-self: center;
+  }
+}
+
+/* ==================================================================================================
+   JOB POSTING FORM  (/recruiter/job-postings/new, /recruiter/job-postings/:jobId)
+   ==================================================================================================
+   Third RECRUITER surface. It REUSES the --rc-* accent set defined once at the top of this file for
+   .recruiter-overview and shared with .job-postings — there is exactly one recruiter accent in this
+   stylesheet. Surface, border, ink, muted, shadow and radius all stay on the shared --ph-* tokens.
+   No hex is declared below except #ffffff for text sitting on the accent gradient.
+
+   The root .job-form is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no border,
+   no radius. .main-panel already pads and scrolls the region, and a root that paints its own surface
+   is what made .pro-home render as one giant card in dark mode.
+   ================================================================================================== */
+
+.job-form {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* --- Shared primitives -------------------------------------------------------------------------- */
+
+.job-form .jf-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.job-form .jf-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.job-form .jf-icon--xs {
+  width: 11px;
+  height: 11px;
+}
+
+.job-form .jf-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--rc-accent);
+}
+
+/* Secondary navigation: a quiet link, not a painted button. Mirrors .job-detail .jd-back. */
+.job-form .jf-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+  text-decoration: none;
+}
+
+.job-form .jf-back:hover {
+  color: var(--ph-ink);
+}
+
+.job-form .jf-back:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.job-form .jf-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.job-form .jf-pill--ok {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+.job-form .jf-pill--accent {
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+}
+
+/* --- Header ------------------------------------------------------------------------------------- */
+
+.job-form .jf-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 22px 24px;
+  border: 1px solid var(--rc-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--rc-hero-soft);
+  color: var(--ph-ink);
+}
+
+.job-form .jf-hero__text {
+  min-width: 0;
+}
+
+.job-form .jf-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.job-form .jf-hero__sub {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--ph-muted);
+}
+
+/* --- Field groups ------------------------------------------------------------------------------- */
+
+.job-form .jf-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* fieldset/legend is the real grouping primitive for a form, so the card and the accessibility
+   tree are one structure rather than two parallel ones. The default UA styling has to be undone:
+   the border/padding are replaced, and the legend is floated so it renders as an ordinary heading
+   instead of sitting in a notch cut out of the top border. */
+.job-form .jf-card {
+  position: relative;
+  min-width: 0;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.job-form .jf-card__legend {
+  float: left;
+  width: 100%;
+  /* Keeps the heading clear of the absolutely-positioned Remove control in the corner. */
+  padding: 0 104px 0 0;
+  margin: 0 0 14px;
+}
+
+.job-form .jf-card__title {
+  display: block;
+  font-family: var(--font-display, inherit);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.job-form .jf-card__desc {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* clear drops the body below the floated legend; a grid container is block-level, so clear applies
+   to it normally. */
+.job-form .jf-card__body {
+  clear: both;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  align-items: start;
+  gap: 14px 16px;
+  min-width: 0;
+}
+
+/* --- Fields ------------------------------------------------------------------------------------- */
+
+.job-form .jf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Long-form controls take the whole row rather than sitting in a narrow column. */
+.job-form .jf-field--wide {
+  grid-column: 1 / -1;
+}
+
+.job-form .jf-field__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.job-form .jf-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.job-form .jf-helper {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+.job-form .jf-fielderror {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ph-danger);
+}
+
+/* --- Controls ----------------------------------------------------------------------------------- */
+
+.job-form .jf-input {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.job-form .jf-input::placeholder {
+  color: var(--ph-muted);
+}
+
+.job-form .jf-input:focus,
+.job-form .jf-input:focus-visible {
+  outline: none;
+  border-color: var(--rc-accent);
+  box-shadow: 0 0 0 3px var(--rc-accent-soft);
+}
+
+.job-form .jf-input[aria-invalid="true"] {
+  border-color: var(--ph-danger);
+}
+
+.job-form .jf-input:disabled {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  cursor: not-allowed;
+}
+
+.job-form .jf-textarea {
+  height: auto;
+  min-height: 150px;
+  padding: 10px 12px;
+  line-height: 1.6;
+  /* Vertical only: horizontal resize would let a textarea widen past its grid column. */
+  resize: vertical;
+}
+
+.job-form .jf-textarea--tall {
+  min-height: 260px;
+}
+
+/* The OS-drawn select arrow is replaced with the same chevron the rest of the app uses. */
+.job-form .jf-selectwrap {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.job-form .jf-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  cursor: pointer;
+}
+
+.job-form .jf-chevron {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  color: var(--ph-muted);
+  pointer-events: none;
+}
+
+/* --- Remove / restore --------------------------------------------------------------------------- */
+
+/* Secondary but legible: a real word rather than a bare glyph, and every one carries an aria-label
+   naming WHAT it removes. */
+.job-form .jf-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ph-muted);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.job-form .jf-remove:hover {
+  border-color: var(--ph-danger);
+  background: var(--ph-danger-soft);
+  color: var(--ph-danger);
+  box-shadow: none;
+  transform: none;
+}
+
+.job-form .jf-remove:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.job-form .jf-remove--card {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+}
+
+.job-form .jf-remove--row {
+  align-self: flex-start;
+  margin-top: 22px;
+}
+
+.job-form .jf-restore {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 12px 16px;
+  border: 1px dashed var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface-sunk);
+}
+
+.job-form .jf-restore__label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ph-muted);
+}
+
+.job-form .jf-restore__chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.job-form .jf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.job-form .jf-chip:hover {
+  border-color: var(--rc-accent);
+  color: var(--rc-accent);
+  box-shadow: none;
+  transform: none;
+}
+
+.job-form .jf-chip:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+/* --- Custom fields ------------------------------------------------------------------------------ */
+
+.job-form .jf-customs {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.job-form .jf-custom {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.job-form .jf-custom__pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* --- Buttons ------------------------------------------------------------------------------------ */
+
+/* The class carries specificity (0,2,0) so it beats the unlayered global element rule for button
+   (0,0,1) that would otherwise repaint the background and re-apply a transform on hover. */
+.job-form .jf-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 10px 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.job-form .jf-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.job-form .jf-btn:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.job-form .jf-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.job-form .jf-btn--primary,
+.job-form .jf-btn--primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--rc-gradient);
+  color: #ffffff;
+  box-shadow: none;
+  transform: none;
+}
+
+.job-form .jf-btn--primary:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.job-form .jf-btn--ghost,
+.job-form .jf-btn--ghost:hover:not(:disabled) {
+  grid-column: 1 / -1;
+  justify-self: start;
+  border-style: dashed;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 12px;
+}
+
+.job-form .jf-btn--ghost:hover:not(:disabled) {
+  border-color: var(--rc-accent);
+  color: var(--ph-ink);
+}
+
+/* --- Sticky save bar ---------------------------------------------------------------------------- */
+
+/* position: sticky, not fixed: the bar keeps its place in normal flow, so it reserves its own
+   space and cannot cover the last field. The scroller it sticks to is .main-panel. */
+.job-form .jf-savebar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 14px 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.job-form .jf-savebar__status {
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.job-form .jf-savebar__error {
+  font-weight: 600;
+  color: var(--ph-danger);
+}
+
+.job-form .jf-savebar__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* --- Loading / error ---------------------------------------------------------------------------- */
+
+.job-form .jf-state {
+  margin: 0;
+  padding: 32px 18px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+.job-form .jf-state--error {
+  color: var(--ph-danger);
+  font-weight: 600;
+}
+
+/* --- Responsive --------------------------------------------------------------------------------- */
+
+@media (max-width: 620px) {
+  .job-form .jf-hero {
+    padding: 18px;
+  }
+
+  .job-form .jf-hero__title {
+    font-size: 21px;
+  }
+
+  .job-form .jf-card {
+    padding: 16px;
+  }
+
+  /* Two-column rows collapse to one. */
+  .job-form .jf-card__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .job-form .jf-custom__pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The remove control drops under its pair rather than squeezing the inputs. */
+  .job-form .jf-custom {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .job-form .jf-remove--row {
+    margin-top: 0;
+  }
+
+  .job-form .jf-savebar {
+    padding: 12px 14px;
+  }
+
+  .job-form .jf-savebar__actions {
+    width: 100%;
+  }
+
+  .job-form .jf-savebar__actions .jf-btn {
+    flex: 1 1 auto;
+  }
+}
+
+/* ==================================================================================================
+   CANDIDATES  (/recruiter/candidates)
+   ==================================================================================================
+   Fourth RECRUITER surface. It REUSES the --rc-* accent set defined once at the top of this file
+   for .recruiter-overview and shared with .job-postings and .job-form — there is exactly one
+   recruiter accent in this stylesheet. Surface, border, ink, muted, shadow and radius stay on the
+   shared --ph-* tokens. No hex below except #ffffff for text on the accent gradient.
+
+   The root .candidates-page is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no
+   border, no radius. .main-panel already pads and scrolls the region, and a root that paints its
+   own surface is what made .pro-home render as one giant card in dark mode.
+   ================================================================================================== */
+
+.candidates-page {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives -------------------------------------------------------------------------- */
+
+.candidates-page .cd-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.candidates-page .cd-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.candidates-page .cd-icon--xs {
+  width: 11px;
+  height: 11px;
+}
+
+.candidates-page .cd-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--rc-accent);
+}
+
+.candidates-page .cd-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+/* Pills always carry their own text, so a status is never conveyed by colour alone. */
+.candidates-page .cd-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.candidates-page .cd-pill--ok {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+.candidates-page .cd-pill--accent {
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+}
+
+/* --- Hero -------------------------------------------------------------------------------------- */
+
+.candidates-page .cd-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid var(--rc-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--rc-hero-soft);
+  color: var(--ph-ink);
+}
+
+.candidates-page .cd-hero__text {
+  min-width: 0;
+}
+
+.candidates-page .cd-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.candidates-page .cd-hero__sub {
+  margin: 8px 0 0;
+  max-width: 66ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+/* --- KPI cards ----------------------------------------------------------------------------------- */
+
+.candidates-page .cd-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.candidates-page .cd-kpi {
+  display: flex;
+  flex-direction: column;
+}
+
+.candidates-page .cd-kpi__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+.candidates-page .cd-kpi__value {
+  margin: 10px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--ph-ink);
+}
+
+/* The em dash for a figure with no source yet is muted so it never reads as a value. */
+.candidates-page .cd-kpi__value--none {
+  color: var(--ph-muted);
+}
+
+.candidates-page .cd-kpi__helper {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ph-muted);
+}
+
+/* --- Search ------------------------------------------------------------------------------------- */
+
+.candidates-page .cd-search {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.candidates-page .cd-search__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.candidates-page .cd-search__control {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.candidates-page .cd-search__icon {
+  position: absolute;
+  top: 50%;
+  left: 13px;
+  transform: translateY(-50%);
+  color: var(--ph-muted);
+  pointer-events: none;
+}
+
+.candidates-page .cd-search__input {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  padding: 0 14px 0 38px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  box-shadow: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.candidates-page .cd-search__input::placeholder {
+  color: var(--ph-muted);
+}
+
+.candidates-page .cd-search__input:focus,
+.candidates-page .cd-search__input:focus-visible {
+  outline: none;
+  border-color: var(--rc-accent);
+  box-shadow: 0 0 0 3px var(--rc-accent-soft);
+}
+
+.candidates-page .cd-search__hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ph-muted);
+}
+
+/* --- Candidate rows ------------------------------------------------------------------------------- */
+
+.candidates-page .cd-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.candidates-page .cd-row {
+  padding: 8px;
+  transition: border-color 150ms ease;
+}
+
+.candidates-page .cd-row:hover {
+  border-color: var(--rc-accent);
+}
+
+.candidates-page .cd-row__main {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: none;
+  border-radius: var(--ph-radius-tile);
+  background: transparent;
+  color: var(--ph-ink);
+  font-family: inherit;
+  text-align: left;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+.candidates-page .cd-row__main:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.candidates-page .cd-row__main:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.candidates-page .cd-row__main:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.candidates-page .cd-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--rc-gradient);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.candidates-page .cd-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.candidates-page .cd-row__nameline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.candidates-page .cd-row__name {
+  font-family: var(--font-display, inherit);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.candidates-page .cd-row__meta {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.candidates-page .cd-row__skills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.candidates-page .cd-row__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+  gap: 1px;
+  min-width: 84px;
+}
+
+.candidates-page .cd-row__match {
+  font-family: var(--font-display, inherit);
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--rc-accent);
+}
+
+/* Not scored is muted, so an absent score never reads as a low one. */
+.candidates-page .cd-row__match--none {
+  color: var(--ph-muted);
+}
+
+.candidates-page .cd-row__matchLabel {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ph-muted);
+}
+
+.candidates-page .cd-row__applied {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--ph-muted);
+  white-space: nowrap;
+}
+
+/* --- Pager ---------------------------------------------------------------------------------------- */
+
+.candidates-page .cd-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.candidates-page .cd-pager__status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ph-muted);
+}
+
+.candidates-page .cd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 9px 16px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.candidates-page .cd-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.candidates-page .cd-btn:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.candidates-page .cd-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Loading / empty / error ---------------------------------------------------------------------- */
+
+.candidates-page .cd-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 32px 18px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+.candidates-page .cd-state p {
+  margin: 0;
+}
+
+.candidates-page .cd-state__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.candidates-page .cd-state--error {
+  color: var(--ph-danger);
+  font-weight: 600;
+}
+
+/* --- Responsive ------------------------------------------------------------------------------------ */
+
+@media (max-width: 900px) {
+  .candidates-page .cd-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .candidates-page {
+    gap: 16px;
+  }
+
+  .candidates-page .cd-hero {
+    padding: 20px;
+  }
+
+  .candidates-page .cd-hero__title {
+    font-size: 22px;
+  }
+
+  .candidates-page .cd-card {
+    padding: 16px;
+  }
+
+  .candidates-page .cd-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The match block drops under the name rather than colliding with it on a narrow row. */
+  .candidates-page .cd-row__side {
+    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .candidates-page .cd-row__matchLabel,
+  .candidates-page .cd-row__applied {
+    align-self: center;
+    margin-top: 0;
+  }
+
+  .candidates-page .cd-pager {
+    justify-content: center;
+  }
+}
+
+/* ==================================================================================================
+   JOB APPLICANTS  (/recruiter/applications/:jobId)
+   ==================================================================================================
+   Fifth RECRUITER surface. REUSES the --rc-* accent set declared once at the top of this file for
+   .recruiter-overview and shared with .job-postings, .job-form and .candidates-page — no second
+   recruiter palette here. Surface, border, ink, muted, shadow and radius stay on the shared --ph-*
+   tokens. No hex below except #ffffff for text on the accent gradient.
+
+   The root .job-applicants is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no
+   border, no radius. .main-panel already pads and scrolls the region.
+
+   LAYOUT: .ja-split is a mail-client pair — a narrow applicant list beside a wide candidate dossier
+   (the reverse of the previous 8/4 grid, which gave most of the width to a short list and squeezed
+   the long dossier). Both panels scroll independently within a bounded height so the page itself
+   does not grow unboundedly tall. Below the breakpoint, only one panel is shown at a time via
+   .ja-split--detail, toggled from React state — not two squashed columns.
+   ================================================================================================== */
+
+.job-applicants {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.job-applicants .ja-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.job-applicants .ja-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.job-applicants .ja-icon--lg {
+  width: 28px;
+  height: 28px;
+}
+
+.job-applicants .ja-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--rc-accent);
+}
+
+/* Secondary navigation: a quiet link, not a painted button — mirrors .job-form .jf-back. */
+.job-applicants .ja-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+  text-decoration: none;
+}
+
+.job-applicants .ja-back:hover {
+  color: var(--ph-ink);
+}
+
+.job-applicants .ja-back:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* --- Pills -------------------------------------------------------------------------------------- */
+
+.job-applicants .ja-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.job-applicants .ja-pill--ok {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+.job-applicants .ja-pill--warn {
+  background: var(--ph-danger-soft);
+  color: var(--ph-danger);
+}
+
+.job-applicants .ja-pill--accent {
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+}
+
+/* --- Buttons -------------------------------------------------------------------------------------
+   Specificity (0,2,0) beats the unlayered global `button` rule (0,0,1) that would otherwise repaint
+   the background and re-apply a transform on hover. */
+
+.job-applicants button.ja-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 9px 16px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease, border-color 150ms ease;
+}
+
+.job-applicants button.ja-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.job-applicants button.ja-btn:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.job-applicants button.ja-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.job-applicants button.ja-btn--outline {
+  border-color: var(--rc-accent);
+  color: var(--rc-accent);
+  background: transparent;
+}
+
+.job-applicants button.ja-btn--outline:hover:not(:disabled) {
+  background: var(--rc-accent-soft);
+}
+
+.job-applicants button.ja-btn--primary,
+.job-applicants button.ja-btn--primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--rc-gradient);
+  color: #ffffff;
+  box-shadow: none;
+  transform: none;
+}
+
+.job-applicants button.ja-btn--primary:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.job-applicants button.ja-btn--block {
+  width: 100%;
+  margin-top: 4px;
+}
+
+/* --- Hero ----------------------------------------------------------------------------------------- */
+
+.job-applicants .ja-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px 24px;
+  border: 1px solid var(--rc-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--rc-hero-soft);
+}
+
+.job-applicants .ja-hero__text {
+  min-width: 0;
+}
+
+.job-applicants .ja-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.job-applicants .ja-hero__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--ph-muted);
+}
+
+.job-applicants .ja-hero__count {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+/* --- Status filter chips ---------------------------------------------------------------------------
+   Zero-count statuses stay in the row (dimmed, not removed) so the chip set never reflows as counts
+   change — a status filter that vanishes when it hits zero is a control jumping under the pointer. */
+
+.job-applicants .ja-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.job-applicants button.ja-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  padding: 7px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+.job-applicants button.ja-chip:hover {
+  border-color: var(--rc-accent);
+  color: var(--ph-ink);
+  box-shadow: none;
+  transform: none;
+}
+
+.job-applicants button.ja-chip:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.job-applicants button.ja-chip--zero {
+  opacity: 0.55;
+}
+
+/* The pressed chip also carries aria-pressed, so it is never colour-only. */
+.job-applicants button.ja-chip--on,
+.job-applicants button.ja-chip--on:hover {
+  border-color: transparent;
+  background: var(--rc-gradient);
+  color: #ffffff;
+  opacity: 1;
+}
+
+.job-applicants .ja-chip__count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* --- Split layout ------------------------------------------------------------------------------- */
+
+.job-applicants .ja-split {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  align-items: start;
+  gap: 18px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.job-applicants .ja-list,
+.job-applicants .ja-detail {
+  min-width: 0;
+  height: calc(100vh - 340px);
+  min-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.job-applicants .ja-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+}
+
+.job-applicants .ja-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+/* Hidden above the breakpoint; shown only when the narrow layout needs a way back to the list. */
+.job-applicants button.ja-detail__back {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ph-muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.job-applicants button.ja-detail__back:hover {
+  color: var(--ph-ink);
+}
+
+.job-applicants button.ja-detail__back:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- Applicant list rows -------------------------------------------------------------------------- */
+
+.job-applicants .ja-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 12px;
+  color: var(--ph-muted);
+  font-size: 13px;
+}
+
+.job-applicants .ja-empty--error {
+  color: var(--ph-danger);
+  font-weight: 600;
+}
+
+.job-applicants button.ja-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--ph-radius-tile);
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.job-applicants button.ja-row:hover {
+  background: var(--ph-surface-sunk);
+}
+
+.job-applicants button.ja-row:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: -2px;
+}
+
+.job-applicants button.ja-row--selected {
+  border-color: var(--rc-hero-soft-border);
+  background: var(--rc-accent-soft);
+}
+
+/* Left accent bar — selection is never colour-only, since aria-selected also carries the state. */
+.job-applicants .ja-row__accent {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.job-applicants .ja-row--selected .ja-row__accent {
+  background: var(--rc-accent);
+}
+
+.job-applicants .ja-avatar {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--rc-gradient);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.job-applicants .ja-avatar--lg {
+  width: 52px;
+  height: 52px;
+  font-size: 16px;
+}
+
+.job-applicants .ja-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.job-applicants .ja-row__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.job-applicants .ja-row__metaline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.job-applicants .ja-row__match {
+  font-size: 11px;
+  color: var(--ph-muted);
+  white-space: nowrap;
+}
+
+.job-applicants .ja-row__resume {
+  flex-shrink: 0;
+  color: var(--rc-accent);
+}
+
+/* --- Empty detail state ----------------------------------------------------------------------------- */
+
+.job-applicants .ja-empty-state {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--ph-muted);
+}
+
+.job-applicants .ja-empty-state .ja-icon--lg {
+  color: var(--ph-muted);
+  opacity: 0.6;
+}
+
+.job-applicants .ja-empty-state__title {
+  font-family: var(--font-display, inherit);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.job-applicants .ja-empty-state p:not(.ja-empty-state__title) {
+  max-width: 32ch;
+  font-size: 12.5px;
+}
+
+/* --- Dossier cards ----------------------------------------------------------------------------------- */
+
+.job-applicants .ja-card {
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.job-applicants .ja-card__title {
+  margin: 0 0 10px;
+  font-family: var(--font-display, inherit);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.job-applicants .ja-card__desc {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ph-muted);
+}
+
+.job-applicants .ja-card__desc strong {
+  color: var(--ph-ink);
+}
+
+.job-applicants .ja-card__empty {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ph-muted);
+}
+
+/* Paired short sections sit side by side in the wide detail panel instead of stacking. */
+.job-applicants .ja-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.job-applicants .ja-pair .ja-card {
+  margin: 0;
+}
+
+/* --- Candidate header card ----------------------------------------------------------------------- */
+
+.job-applicants .ja-candidate-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.job-applicants .ja-candidate-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.job-applicants .ja-candidate-head__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.job-applicants .ja-candidate-head__name {
+  margin: 2px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.job-applicants .ja-candidate-head__status {
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+/* A small stat row, not four cramped boxes: labels carry an icon, values wrap onto their own line. */
+.job-applicants .ja-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 28px;
+  margin: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.job-applicants .ja-stat {
+  min-width: 0;
+}
+
+.job-applicants .ja-stat dt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ph-muted);
+}
+
+.job-applicants .ja-stat dd {
+  margin: 4px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+/* --- Snapshot mini grid --------------------------------------------------------------------------- */
+
+.job-applicants .ja-minigrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.job-applicants .ja-minigrid__label {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+}
+
+.job-applicants .ja-minigrid__value {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+/* --- Tags / links ---------------------------------------------------------------------------------- */
+
+.job-applicants .ja-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.job-applicants .ja-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.job-applicants .ja-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.job-applicants .ja-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.job-applicants .ja-link:hover {
+  border-color: var(--rc-accent);
+  color: var(--rc-accent);
+}
+
+/* --- Resume block ---------------------------------------------------------------------------------- */
+
+.job-applicants .ja-resume__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.job-applicants .ja-resume__desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ph-muted);
+}
+
+.job-applicants .ja-resume__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* --- Experience / education entries --------------------------------------------------------------- */
+
+.job-applicants .ja-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.job-applicants .ja-entry {
+  padding: 10px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+.job-applicants .ja-entry__title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.job-applicants .ja-entry__sub {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--ph-muted);
+}
+
+.job-applicants .ja-entry__meta {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+}
+
+/* --- Verification state ------------------------------------------------------------------------- */
+
+.job-applicants .ja-verify__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.job-applicants .ja-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.job-applicants .ja-kv__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11.5px;
+}
+
+.job-applicants .ja-kv__row > span:first-child {
+  color: var(--ph-muted);
+}
+
+.job-applicants .ja-kv__row > span:last-child {
+  font-weight: 600;
+  color: var(--ph-ink);
+  text-align: right;
+}
+
+/* --- Update status -------------------------------------------------------------------------------- */
+
+.job-applicants .ja-status-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ph-muted);
+}
+
+.job-applicants .ja-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.job-applicants button.ja-status-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+}
+
+.job-applicants button.ja-status-btn:hover:not(:disabled) {
+  border-color: var(--rc-accent);
+  color: var(--rc-accent);
+  background: var(--rc-accent-soft);
+  box-shadow: none;
+  transform: none;
+}
+
+.job-applicants button.ja-status-btn:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.job-applicants button.ja-status-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Rejected is a terminal/destructive transition, so it reads visibly differently from every
+   progressive one above rather than sitting in the same undifferentiated row. */
+.job-applicants button.ja-status-btn--danger {
+  border-color: var(--ph-danger-soft);
+  color: var(--ph-danger);
+  background: var(--ph-danger-soft);
+}
+
+.job-applicants button.ja-status-btn--danger:hover:not(:disabled) {
+  border-color: var(--ph-danger);
+  color: #ffffff;
+  background: var(--ph-danger);
+}
+
+.job-applicants .ja-callout {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+/* --- Loading / empty / error (job header, organization-only guard) --------------------------------- */
+
+.job-applicants .ja-state {
+  margin: 0;
+  padding: 28px 18px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+.job-applicants .ja-state__title {
+  margin: 0 0 4px;
+  font-family: var(--font-display, inherit);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.job-applicants .ja-state--error {
+  color: var(--ph-danger);
+  font-weight: 600;
+}
+
+/* --- Responsive: single panel below the two-column breakpoint -------------------------------------- */
+
+@media (max-width: 960px) {
+  .job-applicants .ja-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .job-applicants .ja-list,
+  .job-applicants .ja-detail {
+    height: auto;
+    max-height: none;
+    overflow-y: visible;
+  }
+
+  /* Only one panel renders at a time; React drives which one via .ja-split--detail. */
+  .job-applicants .ja-split:not(.ja-split--detail) .ja-detail {
+    display: none;
+  }
+
+  .job-applicants .ja-split--detail .ja-list {
+    display: none;
+  }
+
+  .job-applicants button.ja-detail__back {
+    display: inline-flex;
+  }
+
+  .job-applicants .ja-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .job-applicants .ja-hero {
+    padding: 18px;
+  }
+
+  .job-applicants .ja-hero__title {
+    font-size: 20px;
+  }
+
+  .job-applicants .ja-card {
+    padding: 14px;
+  }
+
+  .job-applicants .ja-minigrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .job-applicants .ja-stats {
+    gap: 12px 20px;
+  }
+
+  .job-applicants .ja-stat dd {
+    max-width: none;
+    white-space: normal;
+  }
+}
+
+/* ==================================================================================================
+   COMPANY POSTS  (/recruiter/company-posts)
+   ==================================================================================================
+   Sixth RECRUITER surface. REUSES the --rc-* accent set declared once at the top of this file for
+   .recruiter-overview and shared with .job-postings, .job-form, .candidates-page and
+   .job-applicants — no second recruiter palette here. Surface, border, ink, muted, shadow and
+   radius stay on the shared --ph-* tokens. No hex below except #ffffff for text on the accent
+   gradient.
+
+   The root .company-posts is a TRANSPARENT LAYOUT CONTAINER — no page background, no padding, no
+   border, no radius. .main-panel already pads and scrolls the region.
+
+   PostCard (components/feedPostKit.jsx) renders its variant="recruiter" markup as a descendant of
+   this root, so its .cop-post / .cop-action / etc. rules live here rather than duplicated into the
+   shared component's own file — the component only decides WHICH classes apply, this stylesheet
+   decides what they look like. The default variant (seeker feed) never receives these classes.
+
+   Every real <button> below is qualified as `.company-posts button.cop-*` — matching specificity
+   (0,2,1) is required to beat the dark-mode-only `:root[data-theme="dark"] button` rule in
+   styles.css (an unlayered element+attribute selector), which otherwise repaints every button with
+   its blue gradient regardless of this file's own classes. Same fix as .job-applicants; see that
+   section's comment for the specificity arithmetic.
+   ================================================================================================== */
+
+.company-posts {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.company-posts .cop-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.company-posts .cop-icon--sm {
+  width: 14px;
+  height: 14px;
+}
+
+.company-posts .cop-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--rc-accent);
+}
+
+.company-posts .cop-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Pills -------------------------------------------------------------------------------------- */
+
+.company-posts .cop-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.company-posts .cop-pill--accent {
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+}
+
+/* --- Buttons -------------------------------------------------------------------------------------- */
+
+.company-posts button.cop-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 9px 18px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.company-posts button.cop-btn:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.company-posts button.cop-btn:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.company-posts button.cop-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.company-posts button.cop-btn--primary,
+.company-posts button.cop-btn--primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--rc-gradient);
+  color: #ffffff;
+  box-shadow: none;
+  transform: none;
+}
+
+.company-posts button.cop-btn--primary:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+/* --- Hero ----------------------------------------------------------------------------------------- */
+
+.company-posts .cop-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px 24px;
+  border: 1px solid var(--rc-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--rc-hero-soft);
+}
+
+.company-posts .cop-hero__text {
+  min-width: 0;
+}
+
+.company-posts .cop-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+}
+
+.company-posts .cop-hero__sub {
+  margin: 8px 0 0;
+  max-width: 56ch;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ph-muted);
+}
+
+.company-posts .cop-hero__count {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+/* --- Shared card shell ---------------------------------------------------------------------------- */
+
+.company-posts .cop-card {
+  min-width: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+/* --- Compose card ----------------------------------------------------------------------------------- */
+
+.company-posts .cop-compose {
+  display: flex;
+  flex-direction: column;
+}
+
+.company-posts .cop-compose__title {
+  margin: 4px 0 14px;
+  font-family: var(--font-display, inherit);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.company-posts .cop-textarea {
+  width: 100%;
+  min-height: 110px;
+  padding: 12px 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.company-posts .cop-textarea::placeholder {
+  color: var(--ph-muted);
+}
+
+.company-posts .cop-textarea:focus,
+.company-posts .cop-textarea:focus-visible {
+  outline: none;
+  border-color: var(--rc-accent);
+  background: var(--ph-surface);
+}
+
+/* --- Attachment previews ---------------------------------------------------------------------------- */
+
+.company-posts .cop-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.company-posts .cop-preview {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+.company-posts .cop-preview__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.company-posts .cop-preview__file {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px;
+  text-align: center;
+  color: var(--ph-muted);
+}
+
+.company-posts .cop-preview__name {
+  overflow: hidden;
+  width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9.5px;
+}
+
+.company-posts button.cop-preview__remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #ffffff;
+  cursor: pointer;
+  box-shadow: none;
+  transform: none;
+}
+
+.company-posts button.cop-preview__remove:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.company-posts button.cop-preview__remove:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+/* --- Compose footer --------------------------------------------------------------------------------- */
+
+.company-posts .cop-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.company-posts .cop-footer__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.company-posts .cop-type-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.company-posts button.cop-type-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-muted);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.company-posts button.cop-type-chip:hover {
+  border-color: var(--rc-accent);
+  color: var(--ph-ink);
+}
+
+.company-posts button.cop-type-chip:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+/* The checked chip also carries aria-checked, so it is never colour-only. */
+.company-posts button.cop-type-chip--on,
+.company-posts button.cop-type-chip--on:hover {
+  border-color: transparent;
+  background: var(--rc-gradient);
+  color: #ffffff;
+}
+
+.company-posts button.cop-image-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  color: var(--ph-muted);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.company-posts button.cop-image-btn:hover {
+  border-color: var(--rc-accent);
+  color: var(--rc-accent);
+}
+
+.company-posts button.cop-image-btn:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.company-posts .cop-submit {
+  flex-shrink: 0;
+}
+
+/* --- Post list -------------------------------------------------------------------------------------- */
+
+.company-posts .cop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.company-posts .cop-state {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 18px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+.company-posts .cop-state__title {
+  margin: 0 0 4px;
+  font-family: var(--font-display, inherit);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.company-posts .cop-state--error {
+  color: var(--ph-danger);
+  font-weight: 600;
+}
+
+/* --- Post card (PostCard variant="recruiter") ------------------------------------------------------- */
+
+.company-posts .cop-post {
+  min-width: 0;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.company-posts .cop-post__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px 0;
+}
+
+.company-posts .cop-avatar {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--rc-gradient);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.company-posts .cop-avatar--image {
+  background: none;
+  object-fit: cover;
+}
+
+.company-posts .cop-post__name {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.company-posts .cop-post__meta {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--ph-muted);
+}
+
+.company-posts .cop-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 10;
+  margin-top: 4px;
+  min-width: 150px;
+  overflow: hidden;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.company-posts .cop-post__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 18px 16px;
+}
+
+.company-posts .cop-post__content {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ph-ink);
+  white-space: pre-wrap;
+}
+
+.company-posts .cop-post__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 12px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.company-posts button.cop-action {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--ph-radius-tile);
+  background: transparent;
+  color: var(--ph-muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: none;
+  transform: none;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.company-posts button.cop-action:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  box-shadow: none;
+  transform: none;
+}
+
+.company-posts button.cop-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.company-posts button.cop-action--liked {
+  color: var(--rc-accent);
+}
+
+.company-posts .cop-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.company-posts .cop-comment {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ph-ink);
+}
+
+.company-posts .cop-comment-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.company-posts .cop-comment-input::placeholder {
+  color: var(--ph-muted);
+}
+
+.company-posts .cop-comment-input:focus,
+.company-posts .cop-comment-input:focus-visible {
+  outline: none;
+  border-color: var(--rc-accent);
+  background: var(--ph-surface);
+}
+
+.company-posts .cop-comments button.cop-btn {
+  padding: 7px 14px;
+  font-size: 12px;
+}
+
+/* --- Responsive ------------------------------------------------------------------------------------- */
+
+@media (max-width: 620px) {
+  .company-posts .cop-hero {
+    padding: 18px;
+  }
+
+  .company-posts .cop-hero__title {
+    font-size: 20px;
+  }
+
+  .company-posts .cop-card {
+    padding: 14px;
+  }
+
+  .company-posts .cop-footer {
+    align-items: stretch;
+  }
+
+  .company-posts .cop-submit {
+    width: 100%;
   }
 }

@@ -318,9 +318,44 @@ const getFeed = asyncHandler(async (req, res) => {
   });
 });
 
+// Scoped strictly to the caller's own author identity — authorId/authorModel come from req.user,
+// never from a query param, so there is no way to request another account's posts through this
+// route. For an organization account, req.user.id IS the Organization document's own _id (there
+// is no separate "team member" identity), so every teammate signed into the same organization
+// resolves to the same authorId and sees the same company feed here, not just their own posts.
+const getMyPosts = asyncHandler(async (req, res) => {
+  const authorModel = resolveAuthorModel(req.user.role);
+
+  if (!authorModel) {
+    throw new ApiError(403, "This role cannot have posts.");
+  }
+
+  const { page, limit, skip } = normalizePagination(req.query);
+  const filter = { authorId: req.user.id, authorModel };
+
+  const [posts, total] = await Promise.all([
+    Post.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    Post.countDocuments(filter)
+  ]);
+
+  const decoratedPosts = await decoratePosts(posts, req.user);
+
+  return sendSuccess(res, {
+    message: "Posts fetched successfully.",
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.max(Math.ceil(total / limit), 1)
+    },
+    posts: decoratedPosts
+  });
+});
+
 module.exports = {
   createPost,
   deletePost,
   getFeed,
+  getMyPosts,
   resolveAuthorModel
 };

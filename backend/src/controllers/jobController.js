@@ -14,7 +14,8 @@ const {
   requireNonEmptyString,
   requireArrayOfStrings,
   requireArrayOfCustomFields,
-  optionalString
+  optionalString,
+  normalizePagination
 } = require("../utils/validation");
 
 const Job = require("../models/Job");
@@ -844,11 +845,235 @@ const getJobApplications = asyncHandler(async (req, res) => {
   });
 });
 
+// Same local helper as jobSearchController/chatController use — kept local for consistency with
+// them rather than refactoring three call sites in an unrelated change.
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Total time actually spent working, in years, from JobSeeker.experience[].
+//
+// Overlapping roles are MERGED rather than summed: someone who held two concurrent positions for
+// three years has three years of experience, not six. Returns null — never 0 — when no entry has a
+// usable start date, so the UI can omit the figure instead of asserting "0y".
+function computeYearsOfExperience(experience) {
+  const now = Date.now();
+  const intervals = (experience || [])
+    .map((item) => {
+      const start = item?.startDate ? new Date(item.startDate).getTime() : NaN;
+      if (!Number.isFinite(start)) return null;
+
+      const end = item?.isCurrent
+        ? now
+        : item?.endDate
+          ? new Date(item.endDate).getTime()
+          : NaN;
+
+      if (!Number.isFinite(end) || end < start) return null;
+      return [start, end];
+    })
+    .filter(Boolean)
+    .sort((left, right) => left[0] - right[0]);
+
+  if (!intervals.length) return null;
+
+  let total = 0;
+  let [currentStart, currentEnd] = intervals[0];
+
+  for (let index = 1; index < intervals.length; index += 1) {
+    const [start, end] = intervals[index];
+
+    if (start <= currentEnd) {
+      currentEnd = Math.max(currentEnd, end);
+    } else {
+      total += currentEnd - currentStart;
+      currentStart = start;
+      currentEnd = end;
+    }
+  }
+
+  total += currentEnd - currentStart;
+  return total / (1000 * 60 * 60 * 24 * 365.25);
+}
+
+// GET /api/jobs/mine/candidates — every PERSON who has applied to any of this organization's jobs,
+// collapsed to one row each.
+//
+// This is deliberately not "applications": a candidate who applied to three of your postings is one
+// row carrying their BEST match, not three rows. getJobApplications already answers the per-job
+// question; nothing answered the cross-job, per-person one.
+//
+// SCOPE: the $match is pinned to this org's own job ids, so this endpoint can only ever return
+// people who already appear in getJobApplications for one of those jobs. It widens no access.
+const getMyCandidates = asyncHandler(async (req, res) => {
+  if (req.user.role !== "organization") {
+    throw new ApiError(403, "Only organizations can view their candidates.");
+  }
+
+  const { page, limit, skip } = normalizePagination(req.query);
+  const search = String(req.query.q || "").trim();
+  const orgJobIds = await Job.find({ organizationId: req.user.id }).distinct("_id");
+
+  if (!orgJobIds.length) {
+    return sendSuccess(res, {
+      message: "Candidates fetched successfully.",
+      candidates: [],
+      summary: { total: 0, verified: 0, inInterview: 0, avgMatch: null },
+      pagination: { page, limit, total: 0, totalPages: 1 }
+    });
+  }
+
+  const searchStages = [];
+
+  if (search) {
+    const searchRegex = new RegExp(escapeRegex(search), "i");
+    searchStages.push({
+      $match: {
+        $or: [
+          { "seeker.firstName": searchRegex },
+          { "seeker.lastName": searchRegex },
+          { "seeker.tagline": searchRegex },
+          { "seeker.skills": searchRegex },
+          { "seeker.preferredRoles": searchRegex }
+        ]
+      }
+    });
+  }
+
+  const [result] = await Application.aggregate([
+    { $match: { jobId: { $in: orgJobIds } } },
+    // Sorted before grouping so $first below really is the most recent application.
+    { $sort: { createdAt: -1 } },
+    {
+      $group: {
+        _id: "$jobSeekerId",
+        bestMatch: { $max: "$atsScore" },
+        applicationCount: { $sum: 1 },
+        lastAppliedAt: { $first: "$createdAt" },
+        lastJobId: { $first: "$jobId" },
+        verifiedCount: {
+          $sum: { $cond: [{ $eq: ["$verificationStatus", "Verified"] }, 1, 0] }
+        },
+        interviewCount: {
+          $sum: { $cond: [{ $eq: ["$status", "Interview"] }, 1, 0] }
+        }
+      }
+    },
+    {
+      $lookup: {
+        from: JobSeeker.collection.name,
+        localField: "_id",
+        foreignField: "_id",
+        as: "seeker"
+      }
+    },
+    { $unwind: "$seeker" },
+    ...searchStages,
+    {
+      $lookup: {
+        from: Job.collection.name,
+        localField: "lastJobId",
+        foreignField: "_id",
+        as: "lastJob"
+      }
+    },
+    { $unwind: { path: "$lastJob", preserveNullAndEmptyArrays: true } },
+    {
+      $facet: {
+        // The KPI counts are computed over the WHOLE matched set, not the current page, so they
+        // stay correct as the recruiter pages through or searches.
+        summary: [
+          {
+            $group: {
+              _id: null,
+              total: { $sum: 1 },
+              verified: { $sum: { $cond: [{ $gt: ["$verifiedCount", 0] }, 1, 0] } },
+              inInterview: { $sum: { $cond: [{ $gt: ["$interviewCount", 0] }, 1, 0] } },
+              avgMatch: { $avg: "$bestMatch" }
+            }
+          }
+        ],
+        rows: [
+          { $sort: { bestMatch: -1, lastAppliedAt: -1 } },
+          { $skip: skip },
+          { $limit: limit },
+          {
+            // An explicit allow-list. The seeker document is never spread wholesale, so embedding,
+            // hiddenRoles, phone and auto-apply internals cannot leak into a list response.
+            $project: {
+              _id: 0,
+              seekerId: "$_id",
+              firstName: "$seeker.firstName",
+              lastName: "$seeker.lastName",
+              tagline: "$seeker.tagline",
+              skills: "$seeker.skills",
+              skillGroups: "$seeker.skillGroups",
+              experience: "$seeker.experience",
+              bestMatch: 1,
+              applicationCount: 1,
+              lastAppliedAt: 1,
+              lastJobId: 1,
+              lastJobTitle: "$lastJob.title",
+              verified: { $gt: ["$verifiedCount", 0] },
+              inInterview: { $gt: ["$interviewCount", 0] }
+            }
+          }
+        ]
+      }
+    }
+  ]);
+
+  const summary = result?.summary?.[0] || { total: 0, verified: 0, inInterview: 0, avgMatch: null };
+  const rows = result?.rows || [];
+
+  const candidates = rows.map((row) => {
+    const flatSkills = (row.skills || []).length
+      ? row.skills
+      : (row.skillGroups || []).flatMap((group) => group.skills || []);
+
+    return {
+      seekerId: row.seekerId,
+      firstName: row.firstName || "",
+      lastName: row.lastName || "",
+      tagline: row.tagline || "",
+      skills: flatSkills.slice(0, 6),
+      skillCount: flatSkills.length,
+      // Derived from real dates; null when the seeker has no dated experience.
+      yearsOfExperience: computeYearsOfExperience(row.experience),
+      bestMatch: typeof row.bestMatch === "number" ? row.bestMatch : null,
+      applicationCount: row.applicationCount,
+      lastAppliedAt: row.lastAppliedAt,
+      lastJobId: row.lastJobId,
+      lastJobTitle: row.lastJobTitle || "",
+      verified: Boolean(row.verified),
+      inInterview: Boolean(row.inInterview)
+    };
+  });
+
+  return sendSuccess(res, {
+    message: "Candidates fetched successfully.",
+    candidates,
+    summary: {
+      total: summary.total || 0,
+      verified: summary.verified || 0,
+      inInterview: summary.inInterview || 0,
+      avgMatch: typeof summary.avgMatch === "number" ? summary.avgMatch : null
+    },
+    pagination: {
+      page,
+      limit,
+      total: summary.total || 0,
+      totalPages: Math.max(Math.ceil((summary.total || 0) / limit), 1)
+    }
+  });
+});
+
 module.exports = {
   createJob,
   updateJob,
   getMyJobs,
   getMyJobsOverview,
+  getMyCandidates,
   closeJob,
   publishJob,
   deleteJob,

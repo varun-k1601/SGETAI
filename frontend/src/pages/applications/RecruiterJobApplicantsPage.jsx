@@ -5,8 +5,47 @@ import { useAuth } from "../../context/AuthContext";
 import { apiBlobRequest, apiRequest } from "../../services/api";
 import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
 
+/* ===============================================================================================
+   Recruiter job applicants (/recruiter/applications/:jobId) — organization accounts only.
+   ===============================================================================================
+   Restyled onto the shared --ph-* / --rc-* token system used by RecruiterOverviewPage,
+   RecruiterJobPostingsPage, RecruiterJobFormPage and RecruiterCandidatesPage, so all five recruiter
+   surfaces read as one product. No second accent palette is declared here — .ja-* rules read the
+   same --rc-accent / --rc-gradient / --rc-hero-soft as everywhere else.
+
+   LAYOUT: the applicant list is genuinely short (often a handful of rows) while the candidate
+   dossier is the long, dense side — snapshot, skills, links, resume, experience, education,
+   verification state and status controls. So the narrow column holds the list (a mail-client
+   sidebar) and the wide column holds the dossier, the reverse of the previous 8/4 split. Below the
+   two-column breakpoint only one panel renders at a time, with a back control on the detail panel.
+
+   The root .job-applicants is a TRANSPARENT LAYOUT CONTAINER — no background, no padding of its
+   own. .main-panel already pads and scrolls this region; painting a second background here is the
+   exact bug that made .pro-home render as one giant card in dark mode.
+
+   All four real integrations are unchanged: GET /jobs/:jobId, GET /jobs/:jobId/applications,
+   PUT /applications/:id/status (statusMutation), POST /verification/:applicationId/trigger
+   (verificationMutation). No note field is added — there is no such field on Application and no
+   endpoint to persist one, so inventing a textarea here would be exactly the kind of fabricated
+   feature this codebase's other restyles have deliberately avoided.
+   =============================================================================================== */
+
 const statusOptions = ["Pending", "UnderReview", "Interview", "Accepted", "Rejected"];
 const statusFilters = ["All", ...statusOptions, "Withdrawn"];
+
+// Every status pill also renders its status word, so tone is never the only signal.
+const STATUS_TONE = {
+  Pending: "muted",
+  UnderReview: "accent",
+  Interview: "accent",
+  Accepted: "ok",
+  Rejected: "warn",
+  Withdrawn: "muted",
+};
+
+function plural(count, word) {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
 
 function formatDate(value) {
   if (!value) {
@@ -48,61 +87,126 @@ function openBlob(blob) {
   window.setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
-function ApplicationListCard({ application, selected, onSelect }) {
-  const seeker = application.jobSeekerId || {};
-  const verificationLabel =
-    application.latestVerificationRequest?.status === "Pending"
-      ? "Verification running"
-      : application.latestVerificationRequest?.status === "Submitted"
-        ? "Manager responded"
-        : application.latestVerificationRequest?.status === "Expired"
-          ? "Verification expired"
-          : "Not started";
-  const hasResume = Boolean(
-    application.attachedResume?.media?.filePath ||
-      application.attachedResume?.media?.url ||
-      application.tailoredResume?.latex
-  );
-
+function IconArrowLeft(props) {
   return (
-    <div
-      onClick={() => onSelect(application)}
-      className={`w-full cursor-pointer rounded-2xl border p-5 text-left backdrop-blur-xl shadow-elegant transition ${
-        selected
-          ? "border-transparent bg-gradient-recruiter text-recruiter-foreground shadow-recruiter"
-          : "border-border/60 bg-card/70 hover:border-border"
-      }`}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">
-            {seeker.firstName} {seeker.lastName}
-          </p>
-          <p className={`truncate text-xs ${selected ? "opacity-80" : "text-muted-foreground"}`}>
-            {seeker.email}
-          </p>
-        </div>
-        <span
-          className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${
-            selected ? "border-white/30 bg-white/10" : "border-border/60 bg-surface/70 text-muted-foreground"
-          }`}
-        >
-          {application.status}
-        </span>
-      </div>
-      <div
-        className={`mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs ${
-          selected ? "opacity-80" : "text-muted-foreground"
-        }`}
-      >
-        <span>Match {application.atsScore ?? 0}</span>
-        {Number.isFinite(application.resumeMatchScore) && (
-          <span>Resume score {application.resumeMatchScore}</span>
-        )}
-        <span>{verificationLabel}</span>
-        {hasResume && <span>Resume attached</span>}
-      </div>
-    </div>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M19 12H5" />
+      <path d="m12 19-7-7 7-7" />
+    </svg>
+  );
+}
+
+function IconUsers(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <path d="M16 3.128a4 4 0 0 1 0 7.744" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <circle cx="9" cy="7" r="4" />
+    </svg>
+  );
+}
+
+function IconMapPin(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  );
+}
+
+function IconFileText(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z" />
+      <path d="M14 2v6h6" />
+      <path d="M9 13h6" />
+      <path d="M9 17h6" />
+    </svg>
+  );
+}
+
+function IconMail(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <rect width="20" height="16" x="2" y="4" rx="2" />
+      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+    </svg>
+  );
+}
+
+function IconGauge(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="m12 14 4-4" />
+      <path d="M3.34 19a10 10 0 1 1 17.32 0" />
+    </svg>
+  );
+}
+
+function IconShield(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+    </svg>
+  );
+}
+
+function IconAward(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <circle cx="12" cy="8" r="6" />
+      <path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" />
+    </svg>
+  );
+}
+
+function IconExternalLink(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    </svg>
+  );
+}
+
+function IconDownload(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M12 15V3" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M20 21H4" />
+    </svg>
+  );
+}
+
+function IconEye(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function IconAlertCircle(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v4" />
+      <path d="M12 16h.01" />
+    </svg>
+  );
+}
+
+function IconInbox(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+      <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z" />
+    </svg>
   );
 }
 
@@ -112,19 +216,11 @@ function DetailLink({ href, label }) {
   }
 
   return (
-    <a
-      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium hover:bg-surface/80"
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-    >
+    <a className="ja-link" href={href} target="_blank" rel="noreferrer">
+      <IconExternalLink className="ja-icon ja-icon--sm" />
       {label}
     </a>
   );
-}
-
-function DetailSectionHeading({ children }) {
-  return <h4 className="font-display text-sm font-semibold">{children}</h4>;
 }
 
 export function RecruiterJobApplicantsPage() {
@@ -134,6 +230,13 @@ export function RecruiterJobApplicantsPage() {
   const [selectedApplicationId, setSelectedApplicationId] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [feedback, setFeedback] = useState({ type: "", message: "" });
+  // Below the two-column breakpoint only one panel is visible at a time; this flips to the detail
+  // panel on selection and back on the detail panel's own back control. Above the breakpoint both
+  // panels render side by side regardless of this flag (handled purely in CSS).
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  // { id, type: "preview" | "download" } while a resume fetch is in flight, so the triggering
+  // button can show a pending label and both resume actions can be disabled meanwhile.
+  const [resumeAction, setResumeAction] = useState(null);
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
@@ -184,6 +287,7 @@ export function RecruiterJobApplicantsPage() {
     statusOptions.forEach((status) => {
       counts[status] = allApplications.filter((application) => application.status === status).length;
     });
+    counts.Withdrawn = allApplications.filter((application) => application.status === "Withdrawn").length;
 
     return counts;
   }, [allApplications]);
@@ -219,20 +323,26 @@ export function RecruiterJobApplicantsPage() {
   async function handleOpenResume(applicationId) {
     try {
       setFeedback({ type: "", message: "" });
+      setResumeAction({ id: applicationId, type: "preview" });
       const { blob } = await fetchApplicationResume(applicationId, "inline");
       openBlob(blob);
     } catch (error) {
       setFeedback({ type: "error", message: error.message });
+    } finally {
+      setResumeAction(null);
     }
   }
 
   async function handleDownloadResume(applicationId) {
     try {
       setFeedback({ type: "", message: "" });
+      setResumeAction({ id: applicationId, type: "download" });
       const { blob, fileName } = await fetchApplicationResume(applicationId);
       downloadBlob(fileName, blob);
     } catch (error) {
       setFeedback({ type: "error", message: error.message });
+    } finally {
+      setResumeAction(null);
     }
   }
 
@@ -259,18 +369,32 @@ export function RecruiterJobApplicantsPage() {
 
   if (session?.role !== "organization") {
     return (
-      <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-8 text-center text-muted-foreground">
-          <h3 className="font-display text-lg font-semibold text-foreground">
-            Recruiter applications is organization-only
-          </h3>
-          <p className="mt-1 text-sm">This page is designed for organization accounts reviewing candidates.</p>
+      <section className="job-applicants">
+        <Link to="/recruiter/applications" className="ja-back">
+          <IconArrowLeft className="ja-icon ja-icon--sm" />
+          Back to job postings
+        </Link>
+        <div className="ja-card ja-state">
+          <p className="ja-state__title">Recruiter applications is organization-only</p>
+          <p>This page is designed for organization accounts reviewing candidates.</p>
         </div>
-      </main>
+      </section>
     );
   }
 
+  function selectApplication(applicationId) {
+    setSelectedApplicationId(applicationId);
+    setMobileDetailOpen(true);
+  }
+
+  function selectStatusFilter(filterValue) {
+    setStatusFilter(filterValue);
+    setSelectedApplicationId("");
+    setMobileDetailOpen(false);
+  }
+
   const seeker = selectedApplication?.jobSeekerId || {};
+  const candidateName = `${seeker.firstName || ""} ${seeker.lastName || ""}`.trim() || "this candidate";
   const latestVerificationRequest = selectedApplication?.latestVerificationRequest;
   const hasExperienceEntries = Boolean((seeker.experience || []).length);
   const hasVerifiableExperience = Boolean(
@@ -292,13 +416,25 @@ export function RecruiterJobApplicantsPage() {
         ? "Triggering verification..."
         : "Trigger verification";
 
+  const hasManualResume = Boolean(
+    selectedApplication?.attachedResume?.media?.filePath || selectedApplication?.attachedResume?.media?.url
+  );
+  const hasTailoredResume = Boolean(selectedApplication?.tailoredResume?.latex);
+  const isPreviewing = Boolean(
+    selectedApplication && resumeAction?.id === selectedApplication._id && resumeAction.type === "preview"
+  );
+  const isDownloading = Boolean(
+    selectedApplication && resumeAction?.id === selectedApplication._id && resumeAction.type === "download"
+  );
+  const resumeActionsDisabled = isPreviewing || isDownloading;
+
+  const jobMetaParts = [job?.location, job?.type].filter(Boolean);
+
   return (
-    <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
-      <Link
-        to="/recruiter/applications"
-        className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
-      >
-        ← Back to jobs
+    <section className="job-applicants">
+      <Link to="/recruiter/applications" className="ja-back">
+        <IconArrowLeft className="ja-icon ja-icon--sm" />
+        Back to job postings
       </Link>
 
       <AutoDismissFeedback
@@ -306,371 +442,443 @@ export function RecruiterJobApplicantsPage() {
         onClear={() => setFeedback({ type: "", message: "" })}
       />
 
-      <div className="mt-4 grid grid-cols-12 gap-6">
-        <div className="col-span-12 space-y-6 lg:col-span-8">
-          <article className="rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="font-display text-lg font-semibold">
-                  {jobQuery.isLoading ? "Loading job..." : job?.title || "Applicants"}
-                </h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {job?.location || "Filter by pipeline stage to focus on the candidates that need action now."}
-                </p>
-              </div>
-              {job ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
-                  {allApplications.length} applicants
-                </span>
-              ) : null}
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              {statusFilters.map((filterValue) => (
-                <button
-                  key={filterValue}
-                  type="button"
-                  onClick={() => {
-                    setStatusFilter(filterValue);
-                    setSelectedApplicationId("");
-                  }}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                    statusFilter === filterValue
-                      ? "border-transparent bg-gradient-recruiter text-recruiter-foreground shadow-recruiter"
-                      : "border-border bg-surface/70 text-muted-foreground hover:bg-surface"
-                  }`}
-                >
-                  {filterValue} ({statusCounts[filterValue] ?? 0})
-                </button>
-              ))}
-            </div>
-
-            {applicationsQuery.isLoading ? (
-              <p className="mt-4 text-sm text-muted-foreground">Loading applicants...</p>
-            ) : (
-              <div className="mt-4 space-y-3">
-                {filteredApplications.map((application) => (
-                  <ApplicationListCard
-                    key={application._id}
-                    application={application}
-                    selected={selectedApplication?._id === application._id}
-                    onSelect={(item) => setSelectedApplicationId(item._id)}
-                  />
-                ))}
-                {!filteredApplications.length ? (
-                  <p className="text-sm text-muted-foreground">No applicants matched the current filter.</p>
-                ) : null}
-              </div>
-            )}
-          </article>
+      <header className="ja-hero">
+        <div className="ja-hero__text">
+          <p className="ja-eyebrow">Pipeline</p>
+          <h1 className="ja-hero__title">
+            {jobQuery.isLoading ? "Loading job…" : job?.title || "Applicants"}
+          </h1>
+          {jobMetaParts.length ? (
+            <p className="ja-hero__meta">
+              <IconMapPin className="ja-icon ja-icon--sm" />
+              {jobMetaParts.join(" · ")}
+            </p>
+          ) : null}
         </div>
+        {job ? (
+          <span className="ja-pill ja-pill--accent ja-hero__count">
+            <IconUsers className="ja-icon ja-icon--sm" />
+            {plural(allApplications.length, "applicant")}
+          </span>
+        ) : null}
+      </header>
 
-        <aside className="col-span-12 lg:col-span-4">
-          <article className="rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-5 shadow-elegant">
-            {selectedApplication ? (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-recruiter text-sm font-semibold text-recruiter-foreground">
-                      {getInitials(seeker.firstName, seeker.lastName)}
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                        Candidate Detail
-                      </p>
-                      <h3 className="font-display text-lg font-semibold">
-                        {seeker.firstName} {seeker.lastName}
-                      </h3>
-                    </div>
+      {jobQuery.isError ? (
+        <p className="ja-card ja-state ja-state--error">
+          {jobQuery.error?.message || "Could not load this job posting."}
+        </p>
+      ) : null}
+
+      <div className="ja-chips" role="group" aria-label="Filter applicants by status">
+        {statusFilters.map((filterValue) => {
+          const count = statusCounts[filterValue] ?? 0;
+          return (
+            <button
+              key={filterValue}
+              type="button"
+              aria-pressed={statusFilter === filterValue}
+              className={`ja-chip${statusFilter === filterValue ? " ja-chip--on" : ""}${
+                count === 0 ? " ja-chip--zero" : ""
+              }`}
+              onClick={() => selectStatusFilter(filterValue)}
+            >
+              {filterValue}
+              <span className="ja-chip__count">{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className={`ja-split${mobileDetailOpen ? " ja-split--detail" : ""}`}>
+        <nav className="ja-list" aria-label="Applicants" role="listbox">
+          {applicationsQuery.isLoading ? (
+            <p className="ja-empty">Loading applicants…</p>
+          ) : applicationsQuery.isError ? (
+            <p className="ja-empty ja-empty--error">
+              <IconAlertCircle className="ja-icon" />
+              {applicationsQuery.error?.message || "Could not load applicants."}
+            </p>
+          ) : filteredApplications.length ? (
+            filteredApplications.map((application) => {
+              const applicant = application.jobSeekerId || {};
+              const applicantName = `${applicant.firstName || ""} ${applicant.lastName || ""}`.trim() || "Unnamed applicant";
+              const selected = selectedApplication?._id === application._id;
+              const tone = STATUS_TONE[application.status] || "muted";
+              const hasResume = Boolean(
+                application.attachedResume?.media?.filePath ||
+                  application.attachedResume?.media?.url ||
+                  application.tailoredResume?.latex
+              );
+
+              return (
+                <button
+                  key={application._id}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  className={`ja-row${selected ? " ja-row--selected" : ""}`}
+                  onClick={() => selectApplication(application._id)}
+                >
+                  <span className="ja-row__accent" aria-hidden="true" />
+                  <span className="ja-avatar" aria-hidden="true">
+                    {getInitials(applicant.firstName, applicant.lastName)}
+                  </span>
+                  <span className="ja-row__body">
+                    <span className="ja-row__name">{applicantName}</span>
+                    <span className="ja-row__metaline">
+                      <span className={`ja-pill ja-pill--${tone}`}>{application.status}</span>
+                      <span className="ja-row__match">Match {application.atsScore ?? 0}</span>
+                    </span>
+                  </span>
+                  {hasResume ? (
+                    <span className="ja-row__resume" title="Resume attached" aria-label="Resume attached">
+                      <IconFileText className="ja-icon ja-icon--sm" />
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })
+          ) : (
+            <p className="ja-empty">No applicants matched the current filter.</p>
+          )}
+        </nav>
+
+        <div className="ja-detail">
+          {selectedApplication ? (
+            <>
+              <button type="button" className="ja-detail__back" onClick={() => setMobileDetailOpen(false)}>
+                <IconArrowLeft className="ja-icon ja-icon--sm" />
+                Back to applicants
+              </button>
+
+              <div className="ja-card ja-candidate-card">
+                <div className="ja-candidate-head">
+                  <span className="ja-avatar ja-avatar--lg" aria-hidden="true">
+                    {getInitials(seeker.firstName, seeker.lastName)}
+                  </span>
+                  <div className="ja-candidate-head__body">
+                    <p className="ja-eyebrow">Candidate detail</p>
+                    <h2 className="ja-candidate-head__name">
+                      {seeker.firstName} {seeker.lastName}
+                    </h2>
                   </div>
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
+                  <span
+                    className={`ja-pill ja-pill--${STATUS_TONE[selectedApplication.status] || "muted"} ja-candidate-head__status`}
+                  >
                     {selectedApplication.status}
                   </span>
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
-                    <p className="text-xs text-muted-foreground">Email</p>
-                    <p className="mt-0.5 truncate text-sm font-semibold">{seeker.email || "Not available"}</p>
+                <dl className="ja-stats">
+                  <div className="ja-stat">
+                    <dt>
+                      <IconMail className="ja-icon ja-icon--sm" />
+                      Email
+                    </dt>
+                    <dd>{seeker.email || "Not available"}</dd>
                   </div>
-                  <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
-                    <p className="text-xs text-muted-foreground">Match score</p>
-                    <p className="mt-0.5 text-sm font-semibold">{selectedApplication.atsScore ?? 0}</p>
+                  <div className="ja-stat">
+                    <dt>
+                      <IconGauge className="ja-icon ja-icon--sm" />
+                      Match score
+                    </dt>
+                    <dd>{selectedApplication.atsScore ?? 0}</dd>
                   </div>
-                  <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
-                    <p className="text-xs text-muted-foreground">Verification</p>
-                    <p className="mt-0.5 text-sm font-semibold">{selectedApplication.verificationStatus || "Pending"}</p>
+                  <div className="ja-stat">
+                    <dt>
+                      <IconShield className="ja-icon ja-icon--sm" />
+                      Verification
+                    </dt>
+                    <dd>{selectedApplication.verificationStatus || "Pending"}</dd>
                   </div>
-                  <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
-                    <p className="text-xs text-muted-foreground">Trust score</p>
-                    <p className="mt-0.5 text-sm font-semibold">{selectedApplication.trustScore ?? 0}</p>
+                  <div className="ja-stat">
+                    <dt>
+                      <IconAward className="ja-icon ja-icon--sm" />
+                      Trust score
+                    </dt>
+                    <dd>{selectedApplication.trustScore ?? 0}</dd>
                   </div>
                   {Number.isFinite(selectedApplication.resumeMatchScore) && (
-                    <div className="rounded-xl border border-border/60 bg-surface/40 p-3">
-                      <p className="text-xs text-muted-foreground">Resume score</p>
-                      <p className="mt-0.5 text-sm font-semibold">{selectedApplication.resumeMatchScore}</p>
+                    <div className="ja-stat">
+                      <dt>
+                        <IconGauge className="ja-icon ja-icon--sm" />
+                        Resume score
+                      </dt>
+                      <dd>{selectedApplication.resumeMatchScore}</dd>
                     </div>
                   )}
-                </div>
+                </dl>
+              </div>
 
-                <div className="mt-5">
-                  <DetailSectionHeading>Candidate snapshot</DetailSectionHeading>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {seeker.tagline || seeker.bio || "No short profile summary available yet."}
-                  </p>
-                  <div className="mt-3 grid grid-cols-2 gap-3">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Current status</p>
-                      <p className="text-sm font-semibold">{seeker.currentStatus || "Not specified"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Open to work</p>
-                      <p className="text-sm font-semibold">{seeker.openToWork ? "Yes" : "No"}</p>
-                    </div>
+              <div className="ja-card">
+                <h3 className="ja-card__title">Candidate snapshot</h3>
+                <p className="ja-card__desc">
+                  {seeker.tagline || seeker.bio || "No short profile summary available yet."}
+                </p>
+                <div className="ja-minigrid">
+                  <div>
+                    <p className="ja-minigrid__label">Current status</p>
+                    <p className="ja-minigrid__value">{seeker.currentStatus || "Not specified"}</p>
+                  </div>
+                  <div>
+                    <p className="ja-minigrid__label">Open to work</p>
+                    <p className="ja-minigrid__value">{seeker.openToWork ? "Yes" : "No"}</p>
                   </div>
                 </div>
+              </div>
 
-                <div className="mt-5">
-                  <DetailSectionHeading>Skills</DetailSectionHeading>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {(seeker.skills || []).map((skill) => (
-                      <span
-                        key={skill}
-                        className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium"
-                      >
-                        {skill}
-                      </span>
-                    ))}
-                    {!seeker.skills?.length ? (
-                      <span className="text-xs text-muted-foreground">No skills listed</span>
-                    ) : null}
-                  </div>
+              <div className="ja-card">
+                <h3 className="ja-card__title">Skills</h3>
+                <div className="ja-tags">
+                  {(seeker.skills || []).map((skill) => (
+                    <span key={skill} className="ja-tag">
+                      {skill}
+                    </span>
+                  ))}
+                  {!seeker.skills?.length ? <p className="ja-card__empty">No skills listed</p> : null}
                 </div>
+              </div>
 
-                <div className="mt-5">
-                  <DetailSectionHeading>Preferred roles</DetailSectionHeading>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
+              <div className="ja-pair">
+                <div className="ja-card">
+                  <h3 className="ja-card__title">Preferred roles</h3>
+                  <div className="ja-tags">
                     {(seeker.preferredRoles || []).map((role) => (
-                      <span
-                        key={role}
-                        className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium"
-                      >
+                      <span key={role} className="ja-tag">
                         {role}
                       </span>
                     ))}
                     {!seeker.preferredRoles?.length ? (
-                      <span className="text-xs text-muted-foreground">No preferred roles listed</span>
+                      <p className="ja-card__empty">No preferred roles listed</p>
                     ) : null}
                   </div>
                 </div>
 
-                <div className="mt-5">
-                  <DetailSectionHeading>Professional links</DetailSectionHeading>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <DetailLink href={seeker.portfolioUrl} label="Portfolio" />
-                    <DetailLink href={seeker.linkedinUrl} label="LinkedIn" />
-                    <DetailLink href={seeker.githubUrl} label="GitHub" />
+                <div className="ja-card">
+                  <h3 className="ja-card__title">Professional links</h3>
+                  {seeker.portfolioUrl || seeker.linkedinUrl || seeker.githubUrl ? (
+                    <div className="ja-links">
+                      <DetailLink href={seeker.portfolioUrl} label="Portfolio" />
+                      <DetailLink href={seeker.linkedinUrl} label="LinkedIn" />
+                      <DetailLink href={seeker.githubUrl} label="GitHub" />
+                    </div>
+                  ) : (
+                    <p className="ja-card__empty">No professional links shared yet.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="ja-card">
+                <h3 className="ja-card__title">Resume</h3>
+                {hasManualResume ? (
+                  <div className="ja-resume">
+                    <p className="ja-resume__title">
+                      {selectedApplication.attachedResume.originalName || "Manual resume"}
+                    </p>
+                    <p className="ja-resume__desc">
+                      The applicant manually attached this resume during application submission.
+                    </p>
+                    <div className="ja-resume__actions">
+                      <button
+                        type="button"
+                        className="ja-btn ja-btn--outline"
+                        disabled={resumeActionsDisabled}
+                        onClick={() => handleOpenResume(selectedApplication._id)}
+                      >
+                        <IconEye className="ja-icon ja-icon--sm" />
+                        {isPreviewing ? "Opening…" : "Preview resume"}
+                      </button>
+                      <button
+                        type="button"
+                        className="ja-btn ja-btn--primary"
+                        disabled={resumeActionsDisabled}
+                        onClick={() => handleDownloadResume(selectedApplication._id)}
+                      >
+                        <IconDownload className="ja-icon ja-icon--sm" />
+                        {isDownloading ? "Preparing download…" : "Download resume"}
+                      </button>
+                    </div>
                   </div>
-                  {!seeker.portfolioUrl && !seeker.linkedinUrl && !seeker.githubUrl ? (
-                    <p className="mt-2 text-sm text-muted-foreground">No professional links shared yet.</p>
+                ) : hasTailoredResume ? (
+                  <div className="ja-resume">
+                    <p className="ja-resume__title">Job-matched resume attached</p>
+                    <p className="ja-resume__desc">
+                      This resume was generated from the applicant profile for this job. Education is
+                      included in every generated resume.
+                    </p>
+                    <div className="ja-resume__actions">
+                      <button
+                        type="button"
+                        className="ja-btn ja-btn--outline"
+                        disabled={resumeActionsDisabled}
+                        onClick={() => handleOpenResume(selectedApplication._id)}
+                      >
+                        <IconEye className="ja-icon ja-icon--sm" />
+                        {isPreviewing ? "Opening…" : "Preview resume"}
+                      </button>
+                      <button
+                        type="button"
+                        className="ja-btn ja-btn--primary"
+                        disabled={resumeActionsDisabled}
+                        onClick={() => handleDownloadResume(selectedApplication._id)}
+                      >
+                        <IconDownload className="ja-icon ja-icon--sm" />
+                        {isDownloading ? "Preparing download…" : "Download tailored resume PDF"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="ja-card__empty">No resume is attached to this application.</p>
+                )}
+              </div>
+
+              <div className="ja-pair">
+                <div className="ja-card">
+                  <h3 className="ja-card__title">Experience summary</h3>
+                  <ul className="ja-entries">
+                    {(seeker.experience || [])
+                      .slice(-3)
+                      .reverse()
+                      .map((item) => (
+                        <li key={item._id || `${item.companyName}-${item.jobTitle}`} className="ja-entry">
+                          <p className="ja-entry__title">{item.jobTitle || "Untitled role"}</p>
+                          <p className="ja-entry__sub">{item.companyName || "Unknown company"}</p>
+                          <p className="ja-entry__meta">
+                            {item.isCurrent ? "Current role" : formatDate(item.endDate)} ·{" "}
+                            {item.verificationStatus || "Pending verification"}
+                          </p>
+                        </li>
+                      ))}
+                  </ul>
+                  {!seeker.experience?.length ? (
+                    <p className="ja-card__empty">No experience entries shared yet.</p>
                   ) : null}
                 </div>
 
-                <div className="mt-5">
-                  <DetailSectionHeading>Resume attached</DetailSectionHeading>
-                  {selectedApplication.attachedResume?.media?.filePath ||
-                  selectedApplication.attachedResume?.media?.url ? (
-                    <div className="mt-2 rounded-xl border border-border/60 bg-surface/40 p-4">
-                      <p className="text-sm font-semibold">
-                        {selectedApplication.attachedResume.originalName || "Manual resume"}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        The applicant manually attached this resume during application submission.
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenResume(selectedApplication._id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium hover:bg-surface/80"
-                        >
-                          Preview resume
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadResume(selectedApplication._id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium hover:bg-surface/80"
-                        >
-                          Download resume
-                        </button>
-                      </div>
-                    </div>
-                  ) : selectedApplication.tailoredResume?.latex ? (
-                    <div className="mt-2 rounded-xl border border-border/60 bg-surface/40 p-4">
-                      <p className="text-sm font-semibold">Job-matched resume attached</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        This resume was generated from the applicant profile for this job.
-                        Education is included in every generated resume.
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenResume(selectedApplication._id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium hover:bg-surface/80"
-                        >
-                          Preview resume
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadResume(selectedApplication._id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium hover:bg-surface/80"
-                        >
-                          Download tailored resume PDF
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-sm text-muted-foreground">No resume is attached to this application.</p>
-                  )}
+                <div className="ja-card">
+                  <h3 className="ja-card__title">Education summary</h3>
+                  <ul className="ja-entries">
+                    {(seeker.education || [])
+                      .slice(-2)
+                      .reverse()
+                      .map((item) => (
+                        <li key={item._id || `${item.institution}-${item.degree}`} className="ja-entry">
+                          <p className="ja-entry__title">{item.degree || "Degree not specified"}</p>
+                          <p className="ja-entry__sub">{item.institution || "Institution not specified"}</p>
+                          <p className="ja-entry__meta">{item.fieldOfStudy || "Field not specified"}</p>
+                        </li>
+                      ))}
+                  </ul>
+                  {!seeker.education?.length ? (
+                    <p className="ja-card__empty">No education entries shared yet.</p>
+                  ) : null}
                 </div>
+              </div>
 
-                <div className="mt-5">
-                  <DetailSectionHeading>Experience summary</DetailSectionHeading>
-                  <div className="mt-2 space-y-2">
-                    {(seeker.experience || []).slice(-3).reverse().map((item) => (
-                      <div
-                        key={item._id || `${item.companyName}-${item.jobTitle}`}
-                        className="rounded-xl border border-border/60 bg-surface/40 p-3"
-                      >
-                        <p className="text-sm font-semibold">{item.jobTitle || "Untitled role"}</p>
-                        <p className="text-xs text-muted-foreground">{item.companyName || "Unknown company"}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {item.isCurrent ? "Current role" : formatDate(item.endDate)} ·{" "}
-                          {item.verificationStatus || "Pending verification"}
-                        </p>
-                      </div>
-                    ))}
-                    {!seeker.experience?.length ? (
-                      <p className="text-sm text-muted-foreground">No experience entries shared yet.</p>
-                    ) : null}
+              <div className="ja-card">
+                <h3 className="ja-card__title">Verification state</h3>
+                {!latestVerificationRequest ? (
+                  <div className="ja-verify">
+                    <p className="ja-verify__title">Verification not started</p>
+                    <p className="ja-card__desc">
+                      No verification request has been sent yet for this application. Use the action
+                      below when you want to begin the background check.
+                    </p>
                   </div>
-                </div>
-
-                <div className="mt-5">
-                  <DetailSectionHeading>Education summary</DetailSectionHeading>
-                  <div className="mt-2 space-y-2">
-                    {(seeker.education || []).slice(-2).reverse().map((item) => (
-                      <div
-                        key={item._id || `${item.institution}-${item.degree}`}
-                        className="rounded-xl border border-border/60 bg-surface/40 p-3"
-                      >
-                        <p className="text-sm font-semibold">{item.degree || "Degree not specified"}</p>
-                        <p className="text-xs text-muted-foreground">{item.institution || "Institution not specified"}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{item.fieldOfStudy || "Field not specified"}</p>
+                ) : (
+                  <div className="ja-verify">
+                    <p className="ja-verify__title">
+                      {latestVerificationRequest.status === "Pending"
+                        ? "Manager response pending"
+                        : latestVerificationRequest.status === "Submitted"
+                          ? "Manager submitted verification"
+                          : "Verification request expired"}
+                    </p>
+                    <div className="ja-kv">
+                      <div className="ja-kv__row">
+                        <span>Requested</span>
+                        <span>{formatDate(latestVerificationRequest.requestedAt)}</span>
                       </div>
-                    ))}
-                    {!seeker.education?.length ? (
-                      <p className="text-sm text-muted-foreground">No education entries shared yet.</p>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="mt-5">
-                  <DetailSectionHeading>Verification state</DetailSectionHeading>
-                  {!latestVerificationRequest ? (
-                    <div className="mt-2 rounded-xl border border-border/60 bg-surface/40 p-4">
-                      <p className="text-sm font-semibold">Verification not started</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        No verification request has been sent yet for this application.
-                        Use the action below when you want to begin the background check.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="mt-2 rounded-xl border border-border/60 bg-surface/40 p-4">
-                      <p className="text-sm font-semibold">
-                        {latestVerificationRequest.status === "Pending"
-                          ? "Manager response pending"
-                          : latestVerificationRequest.status === "Submitted"
-                            ? "Manager submitted verification"
-                            : "Verification request expired"}
-                      </p>
-                      <div className="mt-3 space-y-2">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">Requested</span>
-                          <span className="font-medium">{formatDate(latestVerificationRequest.requestedAt)}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">Manager email</span>
-                          <span className="font-medium">{latestVerificationRequest.managerEmail || "Not available"}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">Grace period ends</span>
-                          <span className="font-medium">{formatDate(latestVerificationRequest.gracePeriodEndsAt)}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">Next reminder</span>
-                          <span className="font-medium">{formatDate(latestVerificationRequest.nextReminderAt)}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">Reminder count</span>
-                          <span className="font-medium">{latestVerificationRequest.reminderCount ?? 0}</span>
-                        </div>
-                        {latestVerificationRequest.submittedAt ? (
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground">Submitted</span>
-                            <span className="font-medium">{formatDate(latestVerificationRequest.submittedAt)}</span>
-                          </div>
-                        ) : null}
+                      <div className="ja-kv__row">
+                        <span>Manager email</span>
+                        <span>{latestVerificationRequest.managerEmail || "Not available"}</span>
                       </div>
-                      {selectedApplication.verificationStatus === "Verified" ? (
-                        <p className="mt-3 text-xs text-muted-foreground">
-                          Verification completed with trust tag{" "}
-                          <strong className="text-foreground">{selectedApplication.trustScoreTag || "Not available"}</strong>.
-                          {selectedApplication.status === "Rejected"
-                            ? " This application is currently in a rejected state after verification."
-                            : ""}
-                        </p>
+                      <div className="ja-kv__row">
+                        <span>Grace period ends</span>
+                        <span>{formatDate(latestVerificationRequest.gracePeriodEndsAt)}</span>
+                      </div>
+                      <div className="ja-kv__row">
+                        <span>Next reminder</span>
+                        <span>{formatDate(latestVerificationRequest.nextReminderAt)}</span>
+                      </div>
+                      <div className="ja-kv__row">
+                        <span>Reminder count</span>
+                        <span>{latestVerificationRequest.reminderCount ?? 0}</span>
+                      </div>
+                      {latestVerificationRequest.submittedAt ? (
+                        <div className="ja-kv__row">
+                          <span>Submitted</span>
+                          <span>{formatDate(latestVerificationRequest.submittedAt)}</span>
+                        </div>
                       ) : null}
                     </div>
-                  )}
-                </div>
+                    {selectedApplication.verificationStatus === "Verified" ? (
+                      <p className="ja-card__desc">
+                        Verification completed with trust tag{" "}
+                        <strong>{selectedApplication.trustScoreTag || "Not available"}</strong>.
+                        {selectedApplication.status === "Rejected"
+                          ? " This application is currently in a rejected state after verification."
+                          : ""}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+              </div>
 
-                <div className="mt-5">
-                  <DetailSectionHeading>Update status</DetailSectionHeading>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {statusOptions.map((status) => (
+              <div className="ja-card" aria-labelledby="ja-status-heading">
+                <h3 className="ja-card__title" id="ja-status-heading">
+                  Update status
+                </h3>
+                <p className="ja-status-current">
+                  Current status{" "}
+                  <span className={`ja-pill ja-pill--${STATUS_TONE[selectedApplication.status] || "muted"}`}>
+                    {selectedApplication.status}
+                  </span>
+                </p>
+                <div className="ja-status-actions" role="group" aria-label="Move to a different status">
+                  {statusOptions
+                    .filter((status) => status !== selectedApplication.status)
+                    .map((status) => (
                       <button
                         key={status}
                         type="button"
                         disabled={statusMutation.isPending}
                         onClick={() => {
-                          if (selectedApplication.status === status) {
-                            return;
-                          }
                           setFeedback({ type: "", message: "" });
                           statusMutation.mutate(status);
                         }}
-                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                          selectedApplication.status === status
-                            ? "border-transparent bg-gradient-recruiter text-recruiter-foreground shadow-recruiter"
-                            : "border-border bg-surface/70 text-muted-foreground hover:bg-surface"
+                        aria-label={`Mark ${candidateName} as ${status}`}
+                        className={`ja-status-btn${
+                          status === "Rejected" ? " ja-status-btn--danger" : ""
                         }`}
                       >
                         Mark {status}
                       </button>
                     ))}
-                  </div>
                 </div>
 
                 {!hasExperienceEntries ? (
-                  <div className="mt-5 rounded-xl border border-border/60 bg-surface/40 p-3 text-xs text-muted-foreground">
-                    This applicant has not added work experience, so background verification is not applicable yet.
-                    You can still move the application through Pending, UnderReview, Accepted, or Rejected.
-                  </div>
+                  <p className="ja-callout">
+                    This applicant has not added work experience, so background verification is not
+                    applicable yet. You can still move the application through Pending, UnderReview,
+                    Accepted, or Rejected.
+                  </p>
                 ) : !hasVerifiableExperience ? (
-                  <div className="mt-5 rounded-xl border border-border/60 bg-surface/40 p-3 text-xs text-muted-foreground">
-                    This applicant has experience entries, but none include a manager email for background verification.
-                    You can still mark the application status without triggering verification.
-                  </div>
+                  <p className="ja-callout">
+                    This applicant has experience entries, but none include a manager email for
+                    background verification. You can still mark the application status without
+                    triggering verification.
+                  </p>
                 ) : null}
 
                 <button
@@ -680,21 +888,27 @@ export function RecruiterJobApplicantsPage() {
                     setFeedback({ type: "", message: "" });
                     verificationMutation.mutate();
                   }}
-                  className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-transparent bg-gradient-recruiter px-4 text-xs font-semibold text-recruiter-foreground shadow-recruiter hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="ja-btn ja-btn--primary ja-btn--block"
                 >
                   {verificationButtonLabel}
                 </button>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                {applicationsQuery.isLoading
-                  ? "Loading applicants..."
-                  : "Select an applicant to review status controls and verification actions."}
+              </div>
+            </>
+          ) : (
+            <div className="ja-empty-state">
+              <IconInbox className="ja-icon ja-icon--lg" />
+              <p className="ja-empty-state__title">
+                {applicationsQuery.isLoading ? "Loading applicants…" : "No applicant selected"}
               </p>
-            )}
-          </article>
-        </aside>
+              <p>
+                {applicationsQuery.isLoading
+                  ? "Fetching this posting's applicants."
+                  : "Select an applicant from the list to review status controls and verification actions."}
+              </p>
+            </div>
+          )}
+        </div>
       </div>
-    </main>
+    </section>
   );
 }

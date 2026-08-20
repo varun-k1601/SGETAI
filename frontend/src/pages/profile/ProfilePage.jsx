@@ -205,42 +205,49 @@ function normalizeCustomSectionItems(sections = []) {
 const seekerSections = [
   {
     id: "basic",
+    eyebrow: "Identity",
     title: "Basic details",
     description: "Name, username, phone, tagline, and work availability.",
     fields: ["firstName", "lastName", "username", "phone", "tagline", "currentStatus", "expectedSalary", "openToWork"],
   },
   {
     id: "education",
+    eyebrow: "Education",
     title: "Education",
     description: "College, degree, major, dates, and GPA used in every generated resume and education-year matching.",
     fields: ["universityName", "degree", "major", "graduationYear", "currentGPA", "education"],
   },
   {
     id: "career",
+    eyebrow: "Summary",
     title: "Career summary",
     description: "Bio and objective used for recommendations, ATS matching, and resume objective.",
     fields: ["bio", "careerObjective"],
   },
   {
     id: "experience",
+    eyebrow: "History",
     title: "Experience",
     description: "Add work or internship history. Manager email is optional and only needed for background verification.",
     fields: ["experience"],
   },
   {
     id: "skills",
+    eyebrow: "Matching",
     title: "Skills and preferences",
     description: "Skills, preferred roles, salary, and open-to-work signals.",
     fields: ["skillGroups", "preferredRoles"],
   },
   {
     id: "links",
+    eyebrow: "Links",
     title: "Portfolio links",
     description: "Portfolio, LinkedIn, and GitHub links shown in your resume header.",
     fields: ["portfolioUrl", "linkedinUrl", "githubUrl"],
   },
   {
     id: "customSections",
+    eyebrow: "Extras",
     title: "Additional sections",
     description: "Sections from your résumé that don't fit a standard category — coursework, extracurriculars, publications, and similar.",
     fields: ["customSections"],
@@ -250,18 +257,21 @@ const seekerSections = [
 const organizationSections = [
   {
     id: "company",
+    eyebrow: "Identity",
     title: "Company details",
     description: "Main company profile information shown to applicants.",
     fields: ["companyName", "username", "phone", "industry", "companySize"],
   },
   {
     id: "presence",
+    eyebrow: "Online",
     title: "Online presence",
     description: "Website, LinkedIn page, and public company description.",
     fields: ["websiteUrl", "linkedinPage", "description"],
   },
   {
     id: "location",
+    eyebrow: "Company",
     title: "Location and founding",
     description: "Headquarters and founding year details.",
     fields: ["headquartersLocation", "foundedYear"],
@@ -281,6 +291,9 @@ function ProfileEditSection({
     <form className="info-card profile-edit-section" onSubmit={onSubmit}>
       <div className="section-head">
         <div>
+          {/* One eyebrow rendered here covers every section on BOTH role branches, since seeker
+              and organization sections share this component. */}
+          <p className="pf-eyebrow">{section.eyebrow || "Profile"}</p>
           <h3>{section.title}</h3>
           <p>{section.description}</p>
         </div>
@@ -411,6 +424,57 @@ function ProfileMediaManagerModal({
 }) {
   const isVideo = type === "video";
   const fileInputRef = useRef(null);
+  const dialogRef = useRef(null);
+  const closeRef = useRef(null);
+
+  // The dialog already had role="dialog" + aria-modal, but nothing moved focus into it, kept
+  // focus inside it, or gave it back on close — so a keyboard user tabbed straight out into the
+  // page behind. Added as its own effect; nothing else in this component changes.
+  useEffect(() => {
+    const previouslyFocused = document.activeElement;
+    closeRef.current?.focus();
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const focusable = dialogRef.current?.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+
+      if (!focusable?.length) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      // Only restore if focus is still somewhere we put it, so we never yank it away from
+      // wherever the user has since moved.
+      if (previouslyFocused instanceof HTMLElement) {
+        previouslyFocused.focus();
+      }
+    };
+  }, [onClose]);
 
   function handleEditClick() {
     if (!isUploading) {
@@ -421,6 +485,7 @@ function ProfileMediaManagerModal({
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <article
+        ref={dialogRef}
         className="profile-media-modal"
         role="dialog"
         aria-modal="true"
@@ -429,7 +494,13 @@ function ProfileMediaManagerModal({
       >
         <div className="profile-media-modal__header">
           <h3>{title}</h3>
-          <button type="button" className="profile-media-modal__close" onClick={onClose} aria-label="Close">
+          <button
+            ref={closeRef}
+            type="button"
+            className="profile-media-modal__close"
+            onClick={onClose}
+            aria-label="Close"
+          >
             x
           </button>
         </div>
@@ -459,6 +530,9 @@ function ProfileMediaManagerModal({
               ref={fileInputRef}
               className="resume-file-input"
               type="file"
+              // Visually hidden and opened by the Edit button, so it has no visible label of its
+              // own to borrow a name from.
+              aria-label={isVideo ? "Choose a background video file" : "Choose a profile photo file"}
               accept={isVideo ? "video/*" : "image/*"}
               disabled={isUploading}
               onChange={(event) => {
@@ -1312,7 +1386,10 @@ export function ProfilePage() {
         ];
 
   return (
-    <section className="dashboard-stack">
+    // .profile-page is the styling scope for this whole page INCLUDING ProfilePortfolioManager,
+    // which renders inside it. .dashboard-stack is kept so nothing that already depends on it
+    // changes; the new block only layers on top.
+    <section className="profile-page dashboard-stack">
       {session?.role === "seeker" ? (
         <ApplicantProfileCover
           profile={profile}

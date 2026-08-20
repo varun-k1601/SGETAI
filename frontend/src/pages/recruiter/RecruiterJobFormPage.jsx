@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest } from "../../services/api";
@@ -31,17 +31,34 @@ const OPTIONAL_FIELD_LABELS = {
   requirements: "Requirements",
 };
 
-// This app's global `button{}` rule in styles.css is unlayered, so it silently wins over any
-// Tailwind utility class applied directly to a <button> — small ghost controls here use inline
-// styles to opt out, same workaround used elsewhere (see ProSeekerDashboard.jsx's ghostButtonStyle).
-const ghostButtonStyle = {
-  border: "none",
-  background: "transparent",
-  boxShadow: "none",
-  color: "inherit",
-  fontWeight: 500,
-  padding: 0,
-};
+const STATUS_TONE = { Active: "ok", Draft: "accent", Closed: "muted" };
+
+// ---------------------------------------------------------------------------------------------
+// LIST SERIALISATION.
+//
+// These four helpers replace the single splitCsv/joinList pair, which was DESTRUCTIVE for
+// requirements. Requirements are prose sentences and routinely contain commas:
+//
+//   "Bachelor's degree in Computer Science, Information Technology, or a related field."
+//
+// splitting that on /[\n,]/ produced three separate "requirements", and because the form rejoined
+// with ", " the damage compounded on every load-edit-save cycle. Requirements therefore split on
+// NEWLINES ONLY and rejoin with "\n": one requirement per line, commas preserved verbatim.
+//
+// Skills stay comma-splittable — they are short tokens that rarely contain commas — but they must
+// rejoin with the SAME separator they split on, or the round trip is not stable either.
+// ---------------------------------------------------------------------------------------------
+
+function splitLines(value) {
+  return value
+    .split(/\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function joinLines(value) {
+  return (value || []).join("\n");
+}
 
 function splitCsv(value) {
   return value
@@ -50,8 +67,94 @@ function splitCsv(value) {
     .filter(Boolean);
 }
 
-function joinList(value) {
+function joinCsv(value) {
   return (value || []).join(", ");
+}
+
+function IconArrowLeft(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M19 12H5" />
+      <path d="m12 19-7-7 7-7" />
+    </svg>
+  );
+}
+
+function IconChevronDown(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function IconPlus(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M5 12h14" />
+      <path d="M12 5v14" />
+    </svg>
+  );
+}
+
+function IconX(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  );
+}
+
+// A labelled group of controls. fieldset/legend is the real grouping primitive for a form, so the
+// visual card and the accessibility tree are the same thing rather than two parallel structures.
+function FieldGroup({ title, description, action, children }) {
+  return (
+    <fieldset className="jf-card">
+      <legend className="jf-card__legend">
+        <span className="jf-card__title">{title}</span>
+        {description && <span className="jf-card__desc">{description}</span>}
+      </legend>
+      {action}
+      <div className="jf-card__body">{children}</div>
+    </fieldset>
+  );
+}
+
+// Renders label + optional remove control + the control itself + helper/error text, and hands the
+// control the ids it needs so helper text and errors are actually announced rather than merely
+// displayed next to it.
+function Field({ id, label, helper, error, onRemove, removeLabel, wide, children }) {
+  const helperId = helper ? `${id}-helper` : null;
+  const errorId = error ? `${id}-error` : null;
+  const describedBy = [helperId, errorId].filter(Boolean).join(" ") || undefined;
+
+  return (
+    <div className={`jf-field${wide ? " jf-field--wide" : ""}`}>
+      <div className="jf-field__head">
+        <label className="jf-label" htmlFor={id}>
+          {label}
+        </label>
+        {onRemove && (
+          <button type="button" className="jf-remove" onClick={onRemove} aria-label={removeLabel}>
+            <IconX className="jf-icon jf-icon--xs" />
+            Remove
+          </button>
+        )}
+      </div>
+      {children({ id, describedBy, invalid: Boolean(error) })}
+      {helper && (
+        <p className="jf-helper" id={helperId}>
+          {helper}
+        </p>
+      )}
+      {error && (
+        <p className="jf-fielderror" id={errorId}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function RecruiterJobFormPage() {
@@ -63,6 +166,14 @@ export function RecruiterJobFormPage() {
   const [form, setForm] = useState(emptyForm);
   const [hiddenFields, setHiddenFields] = useState([]);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+  // What was last loaded (or, when creating, the empty form). The save action compares against
+  // this so it can be disabled while nothing has actually changed.
+  const [baseline, setBaseline] = useState({ form: emptyForm, hiddenFields: [] });
+  const uid = useId();
+  const titleRef = useRef(null);
+
+  const fid = (name) => `${uid}-${name}`;
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
@@ -74,7 +185,7 @@ export function RecruiterJobFormPage() {
 
   useEffect(() => {
     if (job) {
-      setForm({
+      const loaded = {
         title: job.title || "",
         description: job.description || "",
         location: job.location || "",
@@ -83,27 +194,30 @@ export function RecruiterJobFormPage() {
         salaryMin: job.salary?.min ?? "",
         salaryMax: job.salary?.max ?? "",
         salaryCurrency: job.salary?.currency || "USD",
-        requirements: joinList(job.requirements),
-        skills: joinList(job.skills),
-        skillsRequired: joinList(job.skillsRequired),
+        // Newline-joined, matching splitLines on the way back out. This is the half of the fix
+        // that makes the round trip stable.
+        requirements: joinLines(job.requirements),
+        skills: joinCsv(job.skills),
+        skillsRequired: joinCsv(job.skillsRequired),
         customFields: (job.customFields || []).map((field) => ({
           label: field.label || "",
           value: field.value || "",
         })),
-      });
+      };
+      setForm(loaded);
       // A previously-saved job with no value for an optional field starts hidden on the form too,
       // so editing doesn't suddenly resurface a field the recruiter deliberately left blank.
-      setHiddenFields(
-        Object.keys(OPTIONAL_FIELD_LABELS).filter((key) => {
-          if (key === "salary") {
-            return job.salary?.min == null && job.salary?.max == null;
-          }
-          if (key === "requirements") {
-            return !(job.requirements || []).length;
-          }
-          return !job[key];
-        })
-      );
+      const hidden = Object.keys(OPTIONAL_FIELD_LABELS).filter((key) => {
+        if (key === "salary") {
+          return job.salary?.min == null && job.salary?.max == null;
+        }
+        if (key === "requirements") {
+          return !(job.requirements || []).length;
+        }
+        return !job[key];
+      });
+      setHiddenFields(hidden);
+      setBaseline({ form: loaded, hiddenFields: hidden });
     }
   }, [job]);
 
@@ -158,7 +272,8 @@ export function RecruiterJobFormPage() {
             max: form.salaryMax === "" ? undefined : Number(form.salaryMax),
             currency: form.salaryCurrency,
           },
-      requirements: isHidden("requirements") ? [] : splitCsv(form.requirements),
+      // splitLines, not splitCsv: a requirement may contain commas and must survive them.
+      requirements: isHidden("requirements") ? [] : splitLines(form.requirements),
       skills: splitCsv(form.skills),
       skillsRequired: splitCsv(form.skillsRequired),
       customFields: form.customFields.filter((field) => field.label.trim()),
@@ -208,14 +323,23 @@ export function RecruiterJobFormPage() {
     onError: (err) => setError(err.message || "Failed to publish job."),
   });
 
+  // Title is the only client-side requirement, exactly as before — the backend enforces the rest.
+  function validate() {
+    if (!form.title.trim()) {
+      setFieldErrors({ title: "Title is required." });
+      setError("Title is required.");
+      titleRef.current?.focus();
+      return false;
+    }
+    setFieldErrors({});
+    return true;
+  }
+
   function handleSubmit(event) {
     event.preventDefault();
     setError("");
 
-    if (!form.title.trim()) {
-      setError("Title is required.");
-      return;
-    }
+    if (!validate()) return;
 
     if (isEditing) {
       updateMutation.mutate();
@@ -226,182 +350,211 @@ export function RecruiterJobFormPage() {
 
   function handleSaveDraft() {
     setError("");
-    if (!form.title.trim()) {
-      setError("Title is required.");
-      return;
-    }
+    if (!validate()) return;
     createMutation.mutate("Draft");
   }
 
   const isBusy = createMutation.isPending || updateMutation.isPending || publishMutation.isPending;
 
+  const isDirty = useMemo(() => {
+    const shape = (f, h) => JSON.stringify({ f, h: [...h].sort() });
+    return shape(form, hiddenFields) !== shape(baseline.form, baseline.hiddenFields);
+  }, [form, hiddenFields, baseline]);
+
   if (isEditing && jobQuery.isLoading) {
     return (
-      <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-8 text-center text-muted-foreground">
-          Loading job...
-        </div>
-      </main>
+      <section className="job-form">
+        <Link to="/recruiter/job-postings" className="jf-back">
+          <IconArrowLeft className="jf-icon jf-icon--sm" />
+          Back to job postings
+        </Link>
+        <p className="jf-card jf-state">Loading job...</p>
+      </section>
     );
   }
 
-  return (
-    <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
-      <button
-        onClick={() => navigate("/recruiter/job-postings")}
-        className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
-      >
-        ← Back to job postings
-      </button>
+  if (isEditing && jobQuery.isError) {
+    return (
+      <section className="job-form">
+        <Link to="/recruiter/job-postings" className="jf-back">
+          <IconArrowLeft className="jf-icon jf-icon--sm" />
+          Back to job postings
+        </Link>
+        <p className="jf-card jf-state jf-state--error">
+          {jobQuery.error?.message || "Could not load this job posting."}
+        </p>
+      </section>
+    );
+  }
 
-      <div className="rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-6 shadow-elegant">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight">
-              {isEditing ? "Edit job posting" : "New job posting"}
-            </h1>
-            {isEditing && job?.postedBy?.name && (
-              <p className="mt-1 text-xs text-muted-foreground">Posted by {job.postedBy.name}</p>
-            )}
-          </div>
-          {isEditing && job?.status && (
-            <span
-              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${
-                job.status === "Active"
-                  ? "bg-success/15 text-success border-success/30"
-                  : "bg-muted text-muted-foreground border-border/60"
-              }`}
-            >
-              {job.status}
-            </span>
+  const statusTone = (job?.status && STATUS_TONE[job.status]) || "muted";
+
+  return (
+    <section className="job-form">
+      {/* Secondary navigation, so it is a link rather than a button — same treatment as the job
+          detail page's back link. */}
+      <Link to="/recruiter/job-postings" className="jf-back">
+        <IconArrowLeft className="jf-icon jf-icon--sm" />
+        Back to job postings
+      </Link>
+
+      <header className="jf-hero">
+        <div className="jf-hero__text">
+          <p className="jf-eyebrow">Hiring</p>
+          <h1 className="jf-hero__title">{isEditing ? "Edit job posting" : "New job posting"}</h1>
+          {isEditing && job?.postedBy?.name && (
+            <p className="jf-hero__sub">Posted by {job.postedBy.name}</p>
           )}
         </div>
+        {isEditing && job?.status && (
+          <span className={`jf-pill jf-pill--${statusTone}`}>{job.status}</span>
+        )}
+      </header>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-xs font-medium text-muted-foreground">Title</span>
+      <form onSubmit={handleSubmit} className="jf-form" noValidate>
+        <FieldGroup title="Basics" description="The headline details candidates see first.">
+          <Field
+            id={fid("title")}
+            label="Title"
+            error={fieldErrors.title}
+            helper="Required."
+            wide
+          >
+            {({ id, describedBy, invalid }) => (
               <input
+                id={id}
+                ref={titleRef}
                 type="text"
+                className="jf-input"
                 value={form.title}
                 onChange={(event) => handleChange("title", event.target.value)}
-                required
-                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-required="true"
               />
-            </label>
-            {!hiddenFields.includes("type") && (
-              <label className="block">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-muted-foreground">Type</span>
-                  <button
-                    type="button"
-                    onClick={() => hideField("type")}
-                    style={ghostButtonStyle}
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    Remove ×
-                  </button>
-                </div>
-                <select
-                  value={form.type}
-                  onChange={(event) => handleChange("type", event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-                >
-                  <option value="Full-time">Full-time</option>
-                  <option value="Part-time">Part-time</option>
-                  <option value="Contract">Contract</option>
-                  <option value="Internship">Internship</option>
-                  <option value="Remote">Remote</option>
-                </select>
-              </label>
             )}
-          </div>
+          </Field>
 
-          {(!hiddenFields.includes("location") || !hiddenFields.includes("industry")) && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {!hiddenFields.includes("location") && (
-                <label className="block">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">Location</span>
-                    <button
-                      type="button"
-                      onClick={() => hideField("location")}
-                      style={ghostButtonStyle}
-                      className="text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      Remove ×
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    value={form.location}
-                    onChange={(event) => handleChange("location", event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-                  />
-                </label>
+          {!hiddenFields.includes("type") && (
+            <Field
+              id={fid("type")}
+              label="Type"
+              onRemove={() => hideField("type")}
+              removeLabel="Remove Type"
+            >
+              {({ id, describedBy }) => (
+                <span className="jf-selectwrap">
+                  <select
+                    id={id}
+                    className="jf-input jf-select"
+                    value={form.type}
+                    onChange={(event) => handleChange("type", event.target.value)}
+                    aria-describedby={describedBy}
+                  >
+                    <option value="Full-time">Full-time</option>
+                    <option value="Part-time">Part-time</option>
+                    <option value="Contract">Contract</option>
+                    <option value="Internship">Internship</option>
+                    <option value="Remote">Remote</option>
+                  </select>
+                  <IconChevronDown className="jf-chevron" />
+                </span>
               )}
-              {!hiddenFields.includes("industry") && (
-                <label className="block">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">Industry</span>
-                    <button
-                      type="button"
-                      onClick={() => hideField("industry")}
-                      style={ghostButtonStyle}
-                      className="text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      Remove ×
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    value={form.industry}
-                    onChange={(event) => handleChange("industry", event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-                  />
-                </label>
-              )}
-            </div>
+            </Field>
           )}
 
-          {!hiddenFields.includes("salary") && (
-            <div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">Salary</span>
-                <button
-                  type="button"
-                  onClick={() => hideField("salary")}
-                  style={ghostButtonStyle}
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Remove ×
-                </button>
-              </div>
-              <div className="mt-1 grid gap-4 sm:grid-cols-3">
-                <label className="block">
-                  <span className="text-xs font-medium text-muted-foreground">Min</span>
-                  <input
-                    type="number"
-                    value={form.salaryMin}
-                    onChange={(event) => handleChange("salaryMin", event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-xs font-medium text-muted-foreground">Max</span>
-                  <input
-                    type="number"
-                    value={form.salaryMax}
-                    onChange={(event) => handleChange("salaryMax", event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-xs font-medium text-muted-foreground">Currency</span>
+          {!hiddenFields.includes("location") && (
+            <Field
+              id={fid("location")}
+              label="Location"
+              onRemove={() => hideField("location")}
+              removeLabel="Remove Location"
+            >
+              {({ id, describedBy }) => (
+                <input
+                  id={id}
+                  type="text"
+                  className="jf-input"
+                  value={form.location}
+                  onChange={(event) => handleChange("location", event.target.value)}
+                  aria-describedby={describedBy}
+                />
+              )}
+            </Field>
+          )}
+
+          {!hiddenFields.includes("industry") && (
+            <Field
+              id={fid("industry")}
+              label="Industry"
+              onRemove={() => hideField("industry")}
+              removeLabel="Remove Industry"
+            >
+              {({ id, describedBy }) => (
+                <input
+                  id={id}
+                  type="text"
+                  className="jf-input"
+                  value={form.industry}
+                  onChange={(event) => handleChange("industry", event.target.value)}
+                  aria-describedby={describedBy}
+                />
+              )}
+            </Field>
+          )}
+        </FieldGroup>
+
+        {!hiddenFields.includes("salary") && (
+          <FieldGroup
+            title="Compensation"
+            description="Shown as a range on the posting."
+            action={
+              <button
+                type="button"
+                className="jf-remove jf-remove--card"
+                onClick={() => hideField("salary")}
+                aria-label="Remove Salary"
+              >
+                <IconX className="jf-icon jf-icon--xs" />
+                Remove
+              </button>
+            }
+          >
+            <Field id={fid("salaryMin")} label="Minimum">
+              {({ id, describedBy }) => (
+                <input
+                  id={id}
+                  type="number"
+                  className="jf-input"
+                  value={form.salaryMin}
+                  onChange={(event) => handleChange("salaryMin", event.target.value)}
+                  aria-describedby={describedBy}
+                />
+              )}
+            </Field>
+
+            <Field id={fid("salaryMax")} label="Maximum">
+              {({ id, describedBy }) => (
+                <input
+                  id={id}
+                  type="number"
+                  className="jf-input"
+                  value={form.salaryMax}
+                  onChange={(event) => handleChange("salaryMax", event.target.value)}
+                  aria-describedby={describedBy}
+                />
+              )}
+            </Field>
+
+            <Field id={fid("salaryCurrency")} label="Currency">
+              {({ id, describedBy }) => (
+                <span className="jf-selectwrap">
                   <select
+                    id={id}
+                    className="jf-input jf-select"
                     value={form.salaryCurrency}
                     onChange={(event) => handleChange("salaryCurrency", event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                    aria-describedby={describedBy}
                   >
                     {SUPPORTED_CURRENCIES.map((currency) => (
                       <option key={currency.code} value={currency.code}>
@@ -409,174 +562,242 @@ export function RecruiterJobFormPage() {
                       </option>
                     ))}
                   </select>
-                </label>
-              </div>
-            </div>
-          )}
+                  <IconChevronDown className="jf-chevron" />
+                </span>
+              )}
+            </Field>
+          </FieldGroup>
+        )}
 
-          <label className="block">
-            <span className="text-xs font-medium text-muted-foreground">Description</span>
-            <textarea
-              rows={5}
-              value={form.description}
-              onChange={(event) => handleChange("description", event.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-            />
-          </label>
-
-          <label className="block">
-            <span className="text-xs font-medium text-muted-foreground">Required skills</span>
-            <textarea
-              rows={3}
-              value={form.skillsRequired}
-              onChange={(event) => handleChange("skillsRequired", event.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-            />
-            <span className="mt-1 block text-xs text-muted-foreground">
-              Must-have skills — weighted highest in search and candidate matching. One per line, or comma-separated.
-            </span>
-          </label>
-
-          <label className="block">
-            <span className="text-xs font-medium text-muted-foreground">Preferred skills</span>
-            <textarea
-              rows={3}
-              value={form.skills}
-              onChange={(event) => handleChange("skills", event.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-            />
-            <span className="mt-1 block text-xs text-muted-foreground">
-              Nice-to-have skills that aren't strictly required. One per line, or comma-separated.
-            </span>
-          </label>
-
-          {!hiddenFields.includes("requirements") && (
-            <label className="block">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">Requirements</span>
-                <button
-                  type="button"
-                  onClick={() => hideField("requirements")}
-                  style={ghostButtonStyle}
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Remove ×
-                </button>
-              </div>
+        <FieldGroup title="Description" description="The body of the posting.">
+          <Field id={fid("description")} label="Description" wide>
+            {({ id, describedBy }) => (
               <textarea
-                rows={4}
-                value={form.requirements}
-                onChange={(event) => handleChange("requirements", event.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
+                id={id}
+                rows={14}
+                className="jf-input jf-textarea jf-textarea--tall"
+                value={form.description}
+                onChange={(event) => handleChange("description", event.target.value)}
+                aria-describedby={describedBy}
               />
-              <span className="mt-1 block text-xs text-muted-foreground">One requirement per line, or comma-separated.</span>
-            </label>
+            )}
+          </Field>
+        </FieldGroup>
+
+        <FieldGroup title="Skills" description="Drives search ranking and candidate matching.">
+          <Field
+            id={fid("skillsRequired")}
+            label="Required skills"
+            helper="Must-have skills — weighted highest in search and candidate matching. One per line, or comma-separated."
+            wide
+          >
+            {({ id, describedBy }) => (
+              <textarea
+                id={id}
+                rows={6}
+                className="jf-input jf-textarea"
+                value={form.skillsRequired}
+                onChange={(event) => handleChange("skillsRequired", event.target.value)}
+                aria-describedby={describedBy}
+              />
+            )}
+          </Field>
+
+          <Field
+            id={fid("skills")}
+            label="Preferred skills"
+            helper="Nice-to-have skills that aren't strictly required. One per line, or comma-separated."
+            wide
+          >
+            {({ id, describedBy }) => (
+              <textarea
+                id={id}
+                rows={6}
+                className="jf-input jf-textarea"
+                value={form.skills}
+                onChange={(event) => handleChange("skills", event.target.value)}
+                aria-describedby={describedBy}
+              />
+            )}
+          </Field>
+        </FieldGroup>
+
+        {!hiddenFields.includes("requirements") && (
+          <FieldGroup
+            title="Requirements"
+            description="One per line."
+            action={
+              <button
+                type="button"
+                className="jf-remove jf-remove--card"
+                onClick={() => hideField("requirements")}
+                aria-label="Remove Requirements"
+              >
+                <IconX className="jf-icon jf-icon--xs" />
+                Remove
+              </button>
+            }
+          >
+            <Field
+              id={fid("requirements")}
+              label="Requirements"
+              // The old helper said "or comma-separated", which is precisely what shattered
+              // sentences like "…Computer Science, Information Technology, or a related field."
+              helper="One requirement per line. Line breaks separate entries — commas are kept as part of the text."
+              wide
+            >
+              {({ id, describedBy }) => (
+                <textarea
+                  id={id}
+                  rows={10}
+                  className="jf-input jf-textarea jf-textarea--tall"
+                  value={form.requirements}
+                  onChange={(event) => handleChange("requirements", event.target.value)}
+                  aria-describedby={describedBy}
+                />
+              )}
+            </Field>
+          </FieldGroup>
+        )}
+
+        {/* Custom fields — recruiter-defined label/value pairs stored on the job and included in
+            the matching embedding (see backend/src/utils/textBuilders.js). */}
+        <FieldGroup
+          title="Custom fields"
+          description="Extra label/value pairs, e.g. “Visa sponsorship: Yes”."
+        >
+          {form.customFields.length > 0 && (
+            <ul className="jf-customs">
+              {form.customFields.map((field, index) => (
+                <li key={index} className="jf-custom">
+                  <div className="jf-custom__pair">
+                    <div className="jf-field">
+                      <label className="jf-label" htmlFor={fid(`cf-label-${index}`)}>
+                        Label
+                      </label>
+                      <input
+                        id={fid(`cf-label-${index}`)}
+                        type="text"
+                        className="jf-input"
+                        value={field.label}
+                        onChange={(event) => handleCustomFieldChange(index, "label", event.target.value)}
+                      />
+                    </div>
+                    <div className="jf-field">
+                      <label className="jf-label" htmlFor={fid(`cf-value-${index}`)}>
+                        Value
+                      </label>
+                      <input
+                        id={fid(`cf-value-${index}`)}
+                        type="text"
+                        className="jf-input"
+                        value={field.value}
+                        onChange={(event) => handleCustomFieldChange(index, "value", event.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="jf-remove jf-remove--row"
+                    onClick={() => removeCustomField(index)}
+                    aria-label={
+                      field.label.trim()
+                        ? `Remove custom field ${field.label.trim()}`
+                        : `Remove custom field ${index + 1}`
+                    }
+                  >
+                    <IconX className="jf-icon jf-icon--xs" />
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
 
-          {hiddenFields.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-muted-foreground">Removed fields:</span>
+          <button type="button" className="jf-btn jf-btn--ghost" onClick={addCustomField}>
+            <IconPlus className="jf-icon jf-icon--sm" />
+            Add custom field
+          </button>
+        </FieldGroup>
+
+        {/* Removing a field only hides it — the value is preserved in form state and the field can
+            be brought back from here, so nothing is lost until save. */}
+        {hiddenFields.length > 0 && (
+          <div className="jf-restore">
+            <p className="jf-restore__label">Removed fields</p>
+            <div className="jf-restore__chips">
               {hiddenFields.map((key) => (
                 <button
                   key={key}
                   type="button"
+                  className="jf-chip"
                   onClick={() => restoreField(key)}
-                  className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-surface/80 hover:text-foreground"
+                  aria-label={`Add ${OPTIONAL_FIELD_LABELS[key]} back`}
                 >
-                  + Add {OPTIONAL_FIELD_LABELS[key]} back
+                  <IconPlus className="jf-icon jf-icon--xs" />
+                  {OPTIONAL_FIELD_LABELS[key]}
                 </button>
               ))}
             </div>
-          )}
-
-          {/* Custom fields — recruiter-defined label/value pairs stored on the job and included in
-              the matching embedding (see backend/src/utils/textBuilders.js). */}
-          <div>
-            <span className="text-xs font-medium text-muted-foreground">Custom fields</span>
-            <div className="mt-2 space-y-2">
-              {form.customFields.map((field, index) => (
-                <div key={index} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
-                  <input
-                    type="text"
-                    value={field.label}
-                    onChange={(event) => handleCustomFieldChange(index, "label", event.target.value)}
-                    placeholder="Label"
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-                  />
-                  <input
-                    type="text"
-                    value={field.value}
-                    onChange={(event) => handleCustomFieldChange(index, "value", event.target.value)}
-                    placeholder="Value"
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-foreground/40"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeCustomField(index)}
-                    style={ghostButtonStyle}
-                    className="justify-self-start text-xs text-muted-foreground hover:text-foreground sm:justify-self-center"
-                  >
-                    Remove ×
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={addCustomField}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-surface/80"
-            >
-              + Add custom field
-            </button>
           </div>
+        )}
 
-          {error && <p className="text-xs font-medium text-red-500">{error}</p>}
+        {/* Last in DOM order, so it is reached by Tab after the final field rather than before it. */}
+        <div className="jf-savebar">
+          <p className="jf-savebar__status" role="status">
+            {error ? (
+              <span className="jf-savebar__error">{error}</span>
+            ) : isDirty ? (
+              "Unsaved changes"
+            ) : isEditing ? (
+              "No changes yet"
+            ) : (
+              ""
+            )}
+          </p>
 
-          <div className="flex flex-wrap items-center gap-3 pt-2">
+          <div className="jf-savebar__actions">
             {!isEditing && (
               <button
                 type="button"
-                disabled={isBusy}
+                className="jf-btn"
+                disabled={isBusy || !isDirty}
                 onClick={handleSaveDraft}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-surface px-4 text-xs font-semibold text-foreground hover:bg-surface/80 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {createMutation.isPending && createMutation.variables === "Draft" ? "Saving..." : "Save as draft"}
+                {createMutation.isPending && createMutation.variables === "Draft"
+                  ? "Saving..."
+                  : "Save as draft"}
               </button>
             )}
 
             {!isEditing && (
-              <button
-                type="submit"
-                disabled={isBusy}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-transparent bg-gradient-recruiter px-4 text-xs font-semibold text-recruiter-foreground shadow-recruiter hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {createMutation.isPending && createMutation.variables === "Active" ? "Publishing..." : "Publish"}
+              <button type="submit" className="jf-btn jf-btn--primary" disabled={isBusy || !isDirty}>
+                {createMutation.isPending && createMutation.variables === "Active"
+                  ? "Publishing..."
+                  : "Publish"}
               </button>
             )}
 
             {isEditing && (
-              <button
-                type="submit"
-                disabled={isBusy}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-surface px-4 text-xs font-semibold text-foreground hover:bg-surface/80 disabled:cursor-not-allowed disabled:opacity-50"
-              >
+              <button type="submit" className="jf-btn jf-btn--primary" disabled={isBusy || !isDirty}>
                 {updateMutation.isPending ? "Saving..." : "Save changes"}
               </button>
             )}
 
+            {/* Publishing an unchanged draft is legitimate, so this one is never gated on dirty. */}
             {isEditing && job?.status === "Draft" && (
               <button
                 type="button"
+                className="jf-btn jf-btn--primary"
                 disabled={isBusy}
                 onClick={() => publishMutation.mutate()}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-transparent bg-gradient-recruiter px-4 text-xs font-semibold text-recruiter-foreground shadow-recruiter hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {publishMutation.isPending ? "Publishing..." : "Publish"}
               </button>
             )}
           </div>
-        </form>
-      </div>
-    </main>
+        </div>
+      </form>
+    </section>
   );
 }

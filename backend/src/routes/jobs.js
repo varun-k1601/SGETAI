@@ -6,6 +6,7 @@ const {
   updateJob,
   getMyJobs,
   getMyJobsOverview,
+  getMyCandidates,
   closeJob,
   publishJob,
   deleteJob,
@@ -19,6 +20,8 @@ const router = express.Router();
 router.post("/", requireAuth, createJob);
 router.get("/mine", requireAuth, getMyJobs);
 router.get("/mine/overview", requireAuth, getMyJobsOverview);
+// Two segments, so this never collides with the single-segment "/:jobId" below.
+router.get("/mine/candidates", requireAuth, getMyCandidates);
 router.get("/:jobId", requireAuth, getJobById);
 router.put("/:jobId", requireAuth, updateJob);
 router.put("/:jobId/close", requireAuth, closeJob);
