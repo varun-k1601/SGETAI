@@ -89,7 +89,9 @@ function computeYearlySaving(plans) {
   const monthly = plans.find((plan) => plan.id === "monthly");
   const yearly = plans.find((plan) => plan.id === "yearly");
 
-
+  if (!monthly || !yearly) {
+    return null;
+  }
 
   const monthlyEquivalent = monthly.amount * 12;
 
