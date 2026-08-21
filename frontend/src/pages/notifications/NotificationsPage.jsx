@@ -460,7 +460,15 @@ export function NotificationsPage() {
   }
 
   return (
-    <main className="notif-page">
+    // ONE modifier class is the whole of the recruiter treatment. The page is mounted at three
+    // paths (/pro/notifications, /notifications, /recruiter/notifications) and shared by all three
+    // roles, so the accent is keyed off the SESSION, not the route — an organization arriving on
+    // the shared /notifications path still gets its own hero. Everything the modifier changes is
+    // written under .notif-page--recruiter in styles.css; the base rules are untouched, so seeker
+    // and admin renderings are byte-identical to before.
+    <main
+      className={`notif-page${session?.role === "organization" ? " notif-page--recruiter" : ""}`}
+    >
       <AutoDismissFeedback
         feedback={feedback}
         onClear={() => setFeedback({ type: "", message: "" })}

@@ -211,7 +211,12 @@ const recruiterNavItems = [
   // /recruiter/applications, which is a JOB PICKER ("Select a job"), not a candidate list — so the
   // label named one thing and led to another, and /recruiter/candidates was unreachable entirely.
   { to: "/recruiter/candidates", label: "Candidates", icon: "users" },
-  { to: "/recruiter/applications", label: "Applications", icon: "clipboard" },
+  // "Applications" used to sit here, pointing at /recruiter/applications — a standalone "Select a
+  // job" PICKER whose only purpose was to forward to /recruiter/applications/:jobId. It was removed
+  // only AFTER that destination gained a real entry point: every row on the Job Postings page now
+  // links straight to its own applicant list off the applicant count it was already showing, which
+  // is both fewer clicks and the place a recruiter is actually standing when they want it. The
+  // picker route stays registered and reachable by URL; it is simply no longer the only way in.
   { to: "/recruiter/company-posts", label: "Company Posts", icon: "megaphone" },
   { to: "/recruiter/background-check", label: "Background Check", icon: "shield-check" },
   { to: "/recruiter/integrations", label: "Integrations", icon: "plug" },
@@ -256,6 +261,7 @@ export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const isAdmin = session?.role === "SuperAdmin" || session?.role === "Moderator";
+  const isRecruiter = session?.role === "organization";
   const baseNavItems = isAdmin
     ? adminNavItems
     : session?.role === "organization"
@@ -265,6 +271,13 @@ export function AppShell() {
     ? [...baseNavItems.slice(0, 5), ...proOnlyNavItems, ...baseNavItems.slice(5)]
     : baseNavItems;
   const profilePath = isAdmin ? "/dashboard/overview" : "/pro/profile";
+  // Where the header bell goes, per role. One expression rather than three buttons.
+  //   organization → /recruiter/notifications, its own route inside the recruiter group
+  //   seeker       → /notifications, unchanged (the shared ProRoute path it already used)
+  //   admin        → /notifications, unchanged — it is their only path, and /recruiter/* would
+  //                  bounce them off RoleRoute. (The bell itself is hidden for admins today; the
+  //                  branch is kept correct so it stays right if that ever changes.)
+  const notificationsPath = isRecruiter ? "/recruiter/notifications" : "/notifications";
   const notificationsQuery = useQuery({
     queryKey: ["notifications", session?.role, "navbar"],
     queryFn: () =>
@@ -345,18 +358,25 @@ export function AppShell() {
   return (
     <div className="page-shell">
       {/* Left Sidebar Navigation */}
-      {/* The --console modifier is the ONLY thing that changes the sidebar's appearance, and it is
-          gated on isAdmin. Every rule behind it is written under that class in styles.css, so the
-          seeker and recruiter sidebars keep the untouched base styling. */}
+      {/* Two mutually exclusive modifiers, each gated on a role and each backed by its own block in
+          styles.css: --console for admins, --recruiter for organizations. Every rule behind them is
+          written under that class, so the SEEKER sidebar still renders off the untouched base
+          styling — and so does everything the two modifiers do not explicitly override. */}
       <aside
         className={`app-sidebar ${isAdmin ? "app-sidebar--console" : ""} ${
-          sidebarCollapsed ? "collapsed" : ""
-        }`.replace(/\s+/g, " ").trim()}
+          isRecruiter ? "app-sidebar--recruiter" : ""
+        } ${sidebarCollapsed ? "collapsed" : ""}`.replace(/\s+/g, " ").trim()}
       >
         <div className="sidebar-header">
           <BrandLogo
             isPro={session?.role === "seeker" && session?.isPro}
             subtitle={isAdmin ? "Command centre" : ""}
+            variant={isRecruiter ? "recruiter" : "default"}
+            // navAvatarUrl is the org's uploaded logo, blob-fetched below from
+            // session.profile.logo.filePath. It is "" until that resolves and stays "" if the org
+            // has no logo or the fetch failed, which is exactly when the initial should show.
+            avatarUrl={isRecruiter ? navAvatarUrl : ""}
+            avatarInitial={isRecruiter ? getProfileInitial(session) : ""}
           />
         </div>
 
@@ -429,6 +449,48 @@ export function AppShell() {
                 </svg>
               )}
             </button>
+
+            {/* Notifications bell. It adds NO query and NO poll: notificationsQuery above is
+                already running on a 30s interval for every non-admin session, and on recruiter
+                accounts its result was previously discarded entirely (recruiterNavItems has no
+                Notifications entry, so the sidebar badge below never matched). This just surfaces
+                data already being fetched.
+
+                Destination is role-aware — see notificationsPath above. Never /pro/notifications
+                for a non-seeker: that path sits inside <RoleRoute allowedRoles={["seeker"]}> and
+                would bounce an organization.
+
+                HIDDEN FOR ADMINS: notificationsQuery is `enabled: ... && !isAdmin`, so an admin
+                bell would read zero permanently. Enabling the query for admins would mean adding
+                a 30s poll this task explicitly rules out, and admins already have their own
+                support inbox in the console. */}
+            {!isAdmin ? (
+              <NavLink
+                to={notificationsPath}
+                className="notifications-bell"
+                // Closing the profile menu here is REQUIRED, not defensive: the outside-click
+                // handler ignores anything inside .app-header__right, and this link is inside it,
+                // so without this the dropdown would stay open on top of the page we navigate to.
+                onClick={() => setProfileMenuOpen(false)}
+                aria-label={
+                  unreadNotificationCount > 0
+                    ? `Notifications, ${unreadNotificationCount} unread`
+                    : "Notifications"
+                }
+                title="Notifications"
+              >
+                <span className="notifications-bell__icon" aria-hidden="true">
+                  <NavIcon name="bell" />
+                </span>
+                {/* The count is never the only signal — the aria-label above carries it in words
+                    for anyone who cannot see the badge. aria-live announces the change on poll. */}
+                {unreadNotificationCount > 0 ? (
+                  <span className="notifications-bell__badge" aria-live="polite">
+                    {unreadNotificationLabel}
+                  </span>
+                ) : null}
+              </NavLink>
+            ) : null}
 
             <button
               className="profile-button"

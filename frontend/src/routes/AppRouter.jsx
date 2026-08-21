@@ -60,6 +60,25 @@ function RoleHomeRedirect() {
   return <Navigate to={getHomePathForRole(session?.role)} replace />;
 }
 
+// /notifications is the SHARED path and stays exactly as reachable as it was. This only
+// canonicalises the URL for organizations, which now have /recruiter/notifications alongside
+// every other /recruiter/* page.
+//
+// It cannot loop: /recruiter/notifications mounts NotificationsPage directly, not this wrapper,
+// so the redirect fires at most once. It cannot catch admins either — the test is an explicit
+// equality against "organization", and it has to be: /recruiter/notifications sits inside
+// RoleRoute allowedRoles={["organization"]}, so redirecting an admin there would bounce them
+// straight back out. Seekers reaching this path render in place, unchanged.
+function NotificationsRoute() {
+  const { session } = useAuth();
+
+  if (session?.role === "organization") {
+    return <Navigate to="/recruiter/notifications" replace />;
+  }
+
+  return <NotificationsPage />;
+}
+
 export function AppRouter() {
   return (
     <Routes>
@@ -133,6 +152,10 @@ export function AppRouter() {
           <Route path="/recruiter/background-check" element={<RecruiterBackgroundCheckPage />} />
           <Route path="/recruiter/integrations" element={<RecruiterIntegrationsPage />} />
           <Route path="/recruiter/messages" element={<RecruiterMessagesPage />} />
+          {/* The SAME NotificationsPage component the seeker and admin paths mount — not a copy.
+              Its NOTIFICATION_TYPES registry and per-role category chips must stay single-source;
+              a RecruiterNotificationsPage.jsx would fork them on day one. */}
+          <Route path="/recruiter/notifications" element={<NotificationsPage />} />
           <Route path="/recruiter/settings" element={<RecruiterSettingsPage />} />
           <Route path="/recruiter/applications" element={<RecruiterApplicationsPage />} />
           <Route path="/recruiter/applications/:jobId" element={<RecruiterJobApplicantsPage />} />
@@ -188,10 +211,13 @@ export function AppRouter() {
       {/* /notifications is intentionally shared across roles — same ProRoute Pro-tier gate, no
           role allowlist. The admin nav no longer links here, but the route is unchanged and stays
           reachable for admins: ProRoute only redirects seekers who are not Pro, so an admin
-          session still passes straight through. */}
+          session still passes straight through. This path is LOAD-BEARING for admin sessions and
+          is deliberately not removed now that organizations have their own; the element is
+          wrapped only so an organization is forwarded to /recruiter/notifications (see
+          NotificationsRoute above), which changes nothing for seekers or admins. */}
       <Route element={<ProRoute />}>
         <Route element={<AppShell />}>
-          <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/notifications" element={<NotificationsRoute />} />
         </Route>
       </Route>
 

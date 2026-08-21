@@ -172,19 +172,28 @@ async function decorateSessions(sessions, authUser) {
   // Real match score for a recruiter viewing a candidate thread — sourced from that candidate's
   // most recent real Application to one of this org's jobs, never fabricated. Only looked up when
   // the viewer is an organization (a seeker's own chat list has no use for this).
-  const atsScoreBySeekerId = new Map();
+  // Keyed by seeker id -> { atsScore, jobTitle }. The jobTitle is read off the SAME application row
+  // the score comes from, so the two can never describe different roles: sorted newest-first and
+  // first-wins, this is the candidate's most recent application to one of this org's jobs. A
+  // candidate with no application to this org is simply absent from the map, and the thread header
+  // degrades to the name alone rather than inventing a 0%.
+  const matchContextBySeekerId = new Map();
   if (authUser?.role === "organization" && seekerIds.length) {
     const recentApplications = await Application.find({
       organizationId: authUser.id,
       jobSeekerId: { $in: seekerIds }
     })
       .sort({ createdAt: -1 })
-      .select("jobSeekerId atsScore");
+      .select("jobSeekerId atsScore jobId")
+      .populate("jobId", "title");
 
     recentApplications.forEach((application) => {
       const key = application.jobSeekerId.toString();
-      if (!atsScoreBySeekerId.has(key)) {
-        atsScoreBySeekerId.set(key, application.atsScore);
+      if (!matchContextBySeekerId.has(key)) {
+        matchContextBySeekerId.set(key, {
+          atsScore: application.atsScore,
+          jobTitle: application.jobId?.title || null
+        });
       }
     });
   }
@@ -205,7 +214,13 @@ async function decorateSessions(sessions, authUser) {
               display: await buildUserDisplay(participant.role, profile),
               atsScore:
                 participant.role === "seeker"
-                  ? atsScoreBySeekerId.get(participant.userId.toString()) ?? null
+                  ? matchContextBySeekerId.get(participant.userId.toString())?.atsScore ?? null
+                  : null,
+              // The role that score was computed against — rendered beside it in the recruiter
+              // thread header so "96% match" says what it is a match FOR.
+              matchJobTitle:
+                participant.role === "seeker"
+                  ? matchContextBySeekerId.get(participant.userId.toString())?.jobTitle ?? null
                   : null
             }
           : null

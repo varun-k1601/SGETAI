@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest } from "../../services/api";
@@ -361,11 +361,28 @@ export function RecruiterJobPostingsPage() {
                     </span>
                   </span>
 
-                  <span className="jp-row__count">
-                    <span className="jp-row__countValue">{applicants}</span>
-                    <span className="jp-row__countLabel">Applicants</span>
-                  </span>
                 </button>
+
+                {/* THE ENTRY POINT for /recruiter/applications/:jobId. This count used to sit
+                    inside the button above, so the one number a recruiter wants to click opened
+                    the EDITOR instead of the applicant list. It is now a real link, a sibling of
+                    the button rather than nested inside it, so Tab reaches it in order and the
+                    applicant list is reachable from the page a recruiter is already on. */}
+                <Link
+                  className="jp-row__count"
+                  to={`/recruiter/applications/${job._id}`}
+                  aria-label={
+                    applicants
+                      ? `View ${applicantLabel} for ${job.title}`
+                      : `${job.title} has no applicants yet. Open the applicant list.`
+                  }
+                  title={`View applicants for ${job.title}`}
+                >
+                  <span className="jp-row__countValue">{applicants}</span>
+                  {/* "View applicants", not "Applicants" — the word that makes it discoverable as
+                      a destination rather than a statistic. Colour and hover alone would not. */}
+                  <span className="jp-row__countLabel">View applicants</span>
+                </Link>
 
                 <div className="jp-row__actions">
                   {job.status !== "Closed" && (

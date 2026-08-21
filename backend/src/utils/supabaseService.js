@@ -248,10 +248,62 @@ async function getSignedFileUrl(filePath, expiresInSeconds = 3600) {
   return data?.signedUrl || "";
 }
 
+// BATCH form of getSignedFileUrl. Signing is a network round-trip per file, so a 20-job page that
+// signed one logo at a time paid 20 sequential round-trips before it could respond. createSignedUrls
+// signs the whole set in ONE request.
+//
+// Returns a Map of filePath -> signedUrl, keyed by the ORIGINAL (un-normalized) path the caller
+// passed, so callers can look up with the value they already hold. Paths that fail to sign are
+// simply absent from the Map rather than throwing: one unreadable logo must not take down a whole
+// jobs page, and the caller's fallback is to leave the media object untouched.
+async function getSignedFileUrls(filePaths = [], expiresInSeconds = 3600) {
+  const signedUrlByPath = new Map();
+
+  // Deduplicate before the call — one employer commonly owns several jobs on the same page, and
+  // signing the same object five times is five times the work for one URL.
+  const pathPairs = [...new Set(filePaths.filter(Boolean).map(String))]
+    .map((original) => [original, sanitizeStoredPath(original)])
+    .filter(([, normalized]) => Boolean(normalized));
+
+  if (!pathPairs.length) {
+    return signedUrlByPath;
+  }
+
+  const client = requireOperationalStorage();
+  const bucket = getSupabaseBucket();
+  const { data, error } = await client.storage
+    .from(bucket)
+    .createSignedUrls(pathPairs.map(([, normalized]) => normalized), expiresInSeconds);
+
+  if (error) {
+    throw new Error(`Supabase batch signed URL generation failed: ${error.message}`);
+  }
+
+  // createSignedUrls resolves in input order and reports per-item failures on the item itself,
+  // so a single missing object yields one empty entry rather than failing the batch.
+  const normalizedToOriginal = new Map(pathPairs.map(([original, normalized]) => [normalized, original]));
+
+  (data || []).forEach((entry, index) => {
+    if (!entry || entry.error || !entry.signedUrl) {
+      return;
+    }
+
+    const original =
+      normalizedToOriginal.get(sanitizeStoredPath(entry.path)) || pathPairs[index]?.[0];
+
+    if (original) {
+      signedUrlByPath.set(original, entry.signedUrl);
+    }
+  });
+
+  return signedUrlByPath;
+}
+
 module.exports = {
   uploadFile,
   deleteFiles,
   getSignedFileUrl,
+  getSignedFileUrls,
   downloadFile,
   getReadableFileUrl,
   verifySupabaseConnection,

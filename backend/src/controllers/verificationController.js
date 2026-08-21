@@ -272,7 +272,7 @@ const getMyVerificationRequests = asyncHandler(async (req, res) => {
       .sort({ requestedAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("jobSeekerId", "firstName lastName")
+      .populate("jobSeekerId", "firstName lastName email")
       .populate({
         path: "applicationId",
         select: "jobId",
@@ -320,7 +320,8 @@ const getMyVerificationRequests = asyncHandler(async (req, res) => {
       jobTitle: request.applicationId?.jobId?.title || null,
       candidateName:
         `${request.jobSeekerId?.firstName || ""} ${request.jobSeekerId?.lastName || ""}`.trim() ||
-        "Unknown candidate"
+        "Unknown candidate",
+      candidateEmail: request.jobSeekerId?.email || null
     }))
   });
 });

@@ -4,7 +4,7 @@ const { sendSuccess } = require("../utils/apiResponse");
 const Connection = require("../models/Connection");
 const JobSeeker = require("../models/JobSeeker");
 const { createNotification } = require("../services/notificationService");
-const { getReadableFileUrl } = require("../utils/supabaseService");
+const { attachMediaUrl } = require("../services/mediaUrlService");
 const { requireNonEmptyString } = require("../utils/validation");
 
 function ensureSeeker(req) {
@@ -13,32 +13,9 @@ function ensureSeeker(req) {
   }
 }
 
-async function ensureMediaUrl(media) {
-  if (!media) {
-    return media;
-  }
-
-  if (media.url) {
-    return media;
-  }
-
-  if (!media.filePath) {
-    return media;
-  }
-
-  try {
-    const readableUrl = await getReadableFileUrl(media.filePath);
-    return {
-      ...media,
-      url: readableUrl || ""
-    };
-  } catch {
-    return {
-      ...media,
-      url: ""
-    };
-  }
-}
+// Was a third copy of the same getReadableFileUrl-based helper (profileController and
+// jobSearchController carried the others). Delegates to the one signed implementation.
+const ensureMediaUrl = attachMediaUrl;
 
 function toConnectionSummary(connection, currentUserId) {
   const isRequester = connection.requester?._id?.toString() === String(currentUserId);

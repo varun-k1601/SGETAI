@@ -13,7 +13,8 @@ const {
   clonePlain,
   safeDeleteStoredFiles
 } = require("../utils/mediaStorage");
-const { downloadFile, getReadableFileUrl } = require("../utils/supabaseService");
+const { downloadFile } = require("../utils/supabaseService");
+const { attachMediaUrl } = require("../services/mediaUrlService");
 
 const seekerEditableFields = [
   "firstName",
@@ -191,6 +192,14 @@ function getContentTypeFromMedia(media) {
   return "application/octet-stream";
 }
 
+// EXTRACTED to services/mediaUrlService. This function was private to this controller and reached
+// only from buildProfileResponse — GET /profile/me, the caller's OWN media — which is why every
+// other serializer in the codebase shipped raw stored filePaths and rendered broken images. It also
+// called getReadableFileUrl, whose /object/public/ URL 400s against the private bucket, so even
+// here it only "worked" in the sense that it emitted a string.
+//
+// The clonePlain wrapper is kept because callers pass Mongoose subdocuments; attachMediaUrl spreads
+// its input, and spreading a Mongoose document would copy internal symbols rather than the fields.
 async function refreshReadableMediaUrl(media) {
   const mediaObject = clonePlain(media);
 
@@ -198,15 +207,7 @@ async function refreshReadableMediaUrl(media) {
     return mediaObject;
   }
 
-  try {
-    const readableUrl = await getReadableFileUrl(mediaObject.filePath);
-    return {
-      ...mediaObject,
-      url: readableUrl || mediaObject.url || ""
-    };
-  } catch {
-    return mediaObject;
-  }
+  return attachMediaUrl(mediaObject);
 }
 
 async function buildProfileResponse(user) {

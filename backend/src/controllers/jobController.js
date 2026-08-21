@@ -26,6 +26,7 @@ const OrganizationMember = require("../models/OrganizationMember");
 const Follow = require("../models/Follow");
 const VerificationRequest = require("../models/VerificationRequest");
 const { createNotification } = require("../services/notificationService");
+const { attachOrganizationLogos } = require("../services/mediaUrlService");
 const { runAutoApplyForJob } = require("../workers/autoApplyWorker");
 const { runRecruiterIntroductionsForJob } = require("../workers/recruiterIntroductionWorker");
 
@@ -755,9 +756,12 @@ const getJobById = asyncHandler(async (req, res) => {
     .lean();
 
   const [jobWithPostedBy] = await attachPostedByName([job]);
+  // Same dead public-object URL as the list endpoints — the detail page renders CompanyLogo too,
+  // so without this the logo broke here as well.
+  const [organizationWithLogo] = organization ? await attachOrganizationLogos([organization]) : [];
   const jobWithOrganization = {
     ...jobWithPostedBy,
-    organizationId: organization || job.organizationId
+    organizationId: organizationWithLogo || organization || job.organizationId
   };
 
   let alreadyApplied = false;

@@ -4,7 +4,7 @@ const { sendSuccess } = require("../utils/apiResponse");
 const Organization = require("../models/Organization");
 const JobSeeker = require("../models/JobSeeker");
 const { sanitizeOrganizationProfile } = require("../utils/profileAccess");
-const { getReadableFileUrl } = require("../utils/supabaseService");
+const { attachMediaUrl } = require("../services/mediaUrlService");
 
 const getOrganizationProfile = asyncHandler(async (req, res) => {
   const organization = await Organization.findById(req.params.id);
@@ -25,17 +25,12 @@ const getOrganizationProfile = asyncHandler(async (req, res) => {
     includeRepresentativeDetails
   });
 
-  // Convert logo filePath to readable URL
-  if (profile.logo?.filePath && !profile.logo?.url) {
-    try {
-      profile.logo = {
-        ...profile.logo,
-        url: await getReadableFileUrl(profile.logo.filePath)
-      };
-    } catch (error) {
-      // silently fail
-    }
-  }
+  // A SIGNED URL, not the stored one. The stored logo.url is a /object/public/ link against the
+  // private bucket and 400s "Bucket not found"; the old `&& !profile.logo?.url` guard meant this
+  // never even ran for an organization that had uploaded a logo, because the dead URL was already
+  // there. attachMediaUrl always re-signs, and returns the object unchanged if signing fails so the
+  // page falls back to the company initial rather than a broken image.
+  profile.logo = await attachMediaUrl(profile.logo);
 
   return sendSuccess(res, {
     message: "Organization profile fetched successfully.",

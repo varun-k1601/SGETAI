@@ -5,6 +5,7 @@ const JobSeeker = require("../models/JobSeeker");
 const Job = require("../models/Job");
 const Organization = require("../models/Organization");
 const { computeCandidateMatch } = require("../services/matchService");
+const { attachOrganizationLogos } = require("../services/mediaUrlService");
 
 async function attachOrganizations(jobs = []) {
   const organizationIds = [
@@ -18,7 +19,15 @@ async function attachOrganizations(jobs = []) {
   const organizations = await Organization.find({ _id: { $in: organizationIds } })
     .select("companyName industry headquartersLocation logo")
     .lean();
-  const organizationById = new Map(organizations.map((organization) => [String(organization._id), organization]));
+
+  // The stored logo.url is a public-object URL against a private bucket and 400s when fetched, so
+  // every consumer of this helper — the seeker recommendations list and proFeaturesController's Pro
+  // job matches, which reads job.organizationId.logo straight through — rendered a broken image.
+  // Signed here, once per distinct organization for the whole page rather than per job.
+  const organizationsWithLogos = await attachOrganizationLogos(organizations);
+  const organizationById = new Map(
+    organizationsWithLogos.map((organization) => [String(organization._id), organization])
+  );
 
   return jobs.map((job) => ({
     ...job,

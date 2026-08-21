@@ -2,7 +2,11 @@ const asyncHandler = require("../utils/asyncHandler");
 const { sendSuccess } = require("../utils/apiResponse");
 const ApiError = require("../utils/ApiError");
 const { normalizePagination } = require("../utils/validation");
-const { getReadableFileUrl } = require("../utils/supabaseService");
+const {
+  attachMediaUrl,
+  attachOrganizationLogos,
+  attachJobOrganizationLogos
+} = require("../services/mediaUrlService");
 
 const Job = require("../models/Job");
 const JobSeeker = require("../models/JobSeeker");
@@ -25,32 +29,11 @@ function truthy(value) {
   return ["true", "1", "yes", "on"].includes(String(value || "").toLowerCase());
 }
 
-async function ensureMediaUrl(media) {
-  if (!media) {
-    return media;
-  }
-
-  if (media.url) {
-    return media;
-  }
-
-  if (!media.filePath) {
-    return media;
-  }
-
-  try {
-    const readableUrl = await getReadableFileUrl(media.filePath);
-    return {
-      ...media,
-      url: readableUrl || ""
-    };
-  } catch {
-    return {
-      ...media,
-      url: ""
-    };
-  }
-}
+// Was a local copy of the same helper profileController and connectionController each carried,
+// all three calling getReadableFileUrl — which builds a /object/public/ URL that 400s against the
+// private bucket. It also short-circuited on `media.url`, which is exactly the stale dead URL
+// persisted at upload time, so it could never repair one. Now delegates to the one implementation.
+const ensureMediaUrl = attachMediaUrl;
 
 const searchJobs = asyncHandler(async (req, res) => {
   const {
@@ -209,6 +192,12 @@ const searchJobs = asyncHandler(async (req, res) => {
   const jobs = await query;
   const total = await Job.countDocuments(q ? { ...filter, $text: { $search: q } } : filter);
 
+  // organizationId is populated with `logo` above, and the stored logo.url is a dead public-object
+  // URL — this is the list behind /jobs and /pro/jobs, so it is where the broken company logos were
+  // most visible. Signed for the whole page in ONE Supabase call, deduplicated by filePath: an
+  // employer with five jobs on this page costs one signature, not five.
+  const jobsWithLogos = await attachJobOrganizationLogos(jobs);
+
   return sendSuccess(res, {
     message: "Jobs fetched successfully.",
     filtersApplied,
@@ -218,7 +207,7 @@ const searchJobs = asyncHandler(async (req, res) => {
       total,
       totalPages: Math.max(Math.ceil(total / limit), 1)
     },
-    jobs
+    jobs: jobsWithLogos
   });
 });
 
@@ -361,13 +350,9 @@ const searchOrganizations = asyncHandler(async (req, res) => {
     follows.map((follow) => [follow.organizationId.toString(), follow])
   );
 
-  const organizationsWithUrls = await Promise.all(
-    organizations.map(async (organization) => {
-      const orgObj = organization.toObject();
-      orgObj.logo = await ensureMediaUrl(orgObj.logo);
-      return orgObj;
-    })
-  );
+  // Company results feed JobsPage's companies tab, which renders CompanyLogo for each — the same
+  // broken-image path as the job cards. One batched signing call instead of one per organization.
+  const organizationsWithUrls = await attachOrganizationLogos(organizations);
 
   return sendSuccess(res, {
     message: "Organizations fetched successfully.",
