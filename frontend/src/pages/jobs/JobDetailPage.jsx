@@ -27,6 +27,12 @@ const ICON_PATHS = {
       <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
     </>
   ),
+  mail: (
+    <>
+      <rect width="20" height="16" x="2" y="4" rx="2" />
+      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+    </>
+  ),
 };
 
 function Icon({ name, className = "jd-icon" }) {
@@ -170,6 +176,9 @@ export function JobDetailPage() {
   const showApplyForm = !alreadyApplied || currentStatus === "Withdrawn";
 
   const companyName = organization.companyName || "Company";
+  // null for jobs posted before member attribution existed, or through the legacy shared
+  // organization login. Stays null — the block below renders nothing rather than a placeholder.
+  const postedBy = job.postedBy || null;
   const salaryLabel = formatSalary(job.salary);
   const postedOn = formatPostedOn(job.createdAt);
   // The backend rejects an application to a job that is not Active with a 400, so the form would
@@ -345,6 +354,31 @@ export function JobDetailPage() {
                   </div>
                 ))}
               </dl>
+            </section>
+          )}
+
+          {/* Posted by. Three states, and the whole block is omitted for the third:
+                name + email  -> name, mailto link, company for context
+                name only     -> name and company; NO mailto, no dangling label. This is a
+                                 recruiter who has left, whose address the API withholds. The copy
+                                 does not say so: why the email is missing is that person's
+                                 employment information, not a job seeker's business.
+                postedBy null -> nothing rendered. Jobs posted before member attribution existed
+                                 have no person to name, and "About the company" below already
+                                 carries the organisation. Never a fabricated name. */}
+          {postedBy?.name && (
+            <section className="jd-card jd-postedby" aria-labelledby="jd-postedby-heading">
+              <p className="jd-eyebrow" id="jd-postedby-heading">
+                Posted by
+              </p>
+              <p className="jd-postedby__name">{postedBy.name}</p>
+              {postedBy.email && (
+                <a className="jd-postedby__mail" href={`mailto:${postedBy.email}`}>
+                  <Icon name="mail" className="jd-icon jd-icon--sm" />
+                  <span className="jd-postedby__addr">{postedBy.email}</span>
+                </a>
+              )}
+              <p className="jd-postedby__org">{companyName}</p>
             </section>
           )}
         </div>

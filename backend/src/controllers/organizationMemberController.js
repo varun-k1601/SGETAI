@@ -5,7 +5,7 @@ const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendSuccess } = require("../utils/apiResponse");
 const { sendEmail } = require("../utils/email");
-const { requireNonEmptyString } = require("../utils/validation");
+const { requireNonEmptyString, optionalString } = require("../utils/validation");
 const { createAccessToken, createRefreshToken } = require("../utils/jwt");
 
 const Organization = require("../models/Organization");
@@ -13,6 +13,7 @@ const OrganizationMember = require("../models/OrganizationMember");
 
 const MANAGER_ROLES = ["Owner", "Admin"];
 const MEMBER_ROLES = ["Owner", "Admin", "Recruiter"];
+const INVITABLE_ROLES = ["Admin", "Recruiter"];
 const INVITE_TOKEN_TYPE = "org-member-invite";
 
 function normalizeEmail(email) {
@@ -23,9 +24,43 @@ function getFrontendUrl() {
   return (process.env.FRONTEND_URL || "http://localhost:5173").replace(/\/$/, "");
 }
 
-function signInviteToken(memberId) {
-  return jwt.sign({ type: INVITE_TOKEN_TYPE, memberId }, process.env.JWT_SECRET, {
-    expiresIn: "7d"
+function signInviteToken(memberId, tokenVersion = 0) {
+  return jwt.sign(
+    { type: INVITE_TOKEN_TYPE, memberId, v: tokenVersion },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+}
+
+// "Owner" is deliberately not invitable. Ownership is transferred through
+// PUT /organization/members/:id/role, which carries the last-Owner guard; granting it through an
+// emailed link would let an Admin mint a second Owner without that check ever running.
+// Enforced here rather than only in the UI dropdown, which is cosmetic.
+function resolveInvitableRole(requestedRole) {
+  if (requestedRole === "Owner") {
+    throw new ApiError(400, "Owner cannot be assigned through an invite. Invite them, then change their role.");
+  }
+
+  return INVITABLE_ROLES.includes(requestedRole) ? requestedRole : "Recruiter";
+}
+
+// One place that builds the link and sends it, so invite / re-invite / resend cannot drift apart.
+// Fire-and-forget by design: the member record is already persisted, and a mail failure must not
+// roll back the invite or fail the response.
+function sendInviteEmail({ organization, member, role, invitedByName, setupLink, intro }) {
+  return sendEmail(
+    member.email,
+    `You've been invited to join ${organization.companyName} on sgetai`,
+    `
+      <p>${invitedByName || "A teammate"} ${intro} <strong>${organization.companyName}</strong>'s hiring team as ${role}.</p>
+      <p>Set up your password to get started:</p>
+      <p><a href="${setupLink}">${setupLink}</a></p>
+      <p>This link is valid for 7 days, and replaces any earlier invite link you were sent.</p>
+    `
+  ).catch((error) => {
+    // Invite is already persisted — a delivery failure shouldn't roll it back, but is worth
+    // knowing about server-side (mirrors the fire-and-forget email pattern used elsewhere).
+    console.error(`Failed to send team invite email to ${member.email}:`, error.message);
   });
 }
 
@@ -109,27 +144,95 @@ const updateMyMemberSettings = asyncHandler(async (req, res) => {
   });
 });
 
+// Handles all three entry states for an email address:
+//   no member        -> create a fresh "Invited" record
+//   "Disabled"       -> RE-INVITE: revive the SAME document (see below), applying the new role
+//   "Invited"        -> RESEND: fresh link, no state change beyond invitedBy/role
+//   "Active"         -> 409; they are already on the team, and role changes belong to PUT /:id/role
+//
+// Re-invite mutates the existing document rather than creating another one. Job.postedByMemberId
+// points at that _id and jobController resolves "Posted by {name}" through it, so a second record
+// would orphan the person's entire posting history — and OrganizationMember.email is unique, so
+// the insert would fail regardless.
 const inviteMember = asyncHandler(async (req, res) => {
   const email = normalizeEmail(req.body.email);
-  const role = MEMBER_ROLES.includes(req.body.role) ? req.body.role : "Recruiter";
+  const requestedRole = req.body.role;
 
   if (!email) {
     throw new ApiError(400, "email is required.");
   }
 
+  // passwordHash is select:false; it is loaded explicitly because re-invite must be able to
+  // clear it, and an unselected path cannot be reliably unset on save.
   const [existingMember, organization] = await Promise.all([
-    OrganizationMember.findOne({ email }),
+    OrganizationMember.findOne({ email }).select("+passwordHash"),
     Organization.findById(req.user.id)
   ]);
-
-  if (existingMember) {
-    throw new ApiError(409, "A team member with this email already exists.");
-  }
 
   if (!organization) {
     throw new ApiError(404, "Organization not found.");
   }
 
+  if (existingMember) {
+    // OrganizationMember.email is globally unique with no organization scope, so this lookup can
+    // return another company's member. Re-invite MUTATES the document it finds, so without this
+    // check one workspace could clear another workspace's member password and mail itself a link
+    // into their team. The generic message is deliberate: it does not disclose that the address
+    // belongs to a different organization.
+    if (String(existingMember.organizationId) !== String(organization._id)) {
+      throw new ApiError(409, "A team member with this email already exists.");
+    }
+
+    if (existingMember.status === "Active") {
+      throw new ApiError(409, "A team member with this email already exists.");
+    }
+
+    const wasDisabled = existingMember.status === "Disabled";
+    // A removed Owner is a real case (a founder leaves and comes back). Their stored role cannot
+    // be carried through an invite, so when no role is supplied it steps down to Admin rather
+    // than failing the re-invite outright — an Owner can promote them again afterwards. An
+    // EXPLICIT "Owner" in the request is still rejected by resolveInvitableRole.
+    const role =
+      requestedRole === undefined || requestedRole === null || requestedRole === ""
+        ? (INVITABLE_ROLES.includes(existingMember.role) ? existingMember.role : "Admin")
+        : resolveInvitableRole(requestedRole);
+
+    existingMember.role = role;
+    existingMember.status = "Invited";
+    existingMember.invitedBy = req.orgMember._id;
+    // Invalidates every previously issued link for this person, including the one that is being
+    // replaced right now.
+    existingMember.inviteTokenVersion = (existingMember.inviteTokenVersion || 0) + 1;
+
+    if (wasDisabled) {
+      // SECURITY: resolveOrganizationLoginByEmail only excludes "Disabled", so an "Invited"
+      // member with a surviving passwordHash can log in immediately. Flipping a removed person
+      // back to "Invited" without clearing it would hand them their old access back without them
+      // ever opening the new link. They must set a new password through completeInvite.
+      existingMember.passwordHash = undefined;
+    }
+
+    await existingMember.save();
+
+    const token = signInviteToken(existingMember._id.toString(), existingMember.inviteTokenVersion);
+    sendInviteEmail({
+      organization,
+      member: existingMember,
+      role,
+      invitedByName: req.orgMember.firstName,
+      setupLink: `${getFrontendUrl()}/team/accept-invite?token=${encodeURIComponent(token)}`,
+      intro: wasDisabled ? "has invited you back to" : "invited you to join"
+    });
+
+    return sendSuccess(res, {
+      message: wasDisabled
+        ? "Invite sent again to a previously removed teammate."
+        : "Invite resent.",
+      member: toMemberResponse(existingMember)
+    });
+  }
+
+  const role = resolveInvitableRole(requestedRole);
   const member = await OrganizationMember.create({
     organizationId: organization._id,
     email,
@@ -137,25 +240,18 @@ const inviteMember = asyncHandler(async (req, res) => {
     lastName: req.body.lastName || "",
     role,
     status: "Invited",
-    invitedBy: req.orgMember._id
+    invitedBy: req.orgMember._id,
+    inviteTokenVersion: 1
   });
 
-  const token = signInviteToken(member._id.toString());
-  const setupLink = `${getFrontendUrl()}/team/accept-invite?token=${encodeURIComponent(token)}`;
-
-  await sendEmail(
-    email,
-    `You've been invited to join ${organization.companyName} on sgetai`,
-    `
-      <p>${req.orgMember.firstName || "A teammate"} invited you to join <strong>${organization.companyName}</strong>'s hiring team as ${role}.</p>
-      <p>Set up your password to get started:</p>
-      <p><a href="${setupLink}">${setupLink}</a></p>
-      <p>This link is valid for 7 days.</p>
-    `
-  ).catch((error) => {
-    // Invite is already persisted — a delivery failure shouldn't roll it back, but is worth
-    // knowing about server-side (mirrors the fire-and-forget email pattern used elsewhere).
-    console.error(`Failed to send team invite email to ${email}:`, error.message);
+  const token = signInviteToken(member._id.toString(), member.inviteTokenVersion);
+  sendInviteEmail({
+    organization,
+    member,
+    role,
+    invitedByName: req.orgMember.firstName,
+    setupLink: `${getFrontendUrl()}/team/accept-invite?token=${encodeURIComponent(token)}`,
+    intro: "invited you to join"
   });
 
   return sendSuccess(
@@ -172,7 +268,10 @@ const completeInvite = asyncHandler(async (req, res) => {
   const token = String(req.body.token || "");
   const password = String(req.body.password || "");
   const firstName = requireNonEmptyString(req.body.firstName, "firstName");
-  const lastName = requireNonEmptyString(req.body.lastName, "lastName");
+  // Optional: plenty of people have a single legal name, and requiring a surname locked them out
+  // of accepting an invite entirely. Everything downstream already copes — memberDisplayName
+  // falls back to firstName then email, and the avatar initial does the same.
+  const lastName = optionalString(req.body.lastName) || "";
 
   if (!token) {
     throw new ApiError(400, "Invite token is required.");
@@ -197,6 +296,14 @@ const completeInvite = asyncHandler(async (req, res) => {
 
   if (!member || member.status !== "Invited") {
     throw new ApiError(410, "This invite has already been used or is no longer valid.");
+  }
+
+  // Exactly one link is live per member. A token issued before the latest invite — an earlier
+  // link that was forwarded, leaked, or simply superseded by a resend — is refused even though
+  // it is still correctly signed and unexpired. Tokens minted before versioning existed carry no
+  // `v` and are compared against 0, which is the value those members still hold.
+  if ((decoded.v || 0) !== (member.inviteTokenVersion || 0)) {
+    throw new ApiError(410, "This invite link has been replaced by a newer one. Please use the most recent invite email.");
   }
 
   const organization = await Organization.findById(member.organizationId);

@@ -14,7 +14,7 @@ const {
   safeDeleteStoredFiles
 } = require("../utils/mediaStorage");
 const { downloadFile } = require("../utils/supabaseService");
-const { attachMediaUrl } = require("../services/mediaUrlService");
+const { attachMediaUrl, attachMediaUrls } = require("../services/mediaUrlService");
 
 const seekerEditableFields = [
   "firstName",
@@ -210,20 +210,51 @@ async function refreshReadableMediaUrl(media) {
   return attachMediaUrl(mediaObject);
 }
 
+/* Every media subdocument a profile can carry, as { read, write } accessors.
+ *
+ * The top three were the only ones this function ever signed, which left the PORTFOLIO media dead:
+ * ProfilePortfolioManager renders `<a href={media.url}>Open file</a>` for each certification,
+ * research paper and achievement, and that url is the stored /object/public/ link — so clicking it
+ * returned 400 {"code":"NoSuchBucket"} rather than the file. Same root cause as the company logos,
+ * one screen further down. */
+function collectProfileMediaSlots(profile) {
+  const slots = [
+    { read: () => profile.profilePicture, write: (media) => { profile.profilePicture = media; } },
+    { read: () => profile.backgroundVideo, write: (media) => { profile.backgroundVideo = media; } },
+    { read: () => profile.logo, write: (media) => { profile.logo = media; } },
+    { read: () => profile.defaultResume?.media, write: (media) => { profile.defaultResume.media = media; } }
+  ];
+
+  for (const key of ["licensesAndCertifications", "researchAndPapers", "achievements"]) {
+    (profile[key] || []).forEach((item, index) => {
+      slots.push({ read: () => profile[key][index].media, write: (media) => { profile[key][index].media = media; } });
+    });
+  }
+
+  (profile.projects || []).forEach((project, projectIndex) => {
+    for (const key of ["mediaFiles", "documents"]) {
+      (project[key] || []).forEach((_item, index) => {
+        slots.push({
+          read: () => profile.projects[projectIndex][key][index],
+          write: (media) => { profile.projects[projectIndex][key][index] = media; }
+        });
+      });
+    }
+  });
+
+  return slots.filter((slot) => slot.read());
+}
+
 async function buildProfileResponse(user) {
   const profile = clonePlain(user);
 
-  if (profile.profilePicture) {
-    profile.profilePicture = await refreshReadableMediaUrl(profile.profilePicture);
-  }
+  // ONE Supabase call for the whole profile. This used to be three sequential single-signature
+  // round-trips (and nothing at all for the portfolio), so a profile with media is now both more
+  // complete and fewer requests.
+  const slots = collectProfileMediaSlots(profile);
+  const resolved = await attachMediaUrls(slots.map((slot) => slot.read()));
 
-  if (profile.backgroundVideo) {
-    profile.backgroundVideo = await refreshReadableMediaUrl(profile.backgroundVideo);
-  }
-
-  if (profile.logo) {
-    profile.logo = await refreshReadableMediaUrl(profile.logo);
-  }
+  slots.forEach((slot, index) => slot.write(resolved[index]));
 
   return profile;
 }

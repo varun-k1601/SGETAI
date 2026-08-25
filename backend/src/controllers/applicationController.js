@@ -9,6 +9,7 @@ const Organization = require("../models/Organization");
 const { createNotification } = require("../services/notificationService");
 const { sendEmail } = require("../utils/email");
 const { downloadFile } = require("../utils/supabaseService");
+const { attachPopulatedOrganizationLogos } = require("../services/mediaUrlService");
 const { compileLatexToPdf } = require("../services/latexCompilerService");
 
 function sanitizeDownloadFileName(fileName, fallback = "candidate-resume") {
@@ -108,11 +109,23 @@ const getMyApplications = asyncHandler(async (req, res) => {
   ]);
   const verificationEligibility = getVerificationEligibility(seeker);
 
+  // organizationId is populated with `logo` above, and the stored logo.url is the /object/public/
+  // link uploadFile persisted, which 400s "Bucket not found" against the private bucket — so
+  // /pro/applied rendered a BROKEN IMAGE (url present but dead), not CompanyLogo's letter fallback.
+  // This was the last seeker-facing list still handing out unsigned logos; six other controllers
+  // already went through mediaUrlService and this one was missed.
+  //
+  // attachPopulatedOrganizationLogos returns plain objects (it calls toObject() itself, so the map
+  // below must NOT call it a second time) and signs every DISTINCT filePath in one Supabase call —
+  // five applications to the same employer cost one signature. verificationEligibility is spread on
+  // afterwards, unchanged.
+  const applicationsWithLogos = await attachPopulatedOrganizationLogos(applications);
+
   return sendSuccess(res, {
     message: "Applications fetched successfully.",
     verificationEligibility,
-    applications: applications.map((application) => ({
-      ...application.toObject(),
+    applications: applicationsWithLogos.map((application) => ({
+      ...application,
       verificationEligibility
     }))
   });

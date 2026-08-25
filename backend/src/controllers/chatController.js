@@ -12,7 +12,7 @@ const { findUserByAuth, getModelForRole } = require("../utils/userModels");
 const { requireNonEmptyString } = require("../utils/validation");
 const { createNotification } = require("../services/notificationService");
 const { emitToUser } = require("../utils/socketServer");
-const { getSignedFileUrl } = require("../utils/supabaseService");
+const { signMediaBatch } = require("../services/mediaUrlService");
 
 function buildParticipantKey(a, b) {
   return [a, b].sort().join("|");
@@ -30,24 +30,19 @@ function getOtherParticipant(session, user) {
   });
 }
 
-// Storage is a private bucket, so the stored `.url` (or the whole media subdocument) can't be
-// handed to the frontend directly — sign a fresh URL from `filePath` at request time, same as
-// Generated Artifacts' resume links. Swallow signing failures so one bad avatar never breaks the
-// whole chat-session response; the frontend's ChatAvatar already falls back to an initial letter
-// whenever `avatar` is falsy.
-async function resolveAvatarUrl(filePath) {
-  if (!filePath) {
-    return undefined;
-  }
-
-  try {
-    return (await getSignedFileUrl(filePath)) || undefined;
-  } catch (error) {
-    return undefined;
-  }
+// Storage is a private bucket, so the stored `.url` cannot be handed to the frontend — it is the
+// /object/public/ link uploadFile persisted and 400s "Bucket not found". The signature now comes
+// from mediaUrlService's signMediaBatch rather than a private per-avatar getSignedFileUrl call,
+// which removes the last duplicate copy of this logic, drops the chat list from one round-trip per
+// thread to one for the whole page, and picks up MEDIA_URL_TTL_SECONDS instead of the 3600s
+// default. `signedUrlByPath` never throws: a signing failure yields a missing entry and the
+// frontend's ChatAvatar already falls back to an initial letter whenever `avatar` is falsy.
+function readAvatarPath(role, user) {
+  const media = role === "organization" ? user?.logo : user?.profilePicture;
+  return typeof media?.filePath === "string" ? media.filePath : "";
 }
 
-async function buildUserDisplay(role, user) {
+function buildUserDisplay(role, user, signedUrlByPath = new Map()) {
   if (!user) {
     return {
       name: role === "organization" ? "Recruiter" : "Applicant",
@@ -55,18 +50,20 @@ async function buildUserDisplay(role, user) {
     };
   }
 
+  const avatar = signedUrlByPath.get(readAvatarPath(role, user)) || undefined;
+
   if (role === "organization") {
     return {
       name: user.companyName || "Recruiter",
       subtitle: user.industry || user.email || "Organization",
-      avatar: await resolveAvatarUrl(user.logo?.filePath)
+      avatar
     };
   }
 
   return {
     name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || "Applicant",
     subtitle: user.tagline || user.currentStatus || user.email || "Job seeker",
-    avatar: await resolveAvatarUrl(user.profilePicture?.filePath)
+    avatar
   };
 }
 
@@ -198,6 +195,13 @@ async function decorateSessions(sessions, authUser) {
     });
   }
 
+  // One Supabase call for every avatar on the page, deduplicated by filePath — the same recruiter
+  // appearing in three threads is signed once.
+  const signedUrlByPath = await signMediaBatch([
+    ...seekers.map((seeker) => seeker.profilePicture),
+    ...organizations.map((organization) => organization.logo)
+  ]);
+
   return Promise.all(
     plainSessions.map(async (session) => {
       const participant = getOtherParticipant(session, authUser);
@@ -211,7 +215,7 @@ async function decorateSessions(sessions, authUser) {
         otherParticipant: participant
           ? {
               ...participant,
-              display: await buildUserDisplay(participant.role, profile),
+              display: buildUserDisplay(participant.role, profile, signedUrlByPath),
               atsScore:
                 participant.role === "seeker"
                   ? matchContextBySeekerId.get(participant.userId.toString())?.atsScore ?? null

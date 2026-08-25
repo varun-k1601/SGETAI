@@ -7,12 +7,15 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "smoke:test": "node src/scripts/smokeCheck.js",
+    "test:resume": "node --test src/services/__tests__/",
     "seed:jobs": "node src/scripts/seedRecruiterJobs.js",
     "organizations:verify-matched": "node src/scripts/verifyMatchedOrganizations.js",
     "migrate:introduction-channels": "node src/scripts/backfillIntroductionChannels.js",
     "agent:evaluate": "node src/scripts/evaluateCareerAgent.js",
     "cleanup:jobs-applications": "node src/scripts/cleanupJobsAndApplications.js",
-    "migrate:support-tickets": "node src/scripts/migrateFeedbackToSupportTickets.js"
+    "migrate:support-tickets": "node src/scripts/migrateFeedbackToSupportTickets.js",
+    "migrate:organization-logins": "node src/scripts/migrateOrganizationLogins.js",
+    "migrate:job-attribution": "node src/scripts/backfillJobPostedByMember.js"
   },
   "engines": {
     "node": ">=18.0.0"

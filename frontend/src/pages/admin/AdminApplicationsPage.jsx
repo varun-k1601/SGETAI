@@ -24,17 +24,19 @@ export function AdminApplicationsPage() {
     );
   }, [overview.applications, statusFilter]);
 
-  const state = (
-    <AdminQueryState
-      query={query}
-      isEmpty={!rows.length}
-      emptyLabel={
-        statusFilter === "All"
-          ? "No applications recorded yet."
-          : `No recent applications with status "${statusFilter}".`
-      }
-    />
-  );
+  // Same partial-data caveat as the candidates directory: the overview endpoint returns only the
+  // 12 most recent applications, and the status filter runs client-side over that slice. The
+  // label therefore never claims anything about applications it has not loaded.
+  const loadedCount = (overview.applications || []).length;
+  const totalCount = metrics.applications ?? loadedCount;
+  const scope =
+    totalCount > loadedCount
+      ? `the ${formatNumber(loadedCount)} most recent applications (${formatNumber(totalCount)} exist in total)`
+      : `${formatNumber(totalCount)} applications`;
+  const emptyLabel =
+    statusFilter === "All"
+      ? "No applications recorded yet."
+      : `No "${statusFilter}" applications among ${scope}.`;
 
   return (
     <AdminConsolePage
@@ -90,7 +92,7 @@ export function AdminApplicationsPage() {
             </select>
           }
         >
-          {state || (
+          <AdminQueryState query={query} isEmpty={!rows.length} emptyLabel={emptyLabel}>
             <AdminTable
               caption="Most recent applications across the platform"
               columns={["Role", "Candidate", "Company", "Status", "ATS", "Source", "Submitted"]}
@@ -130,7 +132,7 @@ export function AdminApplicationsPage() {
                 </tr>
               ))}
             </AdminTable>
-          )}
+          </AdminQueryState>
         </AdminCard>
       </section>
     </AdminConsolePage>

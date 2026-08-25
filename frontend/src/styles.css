@@ -13,6 +13,11 @@
   --page-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(237, 243, 255, 0.98));
   --surface: #ffffff;
   --surface-soft: #f8fbff;
+  /* Form-field surface/ink. Kept as tokens so the :-webkit-autofill override below can
+     repaint an autofilled field to EXACTLY the colour it has when empty, in every theme
+     and every scope, instead of guessing at a matching hex. */
+  --field-surface: #ffffff;
+  --field-ink: #1f2737;
   --surface-muted: #f4f8ff;
   --surface-elevated: #ffffff;
   --border: #d9e4f7;
@@ -119,6 +124,8 @@
   --page-gradient: linear-gradient(180deg, rgba(5, 5, 5, 0.99), rgba(0, 0, 0, 0.99));
   --surface: #1e1e1e;
   --surface-soft: #2a2a2a;
+  --field-surface: #0c1714;
+  --field-ink: #ffffff;
   --surface-muted: #323232;
   --surface-elevated: #1a1a1a;
   --border: #3f3f3f;
@@ -2507,6 +2514,59 @@ body {
 .form-field textarea:focus {
   border-color: #6aa3ff;
   box-shadow: 0 0 0 4px rgba(47, 128, 255, 0.12);
+}
+
+/* AUTOFILL — Chrome paints an autofilled field through a UA background-image that an ordinary
+   `background` declaration cannot override, so the field renders in a pale wash that reads as
+   disabled next to its untouched neighbours. That appearance is what made this form look like it
+   had locked fields. `box-shadow: inset ... 1000px` is the only reliable way to cover it, and
+   -webkit-text-fill-color the only way to restore the text colour.
+
+   Scoped to .form-field so it follows the field tokens wherever they are redefined (see the
+   .profile-page override below), and applied to every autofill state because Chrome keeps the
+   pseudo-class through hover, focus and active. :autofill is the standard form, kept alongside
+   the -webkit- prefix that Chrome and Safari still match; they are in separate rules on purpose,
+   because a selector list is dropped wholesale by any browser that cannot parse one member. */
+/* A zero-effect animation whose ONLY purpose is to fire an animationstart event at the instant
+   the browser autofills a field. React listens for it to pull the value the browser wrote
+   straight into the DOM back into state. Autofill can land long after mount - on a slow load, or
+   when the user picks a suggestion minutes later - so a timer on mount cannot catch it reliably.
+   Do not rename: AcceptTeamInvitePage matches on this exact animationName. */
+@keyframes onAutoFillStart {
+  from { opacity: 1; }
+  to { opacity: 1; }
+}
+
+.form-field input:-webkit-autofill,
+.form-field input:-webkit-autofill:hover,
+.form-field input:-webkit-autofill:focus,
+.form-field input:-webkit-autofill:active {
+  animation-name: onAutoFillStart;
+  animation-duration: 1ms;
+  box-shadow: inset 0 0 0 1000px var(--field-surface);
+  -webkit-text-fill-color: var(--field-ink);
+  caret-color: var(--field-ink);
+  /* Chrome animates its highlight in on load; parking the transition prevents the flash without
+     suppressing anything the user needs to see. */
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+.form-field input:autofill,
+.form-field input:autofill:hover,
+.form-field input:autofill:focus,
+.form-field input:autofill:active {
+  animation-name: onAutoFillStart;
+  animation-duration: 1ms;
+  box-shadow: inset 0 0 0 1000px var(--field-surface);
+  -webkit-text-fill-color: var(--field-ink);
+  caret-color: var(--field-ink);
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+/* Focus must still win over the flat autofill fill, or an autofilled field gives no focus ring. */
+.form-field input:-webkit-autofill:focus,
+.form-field input:autofill:focus {
+  box-shadow: inset 0 0 0 1000px var(--field-surface), 0 0 0 4px rgba(47, 128, 255, 0.12);
 }
 
 .checkbox-field {
@@ -6827,6 +6887,11 @@ body.career-agent-resizing {
 :root[data-theme="dark"] .form-field textarea:focus {
   border-color: #5ba3ff;
   box-shadow: 0 0 0 4px rgba(91, 163, 255, 0.12);
+}
+
+:root[data-theme="dark"] .form-field input:-webkit-autofill:focus,
+:root[data-theme="dark"] .form-field input:autofill:focus {
+  box-shadow: inset 0 0 0 1000px var(--field-surface), 0 0 0 4px rgba(91, 163, 255, 0.12);
 }
 
 :root[data-theme="dark"] .media-upload-preview img,
@@ -15977,6 +16042,65 @@ body.career-agent-resizing {
   border-radius: 4px;
 }
 
+/* --- Posted by --------------------------------------------------------------------------------
+   Deliberately secondary to the job content: same .jd-card shell as every other section, but the
+   only type at full weight is the recruiter's name. Reuses the --ph-* tokens already on this
+   page; no new colours are declared. */
+.job-detail .jd-postedby {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.job-detail .jd-postedby__name {
+  margin: 2px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ph-ink);
+  overflow-wrap: anywhere;
+}
+
+.job-detail .jd-postedby__org {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+/* max-width + anywhere keeps a long address inside the card at every width instead of widening
+   the grid column; min-width:0 lets the text actually shrink inside the flex link. */
+.job-detail .jd-postedby__mail {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-accent);
+  text-decoration: none;
+}
+
+.job-detail .jd-postedby__mail .jd-icon {
+  flex-shrink: 0;
+}
+
+.job-detail .jd-postedby__addr {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.job-detail .jd-postedby__mail:hover {
+  text-decoration: underline;
+}
+
+.job-detail .jd-postedby__mail:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
 /* --- Responsive ---------------------------------------------------------------------------------- */
 
 @media (max-width: 1100px) {
@@ -21157,6 +21281,14 @@ body.career-agent-resizing {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--ph-muted);
+}
+
+/* This page paints its fields from its own palette, so the autofill override must follow it
+   rather than the global field colours. Redefining the tokens is enough - the :-webkit-autofill
+   rule reads them and needs no page-specific copy. */
+:root .profile-page {
+  --field-surface: var(--ph-surface-sunk);
+  --field-ink: var(--ph-ink);
 }
 
 :root .profile-page .form-field input,
@@ -26428,6 +26560,89 @@ body.career-agent-resizing {
   font-weight: 500;
 }
 
+/* --- Manager assessment ------------------------------------------------------------------------
+   Rendered only on Submitted rows. This is the first place the manager's actual reference is
+   readable: it was stored and acted on (trust score, experience status, auto-reject) but never
+   returned by the list endpoint, so nobody could see the assessment that moved those values.
+   Sits inside the row, visually a quoted note rather than a second card. */
+.background-verification .bv-assessment {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: 10px;
+  background: var(--ph-surface-sunk);
+}
+
+.background-verification .bv-assessment__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.background-verification .bv-assessment__title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ph-muted);
+}
+
+.background-verification .bv-assessment__by {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+/* The reference itself. Never clamped: a truncated assessment is worse than none, because the
+   half a recruiter can read may not be the half that matters. */
+.background-verification .bv-assessment__quote {
+  margin: 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--rc-accent);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ph-ink);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.background-verification .bv-assessment__none {
+  margin: 0;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--ph-muted);
+}
+
+/* The auto-reject explanation. Deliberately loud: an application closed by an automated rule is
+   something the recruiter will be asked to account for. */
+.background-verification .bv-assessment__auto {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ph-danger-soft);
+  border-radius: 8px;
+  background: var(--ph-danger-soft);
+  color: var(--ph-danger);
+  font-size: 12px;
+  line-height: 1.55;
+  font-weight: 600;
+}
+
+.background-verification .bv-assessment__auto .bv-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
 .background-verification .bv-row__foot {
   margin: 0;
   font-size: 11px;
@@ -26957,7 +27172,14 @@ body.career-agent-resizing {
 
 /* A removed member stays listed (removeMember sets status Disabled rather than deleting, so job
    attribution still resolves) but reads as inactive. */
-.recruiter-settings .rs-member--disabled {
+/* Muted on the row's CONTENT, not on the row itself. `opacity` on .rs-member created a stacking
+   context that trapped the action menu's z-index inside the row, so the rows below painted over
+   the open popover — and the popover inherited the 0.6 alpha, making it see-through. Barely
+   noticeable while a removed row had nothing worth opening; now that Re-invite lives in that
+   menu, it has to render solid and on top. Same muted appearance, no stacking context. */
+.recruiter-settings .rs-member--disabled .rs-avatar,
+.recruiter-settings .rs-member--disabled .rs-member__body,
+.recruiter-settings .rs-member--disabled .rs-pill {
   opacity: 0.6;
 }
 
@@ -28470,5 +28692,461 @@ body.career-agent-resizing {
 
   .recruiter-integrations .ri-api {
     padding: 16px;
+  }
+}
+
+/* ================================================================================================
+   RECRUITER APPLICATIONS (/recruiter/applications) — the "Select a job" picker
+   ================================================================================================
+   Ported from raw Tailwind that rendered as nothing: `shadow-elegant` was undefined, and every
+   `bg-card/70` / `border-border/60` / `bg-success/15` applied an opacity modifier to a colour
+   tailwind.config.js maps to a bare `var(--…)` string, producing a value the browser drops. The
+   cards had no background and no border at all.
+
+   Shares the --ph-* surface/ink palette and the --rc-* teal accent with every other recruiter
+   surface. No token is defined here and none was added to tailwind.config.js.
+   ================================================================================================ */
+
+/* TRANSPARENT LAYOUT CONTAINER. No background, no padding, no border, no radius, no width —
+   .main-panel already pads and scrolls this region. Painting a background on a page root is the
+   bug that made .pro-home render as one giant card in dark mode. */
+.recruiter-applications {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Shared primitives -------------------------------------------------------------------------- */
+
+.recruiter-applications .ra-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.recruiter-applications .ra-icon--sm {
+  width: 13px;
+  height: 13px;
+}
+
+.recruiter-applications .ra-eyebrow {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--rc-accent);
+}
+
+/* --- 1. Hero ------------------------------------------------------------------------------------ */
+/* --rc-hero-soft, matching Job Postings / Background Check / Overview. NOT .hero-card.recruiter,
+   which is the older blue wash whose dark override drops the accent entirely. */
+.recruiter-applications .ra-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid var(--rc-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--rc-hero-soft);
+  color: var(--ph-ink);
+}
+
+.recruiter-applications .ra-hero__text {
+  min-width: 0;
+}
+
+.recruiter-applications .ra-hero__title {
+  margin: 6px 0 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ph-ink);
+}
+
+.recruiter-applications .ra-hero__sub {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ph-muted);
+}
+
+.recruiter-applications .ra-hero__count {
+  flex-shrink: 0;
+  padding: 7px 14px;
+  border: 1px solid var(--rc-accent-soft);
+  border-radius: 999px;
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* --- 2. List card ------------------------------------------------------------------------------- */
+/* min-height stops a one- or two-row list floating above two-thirds of empty viewport, which is
+   what the unported page did. */
+.recruiter-applications .ra-card {
+  min-width: 0;
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+/* 2-up from 1180px so the list uses the width it is given instead of a narrow centred column. */
+.recruiter-applications .ra-rows {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+@media (min-width: 1180px) {
+  .recruiter-applications .ra-rows {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.recruiter-applications .ra-item {
+  min-width: 0;
+}
+
+/* --- 3. Job row --------------------------------------------------------------------------------- */
+/* A real <Link>, so it is keyboard reachable and middle-clickable. The 3px inset left edge is the
+   hover/focus affordance: transparent at rest, teal on interaction, and it costs no layout shift
+   because it is drawn with box-shadow rather than a border. */
+.recruiter-applications a.ra-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  height: 100%;
+  padding: 14px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface);
+  box-shadow: inset 3px 0 0 transparent;
+  color: var(--ph-ink);
+  text-decoration: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease,
+    background-color 150ms ease;
+}
+
+.recruiter-applications a.ra-row:hover {
+  border-color: var(--rc-accent);
+  box-shadow: inset 3px 0 0 var(--rc-accent), 0 6px 18px rgba(15, 23, 42, 0.07);
+  transform: translateY(-1px);
+}
+
+.recruiter-applications a.ra-row:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+  border-color: var(--rc-accent);
+  box-shadow: inset 3px 0 0 var(--rc-accent);
+}
+
+.recruiter-applications a.ra-row:active {
+  transform: translateY(0);
+  background: var(--ph-surface-sunk);
+}
+
+/* A job with nobody in the pipeline is deliberately quieter than one with twelve applicants —
+   the count is what a recruiter is scanning for. */
+.recruiter-applications a.ra-row--quiet {
+  background: var(--ph-surface-sunk);
+}
+
+.recruiter-applications a.ra-row--quiet .ra-row__title {
+  color: var(--ph-muted);
+}
+
+.recruiter-applications .ra-row__tile {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: var(--ph-radius-tile);
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+}
+
+.recruiter-applications a.ra-row--quiet .ra-row__tile {
+  background: var(--ph-surface);
+  color: var(--ph-muted);
+}
+
+/* min-width:0 on both the flex child and the text is what makes the ellipsis actually work —
+   without it a long title pushes the pills out of the row instead of truncating. */
+.recruiter-applications .ra-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.recruiter-applications .ra-row__title {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ph-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recruiter-applications .ra-row__where {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ph-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recruiter-applications .ra-row__side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.recruiter-applications .ra-row__chevron {
+  color: var(--ph-muted);
+}
+
+.recruiter-applications a.ra-row:hover .ra-row__chevron {
+  color: var(--rc-accent);
+}
+
+/* --- 4. Pills and the applicant count ----------------------------------------------------------- */
+
+.recruiter-applications .ra-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Tone is a reinforcement only — the status word itself is always rendered, so meaning never
+   depends on colour. */
+.recruiter-applications .ra-pill--ok {
+  border-color: var(--ph-success-soft);
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+.recruiter-applications .ra-pill--muted {
+  border-color: var(--ph-border);
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+/* Given more weight than the pills on purpose: this number is the reason the page exists. */
+.recruiter-applications .ra-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.recruiter-applications .ra-count .ra-icon {
+  align-self: center;
+}
+
+.recruiter-applications .ra-count--live {
+  border-color: var(--rc-accent-soft);
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+}
+
+.recruiter-applications .ra-count__value {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.recruiter-applications .ra-count--live .ra-count__value {
+  color: var(--rc-accent);
+}
+
+.recruiter-applications .ra-count__label {
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+/* --- 5. Loading / error / empty ----------------------------------------------------------------- */
+
+.recruiter-applications .ra-state {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0;
+  padding: 32px 20px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+.recruiter-applications .ra-state__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ph-ink);
+}
+
+.recruiter-applications .ra-state__text {
+  margin: 0;
+  max-width: 46ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ph-muted);
+}
+
+.recruiter-applications .ra-state--error {
+  color: var(--ph-danger);
+}
+
+.recruiter-applications .ra-state--error .ra-state__title {
+  color: var(--ph-danger);
+}
+
+/* --- 6. Buttons --------------------------------------------------------------------------------- */
+/* Qualified with the element (0,2,1) so it outranks the global unlayered `button { }` rule and
+   `:root[data-theme="dark"] button` (0,2,1), which would otherwise repaint these with the app-wide
+   blue gradient in dark mode. .ra-btn also lands on an <a> in the empty state, so the bare class
+   selector is listed alongside for that case. */
+.recruiter-applications .ra-btn,
+.recruiter-applications button.ra-btn,
+.recruiter-applications a.ra-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  box-shadow: none;
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transform: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.recruiter-applications button.ra-btn:hover:not(:disabled),
+.recruiter-applications a.ra-btn:hover {
+  border-color: var(--rc-accent);
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+}
+
+.recruiter-applications button.ra-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.recruiter-applications .ra-btn:focus-visible,
+.recruiter-applications button.ra-btn:focus-visible,
+.recruiter-applications a.ra-btn:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+}
+
+.recruiter-applications a.ra-btn--primary {
+  border-color: transparent;
+  background: var(--rc-gradient);
+  color: #ffffff;
+}
+
+.recruiter-applications a.ra-btn--primary:hover {
+  border-color: transparent;
+  background: var(--rc-gradient);
+  color: #ffffff;
+  filter: brightness(1.05);
+}
+
+/* --- 7. Dark ------------------------------------------------------------------------------------ */
+/* Only what actually differs. Surface/ink/muted/accent are already theme-aware tokens, so the
+   bulk of the block needs no override at all. */
+:root[data-theme="dark"] .recruiter-applications a.ra-row:hover {
+  box-shadow: inset 3px 0 0 var(--rc-accent), 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme="dark"] .recruiter-applications a.ra-row--quiet .ra-row__tile {
+  background: var(--ph-surface-sunk);
+}
+
+/* --- 8. Responsive ------------------------------------------------------------------------------ */
+
+@media (max-width: 720px) {
+  .recruiter-applications .ra-hero {
+    padding: 20px;
+  }
+
+  .recruiter-applications .ra-hero__title {
+    font-size: 21px;
+  }
+
+  /* The row stacks so the pills sit under the title instead of squeezing it to nothing. */
+  .recruiter-applications a.ra-row {
+    flex-wrap: wrap;
+  }
+
+  .recruiter-applications .ra-row__body {
+    flex: 1 1 100%;
+    order: 1;
+  }
+
+  .recruiter-applications .ra-row__tile {
+    order: 0;
+  }
+
+  .recruiter-applications .ra-row__side {
+    flex: 1 1 100%;
+    order: 2;
+    justify-content: flex-start;
+  }
+
+  .recruiter-applications .ra-row__chevron {
+    display: none;
   }
 }

@@ -5,7 +5,7 @@ const { normalizePagination } = require("../utils/validation");
 const {
   attachMediaUrl,
   attachOrganizationLogos,
-  attachJobOrganizationLogos
+  attachPopulatedOrganizationLogos
 } = require("../services/mediaUrlService");
 
 const Job = require("../models/Job");
@@ -196,7 +196,7 @@ const searchJobs = asyncHandler(async (req, res) => {
   // URL — this is the list behind /jobs and /pro/jobs, so it is where the broken company logos were
   // most visible. Signed for the whole page in ONE Supabase call, deduplicated by filePath: an
   // employer with five jobs on this page costs one signature, not five.
-  const jobsWithLogos = await attachJobOrganizationLogos(jobs);
+  const jobsWithLogos = await attachPopulatedOrganizationLogos(jobs);
 
   return sendSuccess(res, {
     message: "Jobs fetched successfully.",

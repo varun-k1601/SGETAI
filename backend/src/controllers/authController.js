@@ -297,6 +297,67 @@ async function resolveOrganizationLoginByEmail(email) {
   return null;
 }
 
+// The Owner member IS the legacy shared login: the migration carried the Organization's own
+// email/passwordHash onto it verbatim. Used to resolve username-style logins, which have no
+// member email to match on.
+async function findOwnerMemberFor(organization) {
+  return OrganizationMember.findOne({
+    organizationId: organization._id,
+    role: "Owner",
+    status: { $ne: "Disabled" }
+  }).select("+passwordHash");
+}
+
+// Username identifiers only ever existed on the Organization document — OrganizationMember has no
+// username field. The previous code concluded from that that a username login "can only ever
+// resolve to a legacy, pre-migration Organization login" and hard-coded `member: null`. That
+// inference is wrong: a MIGRATED company keeps its username too, and the shared login it names is
+// the Owner's. The result was that every recruiter who signed in with a username instead of an
+// email got a session with no memberRole — which is what hides the Invite button and drops job
+// attribution, on organizations whose migration had in fact run correctly.
+async function resolveOrganizationLoginByUsername(username) {
+  const organization = await Organization.findOne({ username }).select("+passwordHash");
+
+  if (!organization) {
+    return null;
+  }
+
+  const owner = await findOwnerMemberFor(organization);
+
+  // An Owner with no passwordHash (OAuth-provisioned) cannot satisfy a password login. Returning
+  // it would turn a working legacy username login into "password login is not enabled" — so fall
+  // back to the organization credential exactly as before, and let healLegacyOrganizationMember
+  // sync the hash onto the Owner once this login succeeds.
+  if (owner && !owner.passwordHash && organization.passwordHash) {
+    return { organization, member: null };
+  }
+
+  return { organization, member: owner || null };
+}
+
+// Self-healing for organizations that predate team accounts, or whose Owner member was never
+// provisioned. Creates/syncs the Owner member so the session issued right now already carries
+// memberId/memberRole — no second login required, and no dependence on a one-time script.
+//
+// MUST ONLY be called once the caller's identity is established (password verified, or an OAuth
+// provider assertion accepted). It is deliberately NOT inside resolveOrganizationLoginByEmail:
+// that resolver is also reached from assertAuthIdentityAvailable -> findExistingUserByEmail
+// during registration, which is an UNAUTHENTICATED lookup, and creating member records from an
+// email probe would be exactly the thing the constraint forbids.
+async function healLegacyOrganizationMember(existingUser) {
+  if (existingUser.role !== "organization" || existingUser.member) {
+    return existingUser.member || null;
+  }
+
+  const organization = existingUser.user;
+
+  return ensureOwnerMember(organization, {
+    email: organization.email,
+    passwordHash: organization.passwordHash,
+    name: organization.representativeDetails?.name
+  });
+}
+
 async function findExistingUserByEmail(email) {
   const [jobSeeker, organizationLogin] = await Promise.all([
     JobSeeker.findOne({ email }),
@@ -358,16 +419,14 @@ async function findExistingUserByLogin(identifier) {
   const isEmail = value.includes("@");
   const query = isEmail ? { email: value } : { username: normalizeUsername(value) };
 
-  // OrganizationMember has no username field (only Organization/legacy accounts did) — a
-  // username-style identifier can only ever resolve to a legacy, pre-migration Organization
-  // login. Email-style identifiers go through the member-aware resolver.
+  // Both identifier styles are member-aware. A username has no member email to match on, so it
+  // resolves through the organization to its Owner member (see resolveOrganizationLoginByUsername
+  // for why assuming "username == unmigrated" was the bug).
   const [jobSeeker, organizationLogin] = await Promise.all([
     JobSeeker.findOne(query).select("+passwordHash"),
     isEmail
       ? resolveOrganizationLoginByEmail(value)
-      : Organization.findOne(query).select("+passwordHash").then((organization) =>
-          organization ? { organization, member: null } : null
-        )
+      : resolveOrganizationLoginByUsername(query.username)
   ]);
 
   if (jobSeeker) {
@@ -607,6 +666,14 @@ const login = asyncHandler(async (req, res) => {
     : existingUser.user.passwordHash;
 
   if (!passwordHashToCheck) {
+    // A member with a pending invite and no password is the normal state right after being
+    // invited or re-invited. The generic message below tells them to "register again", which
+    // cannot work — their email already exists — and sends them down a dead end. Point them at
+    // the invite link instead. Still a 401: no access is granted either way.
+    if (existingUser.member?.status === "Invited") {
+      throw new ApiError(401, "You have a pending invite. Open the invite link we emailed you to set your password.");
+    }
+
     throw new ApiError(401, "Password login is not enabled for this account. Please register again with username and password.");
   }
 
@@ -616,9 +683,13 @@ const login = asyncHandler(async (req, res) => {
     throw new ApiError(401, "Invalid login credentials.");
   }
 
+  // Identity is now established — safe to provision the Owner member for an organization that
+  // still has none, so this very response already carries memberId/memberRole.
+  const member = await healLegacyOrganizationMember(existingUser);
+
   return sendSuccess(res, {
     message: "Login successful.",
-    ...buildAuthResponse(existingUser.user, existingUser.role, existingUser.member)
+    ...buildAuthResponse(existingUser.user, existingUser.role, member)
   });
 });
 
@@ -716,7 +787,12 @@ async function findOrCreateOAuthUser(profile, requestedRole) {
       await existingUser.user.save();
     }
 
-    return { ...existingUser, isNewOAuthUser: false };
+    // The OAuth provider has asserted this identity, so the same self-healing applies here as on
+    // the password path. This is the only route by which an OAuth-only organization — one the
+    // migration skips because it has no passwordHash to carry over — ever gets an Owner member.
+    const member = await healLegacyOrganizationMember(existingUser);
+
+    return { ...existingUser, member, isNewOAuthUser: false };
   }
 
   if (requestedRole === "organization") {
@@ -775,9 +851,12 @@ const completeOAuthOrganization = asyncHandler(async (req, res) => {
       throw new ApiError(403, "Organization account is on hold pending domain review.");
     }
 
+    // OAuth identity accepted above — provision the Owner member if this organization has none.
+    const member = await healLegacyOrganizationMember(existingUser);
+
     return sendSuccess(res, {
       message: "Account already exists. Signed in successfully.",
-      ...buildAuthResponse(existingUser.user, existingUser.role, existingUser.member)
+      ...buildAuthResponse(existingUser.user, existingUser.role, member)
     });
   }
 

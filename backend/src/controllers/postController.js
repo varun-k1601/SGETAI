@@ -13,41 +13,9 @@ const {
   collectFilePaths,
   safeDeleteStoredFiles
 } = require("../utils/mediaStorage");
-const { getSignedFileUrl } = require("../utils/supabaseService");
+const { attachMediaUrls } = require("../services/mediaUrlService");
 
 const organizationPostTypes = new Set(["CompanyUpdate", "HiringPost", "Promotion", "Announcement"]);
-
-// The bucket is private (see supabaseService.js's getSignedFileUrl comment), so the "public"
-// object URL stored on `media.url` at upload time 400s if fetched directly. Always regenerate a
-// fresh signed URL from the stored filePath instead of trusting the persisted `url` — mirrors
-// listGeneratedArtifacts' handling of resume links for the same reason.
-async function ensureMediaUrl(media) {
-  if (!media || typeof media !== "object") {
-    return media;
-  }
-
-  if (!media.filePath || typeof media.filePath !== "string") {
-    console.warn(`⚠️  Media has no valid filePath:`, { url: media.url, filePath: media.filePath });
-    return {
-      ...media,
-      url: ""
-    };
-  }
-
-  try {
-    const signedUrl = await getSignedFileUrl(media.filePath);
-    return {
-      ...media,
-      url: signedUrl || ""
-    };
-  } catch (err) {
-    console.error(`✗ Error resolving media URL for filePath ${media.filePath}:`, err.message);
-    return {
-      ...media,
-      url: ""
-    };
-  }
-}
 
 function resolveAuthorModel(role) {
   if (role === "seeker") {
@@ -178,50 +146,43 @@ async function decoratePosts(posts, authUser) {
     return accumulator;
   }, {});
 
-  return Promise.all(plainPosts.map(async (post) => {
-    let author =
-      post.authorModel === "Organization"
-        ? organizationMap.get(post.authorId.toString())
-        : seekerMap.get(post.authorId.toString());
+  /* ONE signature pass for the WHOLE page, through the shared resolver in mediaUrlService.
+     This used to be a private ensureMediaUrl plus two inline getSignedFileUrl calls, which meant
+     (a) a fifth copy of logic the service already owns, (b) one round-trip per author avatar AND
+     one per media item — a 20-post feed with an image each cost 40 calls — and (c) the 3600s
+     default TTL instead of MEDIA_URL_TTL_SECONDS, so feed images expired six times sooner than
+     every other surface. attachMediaUrls deduplicates by filePath, so an author appearing on five
+     posts is signed once. */
+  const authorSlots = [
+    ...[...seekerMap.entries()].map(([id, user]) => ({ key: `JobSeeker:${id}`, field: "profilePicture", user })),
+    ...[...organizationMap.entries()].map(([id, user]) => ({ key: `Organization:${id}`, field: "logo", user }))
+  ].map((slot) => ({ ...slot, plain: slot.user.toObject ? slot.user.toObject() : slot.user }));
 
-    // Convert author avatar file paths to readable URLs
-    if (author) {
-      const authorObj = author.toObject ? author.toObject() : author;
+  // Index-aligned so the flat resolved array can be split back apart: author avatars first, then
+  // each post's media in post order.
+  const resolvedMedia = await attachMediaUrls([
+    ...authorSlots.map((slot) => slot.plain[slot.field]),
+    ...plainPosts.flatMap((post) => post.media || [])
+  ]);
 
-      if (post.authorModel === "JobSeeker" && authorObj.profilePicture?.filePath) {
-        try {
-          authorObj.profilePicture = {
-            ...authorObj.profilePicture,
-            url: await getSignedFileUrl(authorObj.profilePicture.filePath)
-          };
-        } catch (error) {
-          // silently fail
-        }
-      }
+  const authorByKey = new Map(
+    authorSlots.map((slot, index) => [slot.key, { ...slot.plain, [slot.field]: resolvedMedia[index] }])
+  );
 
-      if (post.authorModel === "Organization" && authorObj.logo?.filePath) {
-        try {
-          authorObj.logo = {
-            ...authorObj.logo,
-            url: await getSignedFileUrl(authorObj.logo.filePath)
-          };
-        } catch (error) {
-          // silently fail
-        }
-      }
+  let mediaCursor = authorSlots.length;
+  const mediaByPost = plainPosts.map((post) => {
+    const count = (post.media || []).length;
+    const slice = resolvedMedia.slice(mediaCursor, mediaCursor + count);
+    mediaCursor += count;
+    return slice;
+  });
 
-      author = authorObj;
-    }
-
-    const media = await Promise.all((post.media || []).map((item) => ensureMediaUrl(item)));
-
-    return {
-      ...post,
-      media,
-      author: buildAuthorDisplay(post.authorModel, author),
-      likedByMe: likedPostIds.has(post._id.toString()),
-      recentComments: commentsByPost[post._id.toString()] || []
-    };
+  return plainPosts.map((post, index) => ({
+    ...post,
+    media: mediaByPost[index],
+    author: buildAuthorDisplay(post.authorModel, authorByKey.get(`${post.authorModel}:${post.authorId.toString()}`)),
+    likedByMe: likedPostIds.has(post._id.toString()),
+    recentComments: commentsByPost[post._id.toString()] || []
   }));
 }
 

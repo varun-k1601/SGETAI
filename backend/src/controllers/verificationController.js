@@ -267,7 +267,7 @@ const getMyVerificationRequests = asyncHandler(async (req, res) => {
   // (status, reminderCount) are real, persisted values; nothing here is estimated.
   const needsAttentionFilter = { organizationId, status: "Pending", reminderCount: { $gte: 1 } };
 
-  const [requests, listTotal, statusCounts, needsAttention] = await Promise.all([
+  const [requests, listTotal, statusCounts, needsAttention, organization] = await Promise.all([
     VerificationRequest.find(listFilter)
       .sort({ requestedAt: -1 })
       .skip(skip)
@@ -275,7 +275,7 @@ const getMyVerificationRequests = asyncHandler(async (req, res) => {
       .populate("jobSeekerId", "firstName lastName email")
       .populate({
         path: "applicationId",
-        select: "jobId",
+        select: "jobId status",
         populate: { path: "jobId", select: "title" }
       })
       .lean(),
@@ -285,7 +285,12 @@ const getMyVerificationRequests = asyncHandler(async (req, res) => {
         VerificationRequest.countDocuments({ organizationId, status })
       )
     ),
-    VerificationRequest.countDocuments(needsAttentionFilter)
+    VerificationRequest.countDocuments(needsAttentionFilter),
+    // This organization's OWN auto-reject rule. Without it the recruiter sees a rating and a
+    // Rejected application with nothing connecting the two — a candidate dropped by an automated
+    // rule whose trigger is invisible is exactly what a recruiter gets asked to justify. Scoped
+    // to req.user.id like every other read here, and only ever the caller's own settings.
+    Organization.findById(organizationId).select("autoRejectOnTrustScore trustScoreThreshold").lean()
   ]);
 
   const summary = {
@@ -299,6 +304,10 @@ const getMyVerificationRequests = asyncHandler(async (req, res) => {
   return sendSuccess(res, {
     message: "Verification requests fetched successfully.",
     summary,
+    autoReject: {
+      enabled: Boolean(organization?.autoRejectOnTrustScore),
+      threshold: organization?.trustScoreThreshold ?? null
+    },
     pagination: {
       page,
       limit,
@@ -315,7 +324,16 @@ const getMyVerificationRequests = asyncHandler(async (req, res) => {
       submittedAt: request.submittedAt,
       lastReminderSentAt: request.lastReminderSentAt,
       reminderCount: request.reminderCount,
+      // The manager's actual submission. Stored since the feature shipped and acted upon
+      // (trustScore, experience verificationStatus, and the auto-reject rule below), but never
+      // returned here, so no recruiter could read the assessment that moved those values.
+      // Null until status is "Submitted".
+      managerRating: request.managerRating ?? null,
+      managerFeedback: request.managerFeedback || null,
       applicationId: request.applicationId?._id || request.applicationId,
+      // Lets the UI state plainly that an application sits at Rejected, instead of inferring it
+      // from the rating and the CURRENT threshold — which may have been changed since.
+      applicationStatus: request.applicationId?.status || null,
       jobId: request.applicationId?.jobId?._id || null,
       jobTitle: request.applicationId?.jobId?.title || null,
       candidateName:

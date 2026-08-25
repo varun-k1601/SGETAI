@@ -2,42 +2,34 @@ import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../../services/api";
 import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
-
-function getTrustTone(score) {
-  if (score >= 80) {
-    return "Strong";
-  }
-
-  if (score >= 60) {
-    return "Positive";
-  }
-
-  if (score >= 40) {
-    return "Mixed";
-  }
-
-  return "Concern";
-}
+import { getTrustScoreTag } from "../../utils/trustScore";
 
 export function VerificationSubmitPage() {
   const [searchParams] = useSearchParams();
-  const tokenFromUrl = searchParams.get("token") || "";
-  const [token, setToken] = useState(tokenFromUrl);
+  // Read once from the URL and held in component state only. It is a BEARER CREDENTIAL: whoever
+  // holds it can file a verification against a named candidate, which writes a trust score and
+  // can auto-reject their application. It is never rendered - not in a textarea, not read-only,
+  // and not in a hidden input a form serialiser could echo back. It travels in the request body.
+  const token = searchParams.get("token") || "";
+  const hasToken = Boolean(token.trim());
   const [rating, setRating] = useState(80);
   const [feedback, setFeedback] = useState("");
+  // `status` stays for TRANSIENT submit results only. The missing-token error is rendered as its
+  // own persistent block below: AutoDismissFeedback clears itself after 3 seconds, which for a
+  // blocking condition would leave a disabled form with nothing explaining why.
   const [status, setStatus] = useState({ type: "", message: "" });
   const [result, setResult] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const trustTone = useMemo(() => getTrustTone(Number(rating)), [rating]);
+  const trustTone = useMemo(() => getTrustScoreTag(Number(rating)), [rating]);
 
   async function handleSubmit(event) {
     event.preventDefault();
     setStatus({ type: "", message: "" });
     setResult(null);
 
-    if (!token.trim()) {
-      setStatus({ type: "error", message: "Verification token is missing." });
+    // Backstop only - the form is disabled without a token, and the error is already on screen.
+    if (!hasToken) {
       return;
     }
 
@@ -108,18 +100,16 @@ export function VerificationSubmitPage() {
               </p>
             </div>
 
-            <form className="auth-form" onSubmit={handleSubmit}>
-              <label className="form-field">
-                <span>Secure token</span>
-                <textarea
-                  value={token}
-                  onChange={(event) => setToken(event.target.value)}
-                  rows={4}
-                  placeholder="Token from the verification email"
-                  required
-                />
-              </label>
+            {/* Reported at LOAD, not on submit. The old flow let the manager write a full
+                assessment and only then told them the link was unusable, discarding it. */}
+            {!hasToken ? (
+              <div className="feedback-banner error" role="alert">
+                This verification link is missing its token. Open the link from the verification
+                email exactly as it was sent, or ask the recruiter to resend it.
+              </div>
+            ) : null}
 
+            <form className="auth-form" onSubmit={handleSubmit}>
               <label className="form-field">
                 <span>Rating: {rating} / 100</span>
                 <input
@@ -128,6 +118,7 @@ export function VerificationSubmitPage() {
                   max="100"
                   value={rating}
                   onChange={(event) => setRating(event.target.value)}
+                  disabled={!hasToken}
                 />
               </label>
 
@@ -145,6 +136,7 @@ export function VerificationSubmitPage() {
                   onChange={(event) => setFeedback(event.target.value)}
                   rows={5}
                   placeholder="Share concise employment verification notes."
+                  disabled={!hasToken}
                 />
               </label>
 
@@ -163,7 +155,7 @@ export function VerificationSubmitPage() {
                 </div>
               ) : null}
 
-              <button type="submit" disabled={isSubmitting}>
+              <button type="submit" disabled={isSubmitting || !hasToken}>
                 {isSubmitting ? "Submitting..." : "Submit verification"}
               </button>
             </form>

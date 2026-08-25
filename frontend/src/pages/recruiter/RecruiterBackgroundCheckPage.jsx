@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest } from "../../services/api";
 import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
+import { getTrustScoreTag, getTrustScoreTone } from "../../utils/trustScore";
 
 /* ===============================================================================================
    Recruiter background verification (/recruiter/background-check) — organization accounts only.
@@ -268,6 +269,9 @@ export function RecruiterBackgroundCheckPage() {
   });
 
   const requests = verificationQuery.data?.requests || [];
+  // This organization's own auto-reject rule, so a Rejected application can be explained by the
+  // rating and threshold that actually triggered it rather than left unaccounted for.
+  const autoReject = verificationQuery.data?.autoReject || null;
   const summary = verificationQuery.data?.summary;
   const pagination = verificationQuery.data?.pagination;
 
@@ -538,6 +542,23 @@ export function RecruiterBackgroundCheckPage() {
               const needsNudge = request.status === "Pending" && (request.reminderCount || 0) >= 1;
               const progressText = `${completedSteps} of ${TOTAL_STEPS} complete`;
 
+              // Only a Submitted request has an assessment. Pending/Expired rows render no
+              // feedback block at all rather than an empty labelled shell.
+              const hasAssessment =
+                request.status === "Submitted" && request.managerRating !== null &&
+                request.managerRating !== undefined;
+              const ratingTag = hasAssessment ? getTrustScoreTag(request.managerRating) : null;
+              const ratingTone = hasAssessment ? getTrustScoreTone(request.managerRating) : "muted";
+              // Stated only when all three are true: the rule is on, this rating is under the
+              // threshold, and the application really is Rejected. Inferring it from the rating
+              // and the CURRENT threshold alone would mislabel rows whose settings changed later.
+              const autoRejected =
+                hasAssessment &&
+                Boolean(autoReject?.enabled) &&
+                typeof autoReject?.threshold === "number" &&
+                request.managerRating < autoReject.threshold &&
+                request.applicationStatus === "Rejected";
+
               const metaParts = [
                 request.candidateEmail,
                 requestedOn ? `requested ${requestedOn}` : null,
@@ -585,6 +606,51 @@ export function RecruiterBackgroundCheckPage() {
                   </div>
 
                   <StepChips employmentDone={employmentDone} requestId={request._id} />
+
+                  {hasAssessment ? (
+                    <section
+                      className="bv-assessment"
+                      aria-labelledby={`bv-assessment-${request._id}`}
+                    >
+                      <div className="bv-assessment__head">
+                        <p className="bv-assessment__title" id={`bv-assessment-${request._id}`}>
+                          Manager assessment
+                        </p>
+                        <span className={`bv-pill bv-pill--${ratingTone}`}>
+                          {request.managerRating} / 100 · {ratingTag}
+                        </span>
+                      </div>
+
+                      <p className="bv-assessment__by">
+                        {request.managerEmail}
+                        {submittedOn ? ` · ${submittedOn}` : ""}
+                      </p>
+
+                      {autoRejected ? (
+                        <p className="bv-assessment__auto" role="status">
+                          <IconAlertTriangle className="bv-icon bv-icon--sm" />
+                          <span>
+                            Application automatically rejected — this rating of{" "}
+                            {request.managerRating} is below your auto-reject threshold of{" "}
+                            {autoReject.threshold}.{" "}
+                            <Link className="bv-row__link" to="/recruiter/settings">
+                              Change the threshold
+                            </Link>
+                          </span>
+                        </p>
+                      ) : null}
+
+                      {request.managerFeedback ? (
+                        <blockquote className="bv-assessment__quote">
+                          {request.managerFeedback}
+                        </blockquote>
+                      ) : (
+                        <p className="bv-assessment__none">
+                          The manager submitted a rating without written comments.
+                        </p>
+                      )}
+                    </section>
+                  ) : null}
 
                   <p className="bv-row__foot">
                     Only employment history is verifiable on this platform — no screening provider is

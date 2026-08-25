@@ -191,7 +191,25 @@ export function AdminTable({ columns, children, caption }) {
   );
 }
 
-export function AdminQueryState({ query, emptyLabel, isEmpty }) {
+/* Renders the loading / error / empty branch, or the content when there is nothing to report.
+ *
+ * The children API exists to make one specific bug UNREPRESENTABLE. Two pages had written:
+ *
+ *     const state = <AdminQueryState … />;      // a React ELEMENT
+ *     {state || <AdminTable …>{rows}</AdminTable>}
+ *
+ * A React element is an object, so it is ALWAYS truthy no matter what the component returns when
+ * React later renders it. `||` therefore always took the left branch and the table was unreachable
+ * dead code — on a healthy load with rows present the page rendered this function's `null` where
+ * the table should have been, and not even the empty message, because nothing was empty.
+ *
+ * Passing the content as children removes the boolean from the call site entirely, so there is no
+ * longer anything to get wrong. `children ?? null` keeps the older childless usages working
+ * unchanged: AdminApiHealthPage, AdminBillingPage, AdminGrowthOperationsPage and
+ * AdminRecruiterPipelinePage all render this self-closing with their table as a SIBLING guarded by
+ * its own `x.length ? … : null`, which was never affected by the bug.
+ */
+export function AdminQueryState({ query, emptyLabel, isEmpty, children }) {
   if (query.isLoading) {
     return <p className="adm-empty">Loading…</p>;
   }
@@ -204,7 +222,7 @@ export function AdminQueryState({ query, emptyLabel, isEmpty }) {
     return <p className="adm-empty">{emptyLabel}</p>;
   }
 
-  return null;
+  return children ?? null;
 }
 
 // Used by the two console pages whose data does not exist anywhere on the platform yet. It states

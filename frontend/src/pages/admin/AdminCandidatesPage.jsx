@@ -60,9 +60,23 @@ export function AdminCandidatesPage() {
       });
   }, [overview.seekers, signals, search, planFilter]);
 
-  const state = (
-    <AdminQueryState query={query} isEmpty={!rows.length} emptyLabel="No candidates match this search." />
-  );
+  // What is actually on this page versus what exists on the platform. The overview endpoint
+  // returns only the newest 10 seekers, and the search/plan filters below run CLIENT-SIDE over
+  // that slice — so an empty result means "no match in these 10", never "no such candidate".
+  const loadedCount = (overview.seekers || []).length;
+  const totalCount = metrics.seekers ?? loadedCount;
+  const isPartial = totalCount > loadedCount;
+
+  // The old label was "No candidates match this search." — which, over a partial list, asserts
+  // something the page cannot know. Searching for the 11th candidate would have confidently
+  // reported that they do not exist. This says exactly what was searched.
+  const scope = isPartial
+    ? `the ${formatNumber(loadedCount)} most recent candidates (${formatNumber(totalCount)} exist in total)`
+    : `${formatNumber(totalCount)} candidates`;
+  const emptyLabel =
+    planFilter === "all"
+      ? `No match among ${scope}.`
+      : `No ${planFilter === "pro" ? "Pro" : "standard"} accounts among ${scope}.`;
 
   return (
     <AdminConsolePage
@@ -115,7 +129,7 @@ export function AdminCandidatesPage() {
             </select>
           </div>
 
-          {state || (
+          <AdminQueryState query={query} isEmpty={!rows.length} emptyLabel={emptyLabel}>
             <AdminTable
               caption="Recent candidates and their latest application signals"
               columns={["Candidate", "Status", "Target role", "Match", "Pipeline", "Apps", "Last activity"]}
@@ -161,7 +175,7 @@ export function AdminCandidatesPage() {
                 </tr>
               ))}
             </AdminTable>
-          )}
+          </AdminQueryState>
         </AdminCard>
       </section>
     </AdminConsolePage>

@@ -295,6 +295,24 @@ export function RecruiterSettingsPage() {
     onError: (error) => setFeedback({ type: "error", message: error.message }),
   });
 
+  // Re-invite and resend both post to the SAME endpoint as a first-time invite — the server
+  // decides from the member's current status whether that means reviving a removed record or
+  // reissuing a link for a pending one, and reports back which it did.
+  const reinviteMutation = useMutation({
+    mutationFn: ({ email, role }) =>
+      apiRequest("/organization/members/invite", {
+        method: "POST",
+        token: session.accessToken,
+        body: { email, role },
+      }),
+    onSuccess: (response) => {
+      setFeedback({ type: "success", message: response?.message || "Invite sent." });
+      setOpenMenuId("");
+      queryClient.invalidateQueries({ queryKey: ["organization", "members"] });
+    },
+    onError: (error) => setFeedback({ type: "error", message: error.message }),
+  });
+
   const removeMutation = useMutation({
     mutationFn: (memberId) =>
       apiRequest(`/organization/members/${memberId}`, {
@@ -362,6 +380,23 @@ export function RecruiterSettingsPage() {
     }
   }
 
+  function handleReinviteMember(member) {
+    const wasRemoved = member.status === "Disabled";
+    const confirmed = window.confirm(
+      wasRemoved
+        ? `Re-invite ${memberDisplayName(member)}?\n\nThey will get a fresh invite link and keep their previous job postings. They regain NO access until they accept it and set a new password — their old password will not work.`
+        : `Send ${member.email} a new invite link?\n\nAny earlier link they were sent will stop working.`
+    );
+    if (confirmed) {
+      // Owner is not assignable through an invite, so a removed ex-Owner comes back as Admin and
+      // can be promoted again afterwards. Sending their stored "Owner" would be rejected.
+      reinviteMutation.mutate({
+        email: member.email,
+        role: INVITABLE_ROLES.includes(member.role) ? member.role : "Admin",
+      });
+    }
+  }
+
   // Mirrors the controller's real guards, plus one it does NOT have (see the self-action note in
   // the deliverable): the last remaining Active Owner cannot be demoted or removed, and nobody is
   // offered a control that would lock them out of their own account.
@@ -379,15 +414,26 @@ export function RecruiterSettingsPage() {
     if (!canManageTeam) removeReason = "Only an Owner or Admin can remove teammates.";
     else if (isSelf) removeReason = "You cannot remove yourself.";
     else if (isLastActiveOwner) removeReason = "This is the last remaining Owner.";
-    else if (member.status === "Disabled") removeReason = "This member has already been removed.";
+    // Not a dead end any more: the row offers Re-invite, and this note only explains why there is
+    // nothing left to remove.
+    else if (member.status === "Disabled") removeReason = "Already removed — re-invite them to restore access.";
+
+    // A removed person can be brought back, and a pending invite can be sent again — both go
+    // through POST /invite, which reuses their existing record. Gated on canManageTeam exactly
+    // like the other controls; requireOrgMemberRole(MANAGER_ROLES) is the real gate.
+    let inviteReason = "";
+    if (!canManageTeam) inviteReason = "Only an Owner or Admin can invite teammates.";
+    else if (member.status === "Active") inviteReason = "This teammate is already active.";
 
     return {
       isSelf,
       canChangeRole: !roleReason,
       canRemove: !removeReason,
+      canReinvite: !inviteReason,
       roleReason,
       removeReason,
-      hasAnyAction: !roleReason || !removeReason,
+      inviteReason,
+      hasAnyAction: !roleReason || !removeReason || !inviteReason,
     };
   }
 
@@ -657,6 +703,20 @@ export function RecruiterSettingsPage() {
                               ) : (
                                 <p className="rs-menu__note">{permissions.roleReason}</p>
                               )}
+
+                              {/* Re-invite (removed) / Resend invite (still pending). Listed
+                                  before the destructive action so it is not the default target. */}
+                              {member.status !== "Active" && permissions.canReinvite ? (
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="rs-menu__item"
+                                  disabled={reinviteMutation.isPending}
+                                  onClick={() => handleReinviteMember(member)}
+                                >
+                                  {member.status === "Disabled" ? "Re-invite" : "Resend invite"}
+                                </button>
+                              ) : null}
 
                               {permissions.canRemove ? (
                                 <button

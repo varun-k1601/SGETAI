@@ -65,6 +65,39 @@ function readFilePath(media) {
   return isMediaObject(media) && typeof media.filePath === "string" ? media.filePath : "";
 }
 
+// Mongoose documents are accepted throughout, because several callers populate without .lean().
+// toObject() is deep, so a populated `organizationId` comes back as a plain nested object and does
+// not need converting again — calling this on an already-plain object is a no-op.
+function toPlain(value) {
+  return value && typeof value.toObject === "function" ? value.toObject() : value;
+}
+
+/* The module's ONE rule for what comes back on a media object, so every resolver below degrades
+   identically:
+
+     no filePath            -> the object is returned untouched. There is nothing we could ever
+                               sign, and it is not ours to edit.
+     signed successfully    -> `url` is the fresh signed URL.
+     signing produced nothing (outage, deleted object, throw)
+                            -> `url` is REMOVED.
+
+   That last case is the one worth spelling out. "Leave it untouched" sounds like the safe default,
+   but the stored `url` is the /object/public/ link uploadFile persisted, and it is dead by
+   construction against a private bucket — verified live: it returns
+   400 {"code":"NoSuchBucket"} while a signed URL for the same filePath returns 200 image/jpeg.
+   Preserving it does not preserve a working image; it re-renders the BROKEN one. CompanyLogo and
+   every avatar renderer branch on `url` being falsy, so dropping the key is what actually produces
+   the letter fallback. The key is omitted rather than set to "" so no consumer is ever handed an
+   empty string dressed as a URL. */
+function applySignedUrl(media, signedUrl) {
+  if (signedUrl) {
+    return { ...media, url: signedUrl };
+  }
+
+  const { url: _staleUrl, ...withoutUrl } = media;
+  return withoutUrl;
+}
+
 /**
  * Resolve ONE media object. Prefer attachMediaUrlsInPlace for anything that runs over a list —
  * this is a single network round-trip and N of them is the N+1 that made list endpoints slow.
@@ -77,12 +110,9 @@ async function attachMediaUrl(media) {
   }
 
   try {
-    const signedUrl = await getSignedFileUrl(filePath, MEDIA_URL_TTL_SECONDS);
-    // A falsy result means the file could not be signed; keeping the stale stored `url` would just
-    // re-render the broken image, so it is cleared and the caller falls back to initials.
-    return { ...media, url: signedUrl || "" };
+    return applySignedUrl(media, await getSignedFileUrl(filePath, MEDIA_URL_TTL_SECONDS));
   } catch {
-    return media;
+    return applySignedUrl(media, "");
   }
 }
 
@@ -115,11 +145,11 @@ async function attachMediaUrls(mediaObjects = []) {
   return mediaObjects.map((media) => {
     const filePath = readFilePath(media);
 
-    if (!filePath || !signedUrlByPath.has(filePath)) {
+    if (!filePath) {
       return media;
     }
 
-    return { ...media, url: signedUrlByPath.get(filePath) };
+    return applySignedUrl(media, signedUrlByPath.get(filePath));
   });
 }
 
@@ -129,9 +159,7 @@ async function attachMediaUrls(mediaObjects = []) {
  * several callers populate without .lean().
  */
 async function attachOrganizationLogos(organizations = []) {
-  const plainOrganizations = organizations.map((organization) =>
-    organization && typeof organization.toObject === "function" ? organization.toObject() : organization
-  );
+  const plainOrganizations = organizations.map(toPlain);
 
   const logos = plainOrganizations.map((organization) => organization?.logo).filter(isMediaObject);
   const signedUrlByPath = await signMediaBatch(logos);
@@ -139,50 +167,57 @@ async function attachOrganizationLogos(organizations = []) {
   return plainOrganizations.map((organization) => {
     const filePath = readFilePath(organization?.logo);
 
-    if (!filePath || !signedUrlByPath.has(filePath)) {
+    if (!filePath) {
       return organization;
     }
 
     return {
       ...organization,
-      logo: { ...organization.logo, url: signedUrlByPath.get(filePath) }
+      logo: applySignedUrl(organization.logo, signedUrlByPath.get(filePath))
     };
   });
 }
 
 /**
- * Jobs whose `organizationId` has been populated into an organization object. Signs every distinct
- * logo across the page in one call — the same employer owning five jobs costs one signature, not
- * five — and rebuilds the job list with the resolved organizations.
+ * Records that populate an employer into `organizationId` — Job documents from the search and
+ * recommendation lists, Application documents from GET /applications/mine. Both models name the
+ * field `organizationId` and both are read by CompanyLogo, so they want the same treatment; this
+ * used to be attachJobOrganizationLogos, whose job-specific name is why /applications/mine was
+ * never wired up to it and stayed the last seeker-facing list serving dead logo URLs.
+ *
+ * Delegates to attachOrganizationLogos so the signing rule lives in exactly one place, and
+ * reattaches by index. One Supabase call for the whole page: signMediaBatch -> getSignedFileUrls
+ * deduplicates paths, so a seeker with five applications to the same employer — or an employer
+ * owning five jobs — costs ONE signature, not five.
  */
-async function attachJobOrganizationLogos(jobs = []) {
-  const plainJobs = jobs.map((job) => (job && typeof job.toObject === "function" ? job.toObject() : job));
+async function attachPopulatedOrganizationLogos(records = []) {
+  const plainRecords = records.map(toPlain);
 
-  const organizations = plainJobs
-    .map((job) => job?.organizationId)
-    .filter((organization) => isMediaObject(organization) && isMediaObject(organization.logo));
+  // Index-aligned with plainRecords. Only records whose organizationId is a populated employer
+  // CARRYING A LOGO are resolved: an un-populated organizationId is still a bare ObjectId (also
+  // typeof "object", so the `logo` test is what excludes it), and an employer that never uploaded
+  // one has nothing to sign. Both pass through byte-for-byte, which is what leaves CompanyLogo to
+  // render its letter fallback.
+  const organizations = plainRecords.map((record) =>
+    isMediaObject(record?.organizationId) && isMediaObject(record.organizationId.logo)
+      ? record.organizationId
+      : null
+  );
 
-  if (!organizations.length) {
-    return plainJobs;
+  if (!organizations.some(Boolean)) {
+    return plainRecords;
   }
 
-  const signedUrlByPath = await signMediaBatch(organizations.map((organization) => organization.logo));
+  const presentIndexes = organizations.reduce(
+    (indexes, organization, index) => (organization ? indexes.concat(index) : indexes),
+    []
+  );
+  const resolved = await attachOrganizationLogos(presentIndexes.map((index) => organizations[index]));
+  const resolvedByIndex = new Map(presentIndexes.map((index, position) => [index, resolved[position]]));
 
-  return plainJobs.map((job) => {
-    const filePath = readFilePath(job?.organizationId?.logo);
-
-    if (!filePath || !signedUrlByPath.has(filePath)) {
-      return job;
-    }
-
-    return {
-      ...job,
-      organizationId: {
-        ...job.organizationId,
-        logo: { ...job.organizationId.logo, url: signedUrlByPath.get(filePath) }
-      }
-    };
-  });
+  return plainRecords.map((record, index) =>
+    resolvedByIndex.has(index) ? { ...record, organizationId: resolvedByIndex.get(index) } : record
+  );
 }
 
 module.exports = {
@@ -190,6 +225,6 @@ module.exports = {
   attachMediaUrl,
   attachMediaUrls,
   attachOrganizationLogos,
-  attachJobOrganizationLogos,
+  attachPopulatedOrganizationLogos,
   signMediaBatch
 };

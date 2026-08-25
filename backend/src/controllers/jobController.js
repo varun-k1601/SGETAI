@@ -53,27 +53,47 @@ function toApplicationResponse(application, latestVerificationRequest) {
   };
 }
 
-// Attaches a lightweight `postedBy` display object (name only) to each job with a
-// postedByMemberId — jobs created before this feature or by a legacy session simply have no
-// postedBy in the response, same as they had no attribution before.
-async function attachPostedByName(jobs) {
+// Attaches a lightweight `postedBy` display object to each job with a postedByMemberId — jobs
+// created before this feature or by a legacy session simply have no postedBy in the response,
+// same as they had no attribution before. That null is load-bearing: the UI renders nothing at
+// all about a person rather than inventing one.
+//
+// ONLY name/email/status are read off the member, and only name/email are ever returned. Nothing
+// else about the record (its _id, role, or passwordHash) reaches a job payload.
+//
+// `includeStatus` is off by default: see the call site in getJobById for why a job seeker is not
+// told that a named individual no longer works at the company.
+async function attachPostedBy(jobs, { includeStatus = false } = {}) {
   const memberIds = [...new Set(jobs.map((job) => job.postedByMemberId).filter(Boolean).map(String))];
 
   if (!memberIds.length) {
-    return jobs;
+    return jobs.map((job) => ({ ...job, postedBy: null }));
   }
 
-  const members = await OrganizationMember.find({ _id: { $in: memberIds } }).select("firstName lastName");
+  const members = await OrganizationMember.find({ _id: { $in: memberIds } })
+    .select("firstName lastName email status");
   const memberById = new Map(members.map((member) => [member._id.toString(), member]));
 
   return jobs.map((job) => {
     const member = job.postedByMemberId ? memberById.get(String(job.postedByMemberId)) : null;
 
+    if (!member) {
+      return { ...job, postedBy: null };
+    }
+
+    // A removed teammate still posted this job — that historical fact stays true and their name
+    // is kept. Their email is not: it is a personal address at a company they have left, so mail
+    // to it bounces or goes unread, and publishing it as the live hiring contact is misleading.
+    // The UI falls back to the organization when there is no email.
+    const isDisabled = member.status === "Disabled";
+
     return {
       ...job,
-      postedBy: member
-        ? { name: `${member.firstName || ""} ${member.lastName || ""}`.trim() || "Team member" }
-        : null
+      postedBy: {
+        name: `${member.firstName || ""} ${member.lastName || ""}`.trim() || "Team member",
+        email: isDisabled ? null : member.email || null,
+        ...(includeStatus ? { status: member.status } : {})
+      }
     };
   });
 }
@@ -400,7 +420,7 @@ const getMyJobs = asyncHandler(async (req, res) => {
     }
   }
 
-  const jobsWithPostedBy = await attachPostedByName(jobs);
+  const jobsWithPostedBy = await attachPostedBy(jobs, { includeStatus: true });
 
   return sendSuccess(res, {
     message: "Recruiter jobs fetched successfully.",
@@ -755,7 +775,10 @@ const getJobById = asyncHandler(async (req, res) => {
     .select("companyName industry headquartersLocation logo websiteUrl description companySize foundedYear")
     .lean();
 
-  const [jobWithPostedBy] = await attachPostedByName([job]);
+  // Seeker-facing, so no `status`: whether a named person still works at the company is
+  // their employment information, is not needed to render any state of the Posted by block
+  // (the absence of an email is what the UI keys off), and every signed-in user sees this.
+  const [jobWithPostedBy] = await attachPostedBy([job]);
   // Same dead public-object URL as the list endpoints — the detail page renders CompanyLogo too,
   // so without this the logo broke here as well.
   const [organizationWithLogo] = organization ? await attachOrganizationLogos([organization]) : [];

@@ -1,15 +1,23 @@
+// Order matters and it was wrong before: `\` was replaced with `\textbackslash{}` FIRST, and the
+// later `{`/`}` rules then escaped the braces that replacement had just introduced, yielding
+// `\textbackslash\{\}`. Every special is now mapped in a single pass so no replacement can be
+// re-processed by a later one. Covers & % $ # _ { } ~ ^ \ — so "R&D", "C#" and "100%" are safe.
+const LATEX_ESCAPES = {
+  "\\": "\\textbackslash{}",
+  "&": "\\&",
+  "%": "\\%",
+  $: "\\$",
+  "#": "\\#",
+  _: "\\_",
+  "{": "\\{",
+  "}": "\\}",
+  "~": "\\textasciitilde{}",
+  "^": "\\textasciicircum{}"
+};
+
 function escapeLatex(value) {
-  return String(value || "")
-    .replace(/\\/g, "\\textbackslash{}")
-    .replace(/&/g, "\\&")
-    .replace(/%/g, "\\%")
-    .replace(/\$/g, "\\$")
-    .replace(/#/g, "\\#")
-    .replace(/_/g, "\\_")
-    .replace(/{/g, "\\{")
-    .replace(/}/g, "\\}")
-    .replace(/~/g, "\\textasciitilde{}")
-    .replace(/\^/g, "\\textasciicircum{}");
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/[\\&%$#_{}~^]/g, (character) => LATEX_ESCAPES[character]);
 }
 
 function stripLatexFence(value) {
@@ -54,17 +62,100 @@ function sentence(value, fallback = "") {
 // typed several bullet points (one per line, optionally prefixed with •/-/1.) expects each to
 // render as its own bullet — not get flattened into one run-on line, which is what sentence()'s
 // whitespace collapsing (newlines included) used to do before this split happened.
-function splitDescriptionBullets(description) {
-  return String(description || "")
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^\s*(?:[•*\-–—]|\d+[.)])\s*/, "").trim())
+// Splits a sentence run into individual sentences WITHOUT breaking on the periods inside decimals
+// ("3.68"), abbreviations ("e.g.") or version/tech strings ("Node.js", "ASP.NET"). Only a period,
+// question mark or exclamation followed by whitespace and a capital/digit starts a new sentence.
+function splitSentences(line) {
+  return String(line || "")
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map((part) => part.trim())
     .filter(Boolean);
 }
 
-function buildResumeItemBullets(description, fallbackText) {
+const MAX_BULLETS_PER_ENTRY = 4;
+
+// A candidate who typed one bullet per line expects one \resumeItem per line. A candidate who
+// typed a paragraph expects it BROKEN UP, not rendered as a single run-on dash item — that was the
+// ADP entry, three sentences crushed into one. So: split on newlines first (explicit intent), and
+// where a line still holds several sentences, split those out too.
+//
+// Nothing is invented or reworded here. The words are the candidate's; only where they break is
+// decided by this function.
+function splitDescriptionBullets(description) {
+  const lines = String(description || "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[•*\-–—]|\d+[.)])\s*/, "").trim())
+    .filter(Boolean);
+
+  return lines.flatMap((line) => {
+    const sentences = splitSentences(line);
+    // A single long sentence stays whole; only genuinely multi-sentence lines are broken up.
+    return sentences.length > 1 ? sentences : [line];
+  });
+}
+
+// Emphasis, NOT generation. This bolds spans that are already present in the candidate's own text:
+//   1. metrics — a number carrying %, x, ms, s, +, or a ratio like 89/100
+//   2. named technologies that appear in the target job's keyword set
+// It can never introduce a term the candidate did not write, because every replacement is anchored
+// to a match inside the existing string. Capped at MAX_EMPHASIS_SPANS because past three bolded
+// runs per bullet the emphasis stops reading as emphasis.
+const MAX_EMPHASIS_SPANS = 3;
+// NOTE the optional `\\?` before % — this runs on ALREADY-ESCAPED LaTeX, where a percentage is
+// "70\%", not "70%". Without it every percentage in every bullet silently missed emphasis, which
+// is the single most common metric on a resume.
+const METRIC_PATTERN =
+  /\b\d[\d,.]*\s*(?:\\?%|x\b|ms\b|s\b|k\b|m\b|bn\b|hrs?\b|hours?\b|mins?\b|minutes?\b|\/\s*\d+)|\b\d[\d,.]*\s*(?:to|->|→)\s*\d[\d,.]*\s*(?:\\?%|x|ms|s)?/gi;
+
+function escapeRegExpLiteral(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function emphasizeBullet(text, emphasisTerms = []) {
+  // Applied to ALREADY-ESCAPED LaTeX, so the \textbf{} wrappers we add are the only braces with
+  // meaning; the candidate's own braces were turned into \{ \} before we got here.
+  let result = String(text || "");
+  let used = 0;
+
+  result = result.replace(METRIC_PATTERN, (match) => {
+    if (used >= MAX_EMPHASIS_SPANS) {
+      return match;
+    }
+    used += 1;
+    // Trailing whitespace must stay OUTSIDE the bold span, or "40 to 8 minutes" renders as
+    // "\textbf{40 to 8 }minutes" — the space bolded and the unit left behind.
+    const trailing = match.match(/\s+$/)?.[0] || "";
+    return `\\textbf{${match.slice(0, match.length - trailing.length)}}${trailing}`;
+  });
+
+  for (const term of emphasisTerms) {
+    if (used >= MAX_EMPHASIS_SPANS) {
+      break;
+    }
+    const literal = escapeRegExpLiteral(escapeLatex(term));
+    if (!literal || literal.length < 2) {
+      continue;
+    }
+    // Word-boundary-ish: not already inside a \textbf{...} we just added.
+    const pattern = new RegExp(`(?<!\\\\textbf\\{)\\b(${literal})\\b`, "i");
+    if (pattern.test(result)) {
+      result = result.replace(pattern, "\\textbf{$1}");
+      used += 1;
+    }
+  }
+
+  return result;
+}
+
+function buildResumeItemBullets(description, fallbackText, emphasisTerms = []) {
   const bullets = splitDescriptionBullets(description);
-  const finalBullets = bullets.length ? bullets : [sentence(description, fallbackText)];
-  return finalBullets.map((line) => `\\resumeItem{${escapeLatex(sentence(line))}}`).join("\n");
+  const finalBullets = (bullets.length ? bullets : [sentence(description, fallbackText)])
+    .filter(Boolean)
+    .slice(0, MAX_BULLETS_PER_ENTRY);
+
+  return finalBullets
+    .map((line) => `\\resumeItem{${emphasizeBullet(escapeLatex(sentence(line)), emphasisTerms)}}`)
+    .join("\n");
 }
 
 function getEducationSortYear(item = {}) {
@@ -312,6 +403,10 @@ function flattenSkillGroups(groups = []) {
     .filter(Boolean);
 }
 
+// A resume's skills line is a summary, not an inventory: past ~20 entries it stops being read
+// and starts costing vertical space that bullets need. Ranking decides WHICH 20, never how many.
+const MAX_RESUME_SKILLS = 20;
+
 function pickRelevantSkills(profile, job) {
   const profileSkills = [...new Set([
     ...flattenSkillGroups(profile.skillGroups),
@@ -344,15 +439,18 @@ function pickRelevantSkills(profile, job) {
     return { skill, index, score };
   });
 
+  // Relevance ORDERS the list; it must never shorten it. The previous implementation discarded
+  // every score-0 skill the moment a SINGLE skill matched the posting, so a MERN job erased
+  // Docker, Kubernetes and Jenkins from a DevOps candidate's resume outright. Score 0 does not
+  // mean "irrelevant" — it means "did not textually match this posting's keyword list", which is
+  // true of most of a strong candidate's skill set. This is the same defect class as relevance
+  // deleting the most recent role: filtering before capping silently destroys real credentials.
   const rankedSkills = scoredSkills
     .sort((left, right) => right.score - left.score || left.index - right.index);
-  const directlyRelevantSkills = rankedSkills.filter((entry) => entry.score > 0);
-  // Only fall back to the candidate's full skill list (score-0 included) when NOTHING is
-  // relevant — mirrors selectRelevantItems' fallback below, rather than padding out an
-  // already-relevant list with unrelated skills just to hit a minimum count.
-  const finalSkills = directlyRelevantSkills.length ? directlyRelevantSkills : rankedSkills;
 
-  return finalSkills.slice(0, 18).map((entry) => entry.skill);
+  // Top N out of ALL skills — matched ones first, so a recruiter skimming the line sees the fit
+  // immediately, with the remainder following in the candidate's own stored order.
+  return rankedSkills.slice(0, MAX_RESUME_SKILLS).map((entry) => entry.skill);
 }
 
 function getResumeProfileReadiness(profile) {
@@ -509,15 +607,28 @@ const skillCategoryRules = [
   }
 ];
 
+// The language patterns are strictly anchored (/^java$/), so a perfectly ordinary label like
+// "Core Java" or "Advanced Python" fell through to "Other". This strips a leading qualifier FOR
+// MATCHING ONLY — the displayed label keeps the candidate's own wording.
+const SKILL_QUALIFIER_PATTERN = /^(?:core|advanced|modern|proficient(?:\s+in)?|strong|expert(?:\s+in)?|hands[- ]on(?:\s+with)?)\s+/i;
+
+function categoryMatchKey(skill) {
+  return String(skill || "").trim().replace(SKILL_QUALIFIER_PATTERN, "").trim();
+}
+
 function categorizeSkills(skills) {
   const grouped = skillCategoryRules.reduce((accumulator, category) => {
     accumulator[category.label] = [];
     return accumulator;
-  }, { Other: [] });
+  }, {});
+  // "Other" is created LAST so it renders last. Previously it was seeded first and a profile whose
+  // strongest skills happened to be uncategorised led its Technical Skills block with "Other:".
+  grouped.Other = [];
 
   skills.forEach((skill) => {
+    const key = categoryMatchKey(skill);
     const category = skillCategoryRules.find((rule) =>
-      rule.patterns.some((pattern) => pattern.test(skill))
+      rule.patterns.some((pattern) => pattern.test(skill) || pattern.test(key))
     );
 
     grouped[category?.label || "Other"].push(skill);
@@ -533,9 +644,19 @@ function categorizeResumeSkills(profile, selectedSkills) {
   const selectedIndexBySkill = new Map(
     selectedSkills.map((skill, index) => [skill.toLowerCase(), index])
   );
-  const groupedFromProfile = (profile.skillGroups || [])
+  // A skillGroup with an EMPTY category is the common shape — the parser emits one unlabelled
+  // group holding every skill. Falling back to the literal label "Skills" (the old behaviour) is
+  // what collapsed a whole profile into a single generic "Skills:" line. An unlabelled group is
+  // now handed to the pattern-based categoriser instead, which splits it into real buckets
+  // ("Programming Languages", "Databases", "Testing & QA", ...).
+  const labelledGroups = (profile.skillGroups || []).filter((group) => sentence(group?.category));
+  const unlabelledGroupSkills = (profile.skillGroups || [])
+    .filter((group) => !sentence(group?.category))
+    .flatMap((group) => group?.skills || []);
+
+  const groupedFromProfile = labelledGroups
     .map((group) => ({
-      label: sentence(group.category, "Skills"),
+      label: sentence(group.category),
       skills: [...new Set((group.skills || [])
         .map((skill) => String(skill || "").trim())
         .filter((skill) => selectedSet.has(skill.toLowerCase()))
@@ -551,12 +672,148 @@ function categorizeResumeSkills(profile, selectedSkills) {
   const groupedSkillSet = new Set(
     groupedFromProfile.flatMap((group) => group.skills.map((skill) => skill.toLowerCase()))
   );
-  const uncategorizedSelectedSkills = selectedSkills.filter((skill) => !groupedSkillSet.has(skill.toLowerCase()));
+  // Everything not claimed by a labelled group — including every skill from unlabelled groups —
+  // goes through the pattern categoriser.
+  const uncategorizedSelectedSkills = [
+    ...selectedSkills,
+    ...unlabelledGroupSkills.map((skill) => String(skill || "").trim())
+  ].filter(
+    (skill, index, all) =>
+      skill &&
+      selectedSet.has(skill.toLowerCase()) &&
+      !groupedSkillSet.has(skill.toLowerCase()) &&
+      all.findIndex((other) => other.toLowerCase() === skill.toLowerCase()) === index
+  );
 
-  return [
-    ...groupedFromProfile,
-    ...categorizeSkills(uncategorizedSelectedSkills)
-  ];
+  return [...groupedFromProfile, ...categorizeSkills(uncategorizedSelectedSkills)]
+    .map((group) => ({
+      label: group.label,
+      // Hedges are stripped at render time so "Basics of C++" prints as "C++", without rewriting
+      // what the candidate stored in their profile.
+      skills: [...new Set(group.skills.map(normalizeSkillLabel).filter(Boolean))]
+    }))
+    .filter((group) => group.skills.length);
+}
+
+// "3.684" -> "3.68/4", "8.68" -> "8.68/10", "88" -> "88%". The scale is inferred from the value's
+// own magnitude, never invented: a GPA the profile stores as 3.684 is a 4-point scale by
+// construction. The number itself is only rounded for display, never altered.
+function formatGpa(value) {
+  const raw = String(value === null || value === undefined ? "" : value).trim();
+  if (!raw) {
+    return "";
+  }
+
+  // Already carries its own scale ("8.68/10", "3.68 / 4") — pass through untouched.
+  if (/\//.test(raw)) {
+    return raw;
+  }
+
+  const numeric = Number(raw.replace(/[^\d.]/g, ""));
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return raw;
+  }
+
+  const rounded = Math.round(numeric * 100) / 100;
+  if (numeric <= 5) {
+    return `${rounded}/4`;
+  }
+  if (numeric <= 10) {
+    return `${rounded}/10`;
+  }
+  return `${rounded}%`;
+}
+
+function normalizeTitleKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// Collapses entries that are the same achievement written twice — across the achievements and
+// certifications arrays, which this codebase populates from one parser pass and therefore
+// routinely duplicates. First occurrence wins, so ordering (achievements first) is preserved.
+function dedupeTitledItems(items = []) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = normalizeTitleKey(item?.title);
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function flattenProjectTechStack(item = {}) {
+  const raw = item.technologies || item.techStack || item.tools || item.stack || [];
+  const values = Array.isArray(raw) ? raw : String(raw).split(/[,;|]/);
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))].join(", ");
+}
+
+const COURSEWORK_SECTION_PATTERN = /coursework|courses|subjects studied/i;
+const EXTRACURRICULAR_SECTION_PATTERN = /extra[- ]?curricular|volunteer|activities|clubs?|societ|leadership|community/i;
+
+function getCustomSections(profile = {}) {
+  return [...(profile.customSections || []), ...(profile.additionalSections || [])].filter(Boolean);
+}
+
+// Coursework is a flat list of titles. It comes from whichever custom/additional section the
+// parser filed it under, or from an explicit `coursework` field if one exists.
+function collectCoursework(profile = {}) {
+  const explicit = Array.isArray(profile.coursework) ? profile.coursework : [];
+  const fromSections = getCustomSections(profile)
+    .filter((section) => COURSEWORK_SECTION_PATTERN.test(section.title || section.sectionTitle || ""))
+    .flatMap((section) => (section.entries || []).map((entry) => entry.title));
+
+  return [...new Set([...explicit, ...fromSections].map((value) => sentence(value)).filter(Boolean))];
+}
+
+// Pulls a trailing date RANGE off the end of a heading: "NSS 2019 - 2022" -> { text: "NSS",
+// dates: "2019 -- 2022" }. Ranges only — a bare trailing year is left alone, because it is just
+// as likely to be part of the name itself ("Hack 2024", "IEEE 802.11"). Nothing is invented: the
+// digits are the candidate's own, only relocated into the column built to hold them.
+const TRAILING_DATE_RANGE_PATTERN =
+  /[\s,(\[|-]+((?:[A-Z][a-z]{2,8}\.?[\s-]+)?\d{4})\s*(?:-{1,2}|–|—|to|until|through)\s*((?:[A-Z][a-z]{2,8}\.?[\s-]+)?\d{4}|Present|Current|Ongoing|Date)\s*[)\]]?\s*$/i;
+
+function splitTrailingDateRange(value) {
+  const text = sentence(value);
+  if (!text) {
+    return { text: "", dates: "" };
+  }
+
+  const match = text.match(TRAILING_DATE_RANGE_PATTERN);
+  if (!match) {
+    return { text, dates: "" };
+  }
+
+  const remaining = text.slice(0, match.index).replace(/[\s,(\[|-]+$/, "").trim();
+  // Only split when something meaningful is left behind. A heading that is nothing BUT a date
+  // range keeps its text, rather than collapsing the entry to an empty organisation.
+  if (!remaining) {
+    return { text, dates: "" };
+  }
+
+  return { text: remaining, dates: `${match[1].trim()} -- ${match[2].trim()}` };
+}
+
+function collectExtracurricular(profile = {}) {
+  const fromSections = getCustomSections(profile)
+    .filter((section) => EXTRACURRICULAR_SECTION_PATTERN.test(section.title || section.sectionTitle || ""))
+    .flatMap((section) => section.entries || []);
+
+  return fromSections.filter((entry) => sentence(entry?.title) || sentence(entry?.organization));
+}
+
+// "Basics of C++" -> "C++", "Familiar with Docker" -> "Docker". A resume states what the candidate
+// can do; a hedge in the skill string undersells it and reads as filler. Only leading hedges are
+// stripped — the skill itself is never reworded.
+const SKILL_HEDGE_PATTERN = /^(?:basics?\s+(?:of|in)|basic|familiar(?:ity)?\s+with|beginner\s+(?:in|at|level)|working\s+knowledge\s+of|knowledge\s+of|exposure\s+to|intro(?:duction)?\s+to|some|elementary)\s+/i;
+
+function normalizeSkillLabel(skill) {
+  const cleaned = String(skill || "").trim().replace(SKILL_HEDGE_PATTERN, "").trim();
+  return cleaned || String(skill || "").trim();
 }
 
 function hasMeaningfulContent(item = {}, fields = []) {
@@ -596,117 +853,36 @@ function buildProfileForTailoring(seeker = {}) {
   return profile;
 }
 
-const defaultResumeTemplate = String.raw`%-------------------------
-% Resume in Latex
-%------------------------
+// ONE template, read from utils/resume.template.txt at module load. The inline copy that used to
+// live here had already drifted from the file (2562 vs 2523 characters), so which layout you got
+// depended on which caller you came through. The file wins; the literal below is only a last-resort
+// fallback for an environment where the file is unreadable, and is intentionally minimal.
+const path = require("path");
+const fs = require("fs");
 
-\documentclass[letterpaper,11pt]{article}
+const TEMPLATE_PATH = path.join(__dirname, "..", "utils", "resume.template.txt");
 
-\usepackage{latexsym}
+const FALLBACK_TEMPLATE = String.raw`\documentclass[letterpaper,11pt]{article}
 \usepackage[empty]{fullpage}
-\usepackage{titlesec}
-\usepackage{marvosym}
-\usepackage[usenames,dvipsnames]{color}
-\usepackage{verbatim}
 \usepackage{enumitem}
-\usepackage[hidelinks]{hyperref}
-\usepackage{fancyhdr}
-\usepackage[english]{babel}
-\usepackage{tabularx}
-\usepackage{fontawesome5}
-\usepackage{multicol}
-\usepackage{graphicx}
-\setlength{\multicolsep}{-3.0pt}
-\setlength{\columnsep}{-1pt}
-\input{glyphtounicode}
+\begin{document}
+\begin{center}{\Huge NAME}\end{center}
+OBJECTIVE
+\end{document}`;
 
-\pagestyle{fancy}
-\fancyhf{}
-\fancyfoot{}
-\renewcommand{\headrulewidth}{0pt}
-\renewcommand{\footrulewidth}{0pt}
-
-% Margins
-\addtolength{\oddsidemargin}{-0.6in}
-\addtolength{\evensidemargin}{-0.5in}
-\addtolength{\textwidth}{1.19in}
-\addtolength{\topmargin}{-.7in}
-\addtolength{\textheight}{1.4in}
-
-\urlstyle{same}
-\raggedbottom
-\raggedright
-\setlength{\tabcolsep}{0in}
-\pdfgentounicode=1
-
-% Sections
-\titleformat{\section}{
-  \vspace{-4pt}\scshape\raggedright\large\bfseries
-}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
-\titlespacing*{\section}{0pt}{8pt}{8pt}
-
-\newcommand{\resumedash}{\raisebox{0.25ex}{\scalebox{0.9}{\textbf{--}}}}
-\newcommand{\resumeItem}[1]{\item\small{{#1 \vspace{-2pt}}}}
-
-\newcommand{\resumeProjectHeading}[2]{
-\item[]
-\begin{tabular*}{1.001\textwidth}{l@{\extracolsep{\fill}}r}
-\small#1 & \textbf{\small #2}\\
-\end{tabular*}\vspace{-7pt}
+function loadResumeTemplate() {
+  try {
+    const contents = fs.readFileSync(TEMPLATE_PATH, "utf8");
+    if (String(contents || "").includes("begin{document}")) {
+      return contents;
+    }
+  } catch {
+    // Fall through to the built-in fallback.
+  }
+  return FALLBACK_TEMPLATE;
 }
 
-\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=*, label=\resumedash]}
-\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
-
-\begin{document}
-
-\begin{center}
-{\Huge \scshape NAME} \\ \vspace{1pt}
-LOCATION_OR_UNIVERSITY \\ \vspace{1pt}
-\small
-\faPhone\ PHONE ~
-\href{mailto:EMAIL}{\faEnvelope\ \underline{EMAIL}} ~
-\href{LINKEDIN}{\faLinkedin\ \underline{LINKEDIN_LABEL}} ~
-\href{GITHUB}{\faGithub\ \underline{GITHUB_LABEL}}
-\vspace{-8pt}
-\end{center}
-
-\section{Objective}
-\begin{itemize}[leftmargin=0.0in, label={}]
-\item\small{OBJECTIVE}
-\end{itemize}
-
-\section{Education}
-\begin{itemize}[leftmargin=0.0in, label={}]
-EDUCATION
-\end{itemize}
-
-\section{Experience}
-\begin{itemize}[leftmargin=0.0in, label={}]
-EXPERIENCE
-\end{itemize}
-
-\section{Projects}
-\begin{itemize}[leftmargin=0pt, itemsep=2pt, topsep=2pt, label={}]
-PROJECTS
-\end{itemize}
-
-\section{Technical Skills}
-\vspace{2pt}
-\small
-TECHNICAL_SKILLS
-
-\section{Achievements}
-\begin{itemize}[leftmargin=0.0in, label={}]
-ACHIEVEMENTS
-\end{itemize}
-
-\section{Certifications}
-\begin{itemize}[leftmargin=0.0in, label={}]
-CERTIFICATIONS
-\end{itemize}
-
-\end{document}`;
+const defaultResumeTemplate = loadResumeTemplate();
 
 function linkLabel(url) {
   return String(url || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
@@ -748,18 +924,69 @@ function sortByJobRelevance(items, targetTerms) {
   return [...items].sort((a, b) => itemRelevanceScore(b, targetTerms) - itemRelevanceScore(a, targetTerms));
 }
 
-function selectRelevantItems(items, targetTerms, limit = 4) {
-  const scoredItems = (items || [])
-    .map((item, index) => ({
-      item,
-      index,
-      score: itemRelevanceScore(item, targetTerms)
-    }))
-    .sort((left, right) => right.score - left.score || left.index - right.index);
-  const relevantItems = scoredItems.filter((entry) => entry.score > 0);
+function getRecencySortValue(item = {}) {
+  if (item.isCurrent || item.currentlyWorking) {
+    return Number.MAX_SAFE_INTEGER;
+  }
 
-  return (relevantItems.length ? relevantItems : scoredItems)
-    .slice(0, limit)
+  const end = new Date(item.endDate);
+  if (!Number.isNaN(end.getTime())) {
+    return end.getTime();
+  }
+
+  const start = new Date(item.startDate);
+  if (!Number.isNaN(start.getTime())) {
+    return start.getTime();
+  }
+
+  return extractYearFromValue(item.endDate || item.startDate || item.graduationYear) * 1000;
+}
+
+// How many of the newest entries are protected from relevance filtering, regardless of score.
+const PROTECTED_RECENT_ITEMS = 3;
+
+// RELEVANCE MAY REORDER EMPHASIS; IT MUST NOT DELETE EMPLOYMENT HISTORY.
+//
+// The previous implementation scored every entry against the target job's keywords, kept only
+// entries scoring > 0, then sliced. A recent Data Science internship measured against a
+// Java/Selenium posting scores zero and silently vanished — leaving a hole in the timeline, which
+// a recruiter reads as concealment, not as tailoring.
+//
+// Now the newest PROTECTED_RECENT_ITEMS entries are always included. Relevance decides the ORDER
+// of what remains and which of the older, less relevant entries get dropped when the limit binds.
+function selectRelevantItems(items, targetTerms, limit = 4, options = {}) {
+  const protectRecent = options.protectRecent === undefined ? PROTECTED_RECENT_ITEMS : options.protectRecent;
+
+  const scoredItems = (items || []).map((item, index) => ({
+    item,
+    index,
+    score: itemRelevanceScore(item, targetTerms),
+    recency: getRecencySortValue(item)
+  }));
+
+  if (!scoredItems.length) {
+    return [];
+  }
+
+  const byRecency = [...scoredItems].sort(
+    (left, right) => right.recency - left.recency || left.index - right.index
+  );
+  const protectedEntries = byRecency.slice(0, Math.max(0, protectRecent));
+  const protectedIndexes = new Set(protectedEntries.map((entry) => entry.index));
+
+  const byRelevance = [...scoredItems]
+    .filter((entry) => !protectedIndexes.has(entry.index))
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+
+  // Fill any remaining slots with the most relevant of the unprotected entries; entries that score
+  // zero are still eligible once the relevant ones are exhausted, so nothing is dropped unless the
+  // limit genuinely binds.
+  const remainingSlots = Math.max(0, limit - protectedEntries.length);
+  const selected = [...protectedEntries, ...byRelevance.slice(0, remainingSlots)];
+
+  // Present newest-first — the shape a recruiter expects to read.
+  return selected
+    .sort((left, right) => right.recency - left.recency || left.index - right.index)
     .map((entry) => entry.item);
 }
 
@@ -800,29 +1027,51 @@ function buildResumeContent(profile, job, options = {}) {
   const githubUrl = firstPresent(profile.githubUrl, profile.github, profile.gitHubUrl, profile.gitHub) || "";
   const objective = sentence(options.objective, buildTargetedResumeObjective(profile, job, skills));
 
+  // Terms eligible for bold emphasis inside bullets: the target job's keywords, longest first so
+  // "Spring Boot" wins over "Spring". These only ever EMPHASISE text the candidate already wrote.
+  const emphasisTerms = [...new Set(jobSkills.map((skill) => String(skill || "").trim()).filter(Boolean))]
+    .sort((left, right) => right.length - left.length)
+    .slice(0, 40);
+
+  // Company leads (bold, left) with dates on the right; role and location on the italic second
+  // line. Location was previously never passed at all, which is why it never appeared.
   const experienceItems = selectRelevantItems(profile.experience || [], targetTerms, 4).map((item) => {
     const dates = [formatDate(item.startDate), item.isCurrent ? "Present" : formatDate(item.endDate)]
       .filter(Boolean)
       .join(" -- ");
+    const location = firstPresent(item.location, item.city, item.jobLocation) || "";
     return [
-      `\\item \\textbf{${escapeLatex(item.jobTitle || "Experience")}} ${dates ? `\\hfill ${escapeLatex(dates)}` : ""} \\\\`,
-      `${escapeLatex(item.companyName || "Company")}`,
+      `\\resumeSubheading{${escapeLatex(item.companyName || "Company")}}{${escapeLatex(dates)}}{${escapeLatex(item.jobTitle || item.role || item.title || "")}}{${escapeLatex(location)}}`,
       "\n\\resumeItemListStart\n",
-      buildResumeItemBullets(item.description, `Applied relevant skills to responsibilities aligned with ${roleTitle}.`),
+      buildResumeItemBullets(
+        item.description,
+        `Applied relevant skills to responsibilities aligned with ${roleTitle}.`,
+        emphasisTerms
+      ),
       "\n\\resumeItemListEnd"
     ].join("");
   });
 
-  const projectItems = selectRelevantItems(profile.projects || [], targetTerms, 2).map((item) => {
-    const techStack = (item.technologies || item.techStack || [])
-      .map((tech) => String(tech).trim())
+  // The right-hand slot holds the DATE RANGE, not a raw URL. Where a repository link exists the
+  // title becomes a \faGithub hyperlink instead, so the link is present without eating the margin.
+  const projectItems = selectRelevantItems(profile.projects || [], targetTerms, 3, { protectRecent: 1 }).map((item) => {
+    const techStack = flattenProjectTechStack(item);
+    const dates = [formatDate(item.startDate), item.isCurrent ? "Present" : formatDate(item.endDate)]
       .filter(Boolean)
-      .join(", ");
-    const links = [item.projectUrl, item.repositoryUrl, item.liveUrl, item.githubUrl].filter(Boolean).join(" | ");
+      .join(" -- ");
+    const link = firstPresent(item.repositoryUrl, item.githubUrl, item.projectUrl, item.liveUrl) || "";
+    const escapedTitle = escapeLatex(item.title || "Project");
+    const titleMarkup = link
+      ? `\\href{${rawUrl(link)}}{\\textbf{${escapedTitle}} \\faGithub}`
+      : `\\textbf{${escapedTitle}}`;
     return [
-      `\\resumeProjectHeading{\\textbf{${escapeLatex(item.title || "Project")}}${techStack ? ` $|$ \\emph{${escapeLatex(techStack)}}` : ""}}{${escapeLatex(links)}}`,
+      `\\resumeProjectHeading{${titleMarkup}${techStack ? ` $|$ \\emph{${escapeLatex(techStack)}}` : ""}}{${escapeLatex(dates)}}`,
       "\\resumeItemListStart\n",
-      buildResumeItemBullets(item.description, `Built a project aligned with ${roleTitle} requirements.`),
+      buildResumeItemBullets(
+        item.description,
+        `Built a project aligned with ${roleTitle} requirements.`,
+        emphasisTerms
+      ),
       "\n\\resumeItemListEnd"
     ].join("");
   });
@@ -846,41 +1095,100 @@ function buildResumeContent(profile, job, options = {}) {
     ...structuredEducationEntries,
     ...(topLevelEducationEntry ? [topLevelEducationEntry] : [])
   ]);
+  // The whole-profile GPA lives on the top-level `currentGPA` scalar, not on each education
+  // subdocument, so an entry-level lookup alone found nothing and no GPA was ever emitted. It is
+  // attributed to the most recent entry only — the one the top-level scalar describes.
+  const mostRecentEducationItem = educationEntries[0]?.item;
   const educationItems = educationEntries.map(({ item }) => {
       const dates = [formatDate(item.startDate), formatDate(item.endDate)].filter(Boolean).join(" -- ");
       const year = dates || item.graduationYear;
-      const gpa = item.currentGPA ? ` \\hfill CGPA: ${escapeLatex(item.currentGPA)}` : "";
+      const gpaValue = firstPresent(
+        item.currentGPA,
+        item.gpa,
+        item.cgpa,
+        item === mostRecentEducationItem ? profile.currentGPA : undefined
+      );
+      const gpa = gpaValue ? ` \\hfill CGPA: ${escapeLatex(formatGpa(gpaValue))}` : "";
       return [
         `\\item\\textbf{${formatDegreeWithField(item.degree, item.fieldOfStudy)}} ${year ? `\\hfill ${escapeLatex(year)}` : ""} \\\\`,
         `${escapeLatex(item.institution || "Institution")}${gpa}`
       ].join("");
     });
 
-  const certificationItems = (profile.licensesAndCertifications || [])
-    .slice(0, 5)
-    .map((item) => `\\item ${escapeLatex(item.title || "Certification")}${item.description ? `, ${escapeLatex(item.description)}` : ""}`);
-  const achievementItems = (profile.achievements || [])
-    .slice(0, 5)
-    .map((item) => `\\item ${escapeLatex(item.title || "Achievement")}${item.description ? `: ${escapeLatex(item.description)}` : ""}`);
+  // ONE merged section, matching the reference. The two arrays routinely hold the same entries —
+  // this candidate's "5 star badge in Problem Solving - HackerRank" and GATE rank were in both, and
+  // rendered twice. Merging removes the failure mode rather than just papering over it, and
+  // dedupeTitledItems collapses near-identical titles (case/punctuation/whitespace insensitive).
+  const achievementCertificationItems = dedupeTitledItems([
+    ...(profile.achievements || []),
+    ...(profile.licensesAndCertifications || [])
+  ])
+    .slice(0, 8)
+    .map((item) => {
+      const title = escapeLatex(item.title || "Achievement");
+      const detail = item.description ? `: ${escapeLatex(sentence(item.description))}` : "";
+      return `\\item \\small{${emphasizeBullet(`${title}${detail}`, emphasisTerms)}}`;
+    });
+
+  const courseworkItems = collectCoursework(profile)
+    .slice(0, 12)
+    .map((course) => `\\item \\small{${escapeLatex(course)}}`);
+
+  const extracurricularItems = collectExtracurricular(profile)
+    .slice(0, 4)
+    .map((item) => {
+      // Argument order matches Experience: organisation bold-left, dates right, role italic-left,
+      // place italic-right. This was inverted — `organization` (the ROLE, e.g. "Volunteer") was
+      // passed as the bold organisation and `title` (the actual body, e.g. "NSS") as the italic
+      // role, so the entry read upside down against every other entry on the page.
+      const explicitDates = [formatDate(item.startDate), formatDate(item.endDate)].filter(Boolean).join(" -- ");
+      // Parsers routinely fuse the dates into the title ("NSS 2019 - 2022") because a flat
+      // activity line has nowhere else to put them. Splitting a trailing date RANGE back out is
+      // unambiguous, so the dates reach their own column instead of sitting inside the heading.
+      const splitTitle = splitTrailingDateRange(item.title);
+      const organisation = splitTitle.text || sentence(item.organization) || "Activity";
+      const role = splitTitle.text ? sentence(item.organization) : "";
+      const dates = explicitDates || splitTitle.dates;
+      const heading = `\\resumeSubheading{${escapeLatex(organisation)}}{${escapeLatex(dates)}}{${escapeLatex(role)}}{${escapeLatex(item.location || "")}}`;
+      if (!sentence(item.description)) {
+        return heading;
+      }
+      return [
+        heading,
+        "\n\\resumeItemListStart\n",
+        buildResumeItemBullets(item.description, "", emphasisTerms),
+        "\n\\resumeItemListEnd"
+      ].join("");
+    });
+
+  // The line break is a SEPARATOR, not a suffix. Appending `\\[3pt]` to every line put one after
+  // the last one too, and when Technical Skills happened to be the final section — a sparse profile
+  // with no experience, projects or achievements — that trailing `\\` had no line to end and
+  // pdflatex aborted with "There's no line here to end". The resume simply failed to build.
   const categorizedSkills = categorizeResumeSkills(profile, skills);
   const technicalLines = categorizedSkills.length
     ? categorizedSkills.map((category) =>
-      `\\textbf{${escapeLatex(category.label)}:} ${escapeLatex(category.skills.join(", "))} \\\\[3pt]`
+      `\\textbf{${escapeLatex(category.label)}:} ${escapeLatex(category.skills.join(", "))}`
     )
-    : (omitEmptySections ? [] : [`\\textbf{Skills:} Relevant technical skills \\\\[3pt]`]);
-  if (!omitEmptySections) {
-    // "Core Concepts" is derived from the job posting (not the candidate's own profile data) and
-    // "Soft Skills" is a generic filler list — both are fine for the legacy job-based generator,
-    // but they must NOT appear when a section is only allowed to contain real profile data.
-    technicalLines.push(
-      `\\textbf{Core Concepts:} ${escapeLatex(jobSkills.slice(0, 8).join(", ") || "Data Structures, Algorithms, Object-Oriented Programming")} \\\\[3pt]`,
-      "\\textbf{Soft Skills:} Problem Solving, Communication, Adaptability, Team Player"
-    );
-  }
+    : (omitEmptySections ? [] : [`\\textbf{Skills:} Relevant technical skills`]);
+
+  // REMOVED, permanently: a "Core Concepts" line built from `jobSkills` — the EMPLOYER'S OWN
+  // stated requirements — attributed the job posting's wish-list to the candidate as if it were
+  // their skill set. That is a factual misrepresentation on a document an employer relies on, and
+  // it was emitted on every resume generated with omitEmptySections=false. The "Soft Skills"
+  // line beneath it was fixed generic filler ("Problem Solving, Communication, Adaptability, Team
+  // Player") identical on every candidate's resume, which weakens rather than strengthens it.
+  // Neither is reinstatable behind a flag: both are gone.
 
   return {
     NAME: escapeLatex(name),
-    LOCATION_OR_UNIVERSITY: escapeLatex(institutionLine),
+    // Carries its OWN line break, so an empty value emits nothing at all. Previously the template
+    // hard-coded `LOCATION_OR_UNIVERSITY \ space{1pt}`, and a profile with no university or
+    // location left a line containing only `\` — which pdflatex rejects outright with
+    // "There's no line here to end". The resume did not render badly; it failed to build.
+    LOCATION_OR_UNIVERSITY: institutionLine
+      ? `${escapeLatex(institutionLine)} \\\\ \\vspace{1pt}\n`
+      : "",
     PHONE: escapeLatex(phone || "Phone not available"),
     EMAIL: escapeLatex(email || "email-not-available@example.com"),
     LINKEDIN: rawUrl(linkedinUrl || "https://linkedin.com"),
@@ -897,23 +1205,32 @@ function buildResumeContent(profile, job, options = {}) {
     PROJECTS: projectItems.length
       ? projectItems.join("\n\n")
       : (omitEmptySections ? "" : `\\resumeProjectHeading{\\textbf{Role-Aligned Project} $|$ \\emph{${escapeLatex((jobSkills.length ? jobSkills : skills).slice(0, 4).join(", ") || roleTitle)}}}{}\n\\resumeItemListStart\n\\resumeItem{${escapeLatex(`Project details can be tailored around ${roleTitle} requirements.`)}}\n\\resumeItemListEnd`),
-    TECHNICAL_SKILLS: technicalLines.join("\n"),
-    ACHIEVEMENTS: achievementItems.length
-      ? achievementItems.join("\n")
-      : (omitEmptySections ? "" : "\\item Relevant achievements available on request."),
-    CERTIFICATIONS: certificationItems.length
-      ? certificationItems.join("\n")
-      : (omitEmptySections ? "" : "\\item Relevant certifications available on request.")
+    TECHNICAL_SKILLS: technicalLines.join(" \\\\[3pt]\n"),
+    ACHIEVEMENTS_CERTIFICATIONS: achievementCertificationItems.length
+      ? achievementCertificationItems.join("\n")
+      : "",
+    // Both are new sections with no legacy placeholder text: a profile with no coursework or no
+    // extracurricular data renders NOTHING, and stripEmptyLatexSections removes the heading.
+    COURSEWORK: courseworkItems.join("\n"),
+    EXTRACURRICULAR: extracurricularItems.join("\n")
   };
 }
+
+// Sections whose heading is removed outright when the corresponding content key is empty.
+// COURSEWORK, EXTRACURRICULAR and ACHIEVEMENTS_CERTIFICATIONS are stripped UNCONDITIONALLY — they
+// have no placeholder fallback, so an empty one would render as a bare heading over blank space.
+const ALWAYS_OMITTED_WHEN_EMPTY = {
+  COURSEWORK: "Relevant Coursework",
+  EXTRACURRICULAR: "Extracurricular",
+  ACHIEVEMENTS_CERTIFICATIONS: "Achievements/Certifications"
+};
 
 const OMITTABLE_SECTION_LABELS_BY_CONTENT_KEY = {
   EDUCATION: "Education",
   EXPERIENCE: "Experience",
   PROJECTS: "Projects",
   TECHNICAL_SKILLS: "Technical Skills",
-  ACHIEVEMENTS: "Achievements",
-  CERTIFICATIONS: "Certifications"
+  ...ALWAYS_OMITTED_WHEN_EMPTY
 };
 
 function buildLatexResumeFromTemplate(profile, job, template = defaultResumeTemplate, options = {}) {
@@ -924,13 +1241,19 @@ function buildLatexResumeFromTemplate(profile, job, template = defaultResumeTemp
     template || defaultResumeTemplate
   ).trim();
 
-  if (options.omitEmptySections) {
-    const emptySectionLabels = Object.entries(OMITTABLE_SECTION_LABELS_BY_CONTENT_KEY)
-      .filter(([contentKey]) => !String(content[contentKey] || "").trim())
-      .map(([, label]) => label);
+  // These three never have placeholder text, so an empty one is always stripped — regardless of
+  // the omitEmptySections flag, which only governs the legacy sections that DO have fallbacks.
+  const alwaysStripped = Object.entries(ALWAYS_OMITTED_WHEN_EMPTY)
+    .filter(([contentKey]) => !String(content[contentKey] || "").trim())
+    .map(([, label]) => label);
 
-    latex = stripEmptyLatexSections(latex, emptySectionLabels);
-  }
+  const conditionallyStripped = options.omitEmptySections
+    ? Object.entries(OMITTABLE_SECTION_LABELS_BY_CONTENT_KEY)
+        .filter(([contentKey]) => !String(content[contentKey] || "").trim())
+        .map(([, label]) => label)
+    : [];
+
+  latex = stripEmptyLatexSections(latex, [...new Set([...alwaysStripped, ...conditionallyStripped])]);
 
   return postProcessLatexResume(latex);
 }
