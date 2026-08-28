@@ -1,0 +1,73 @@
+%===============================================================================================
+% SHARED SECTION BLOCKS — the scaffolding for every section, defined ONCE.
+%===============================================================================================
+% The six variants differ in the ORDER of these blocks and in whether they carry a headline. The
+% blocks themselves are identical across all six, so they live here rather than being pasted into
+% six files where a leftmargin tweak would land in one of them and be forgotten in the other five.
+%
+% Each block is introduced by a section marker line. loadResumeTemplates() splits on those
+% markers and substitutes the block wherever a variant file names it.
+%
+% CONTAINS NO CANDIDATE DATA. The only non-LaTeX tokens are the uppercase placeholders, which the
+% content builder replaces in a single pass.
+%===============================================================================================
+
+%%SECTION summary%%
+\section{Summary}
+\begin{itemize}[leftmargin=0.0in, label={}]
+\item\small{SUMMARY}
+\end{itemize}
+
+%%SECTION skills%%
+% The content builder emits one \resumeSkillEntry per category between Start and End. Whether
+% those become lines, two columns, a flowing paragraph or a label table is the VARIANT's choice,
+% made in _styles.tex — the builder never knows which.
+\section{Skills}
+\resumeSkillsStart
+SKILLS
+\resumeSkillsEnd
+
+%%SECTION experience%%
+\section{Experience}
+\begin{itemize}[leftmargin=0.0in, label={}]
+EXPERIENCE
+\end{itemize}
+
+%%SECTION education%%
+\section{Education}
+\begin{itemize}[leftmargin=0.0in, label={}]
+EDUCATION
+\end{itemize}
+
+%%SECTION certifications%%
+% Labelled "Certifications and Achievements", not the reference family's bare "Certifications".
+% The certifications placeholder carries a MERGED, deduplicated list of the candidate's licences
+% AND achievements — the two stored arrays routinely hold the same entry, and merging them is what
+% stopped a HackerRank badge rendering twice. Calling that merged list "Certifications" would
+% misdescribe every achievement in it, so the label says what the section actually contains.
+\section{Certifications and Achievements}
+\begin{itemize}[leftmargin=0.15in, itemsep=-2pt, label=\resumebullet]
+CERTIFICATIONS
+\end{itemize}
+\vspace{-4pt}
+
+%%SECTION projects%%
+\section{Projects}
+\begin{itemize}[leftmargin=0pt, itemsep=2pt, topsep=2pt, label={}]
+PROJECTS
+\end{itemize}
+
+%%SECTION coursework%%
+\section{Relevant Coursework}
+\begin{multicols}{3}
+\begin{itemize}[itemsep=-2pt, leftmargin=0.15in, label=\resumebullet]
+COURSEWORK
+\end{itemize}
+\end{multicols}
+\vspace{-6pt}
+
+%%SECTION extracurricular%%
+\section{Extracurricular}
+\begin{itemize}[leftmargin=0.0in, label={}]
+EXTRACURRICULAR
+\end{itemize}

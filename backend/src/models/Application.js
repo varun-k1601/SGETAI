@@ -11,6 +11,13 @@ const tailoredResumeSchema = new mongoose.Schema(
       enum: ["ManualApply", "AutoApply", "ProTools"],
       default: "ManualApply"
     },
+    // Which of the six layouts this document was built with. Recorded so a resume that renders
+    // wrong can be reproduced from the stored application alone; without it the only way back is
+    // to re-derive the hash of a candidate id that may since have been overridden.
+    templateVariant: {
+      type: String,
+      enum: ["a", "b", "c", "d", "e", "f"]
+    },
     profileSectionsUsed: {
       objective: { type: Boolean, default: false },
       educationCount: { type: Number, default: 0 },

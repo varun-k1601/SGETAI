@@ -4512,6 +4512,52 @@ body.career-agent-resizing {
   background: var(--surface-soft);
 }
 
+/* A message the agent never received. Muted and dashed rather than coloured like an error banner:
+   it is a state to act on, not an alarm, and the retry control is the point of it. */
+.career-widget-message.failed {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--color-danger) 6%, transparent);
+}
+
+.career-widget-message.failed > strong,
+.career-widget-message.failed > p {
+  opacity: 0.62;
+}
+
+.career-widget-message__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  /* Overrides the .career-widget-message p rule above, which would otherwise mute this to the
+     same colour as the undelivered text it is explaining. */
+  color: var(--color-danger);
+  opacity: 1;
+}
+
+.career-widget-message__status button {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.15rem 0.65rem;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.career-widget-message__status button:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.career-widget-message__status button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .career-widget-typing {
   display: inline-flex;
   gap: 0.3rem;

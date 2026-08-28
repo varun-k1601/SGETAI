@@ -22,6 +22,7 @@ const {
   getResumeProfileReadiness,
   buildProfileForTailoring
 } = require("../services/resumeGenerationService");
+const { claimResumeVariant } = require("../services/resumeVariantRotation");
 const { fireAndForget } = require("../services/aiSyncService");
 const { computeCandidateMatch } = require("../services/matchService");
 const { attachOrganizations } = require("./recommendationController");
@@ -57,10 +58,6 @@ const {
   requireNonEmptyString
 } = require("../utils/validation");
 
-const resumeTemplate = fs.readFileSync(
-  path.join(__dirname, "..", "utils", "resume.template.txt"),
-  "utf8"
-);
 
 function parseJsonArrayField(value, fallback = []) {
   if (Array.isArray(value)) {
@@ -286,7 +283,10 @@ const generateResume = asyncHandler(async (req, res) => {
 
   const resumeReadiness = getResumeProfileReadiness(seeker);
 
-  const latex = await generateLatexResume(seeker.toObject(), job.toObject(), resumeTemplate);
+  // claimResumeVariant advances the candidate's rotation, so consecutive generations step through
+  // all six layouts. A saved resumeTemplateVariant preference still wins and does not rotate.
+  const variant = await claimResumeVariant(seeker);
+  const latex = await generateLatexResume(seeker.toObject(), job.toObject(), null, { variant });
   seeker.resumesGeneratedToday = (seeker.resumesGeneratedToday || 0) + 1;
   seeker.lastResumeResetDate = new Date();
   await seeker.save();
@@ -320,7 +320,10 @@ const generateResumePdf = asyncHandler(async (req, res) => {
   const { seeker, job } = await getSeekerAndJob(req.user.id, req.params.jobId);
   const resumeReadiness = getResumeProfileReadiness(seeker);
 
-  const latex = await generateLatexResume(seeker.toObject(), job.toObject(), resumeTemplate);
+  // claimResumeVariant advances the candidate's rotation, so consecutive generations step through
+  // all six layouts. A saved resumeTemplateVariant preference still wins and does not rotate.
+  const variant = await claimResumeVariant(seeker);
+  const latex = await generateLatexResume(seeker.toObject(), job.toObject(), null, { variant });
   const { pdfBuffer, fileName } = await compileLatexToPdf(
     latex,
     buildResumeFileName(seeker, job, "tex")
@@ -403,8 +406,10 @@ const tailorResumeFromJdText = asyncHandler(async (req, res) => {
   const ephemeralJob = buildEphemeralJobFromDescription(jobDescription);
   const filteredProfile = buildProfileForTailoring(seeker.toObject());
 
-  const latex = await generateLatexResume(filteredProfile, ephemeralJob, resumeTemplate, {
-    omitEmptySections: true
+  const variant = await claimResumeVariant(seeker);
+  const latex = await generateLatexResume(filteredProfile, ephemeralJob, null, {
+    omitEmptySections: true,
+    variant
   });
   const { pdfBuffer, fileName } = await compileLatexToPdf(
     latex,
@@ -431,7 +436,10 @@ const tailorResumeFromJdText = asyncHandler(async (req, res) => {
       status: "Ready",
       fileUrl: url,
       filePath,
-      metadata: { jobDescriptionSnippet: jobDescription.slice(0, 200) }
+      // templateVariant is what makes a ROTATING choice safe to ship: a resume that renders wrong
+      // can be re-rendered from the stored layout instead of guessing which one the rotation was
+      // on at the time. metadata is a Mixed field, so this needs no schema change.
+      metadata: { jobDescriptionSnippet: jobDescription.slice(0, 200), templateVariant: variant }
     });
   }, "tailorResumeArtifact");
 

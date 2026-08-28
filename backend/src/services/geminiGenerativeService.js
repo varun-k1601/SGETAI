@@ -209,12 +209,18 @@ ${JSON.stringify(compactJobForResume(job))}
   }
 }
 
+// `template` stays in the signature for an explicit override, but every caller now passes null and
+// lets the service resolve the layout from options.variant / options.variantSeed. Reading one
+// fixed template file per caller is what made "which layout do I get" depend on which entry point
+// you came through.
 async function generateLatexResume(profile, job, template, options = {}) {
   const fallbackObjective = buildTargetedResumeObjective(profile || {}, job || {});
   const objective = await generateResumeObjective(profile || {}, job || {}, fallbackObjective);
   const latex = buildLatexResumeFromTemplate(profile, job || {}, template, {
     objective,
-    omitEmptySections: Boolean(options.omitEmptySections)
+    omitEmptySections: Boolean(options.omitEmptySections),
+    variant: options.variant,
+    variantSeed: options.variantSeed
   });
   return postProcessLatexResume(latex);
 }
@@ -307,26 +313,80 @@ ${JSON.stringify(compactProfileForResume(profile))}
 }
 
 const CAREER_AGENT_GEMINI_MODEL = process.env.CAREER_AGENT_GEMINI_MODEL || "gemini-2.5-flash";
+// Gemini is the FIRST provider tried, so an unbounded call here delays Ollama by however long the
+// network is willing to hang - which is unbounded, because this SDK applies no timeout of its own.
+// A healthy call measures ~11s, so 45s is generous while still leaving room inside the total
+// career-agent budget for the Ollama fallback to actually run. See the ladder in ollamaService.
+const CAREER_AGENT_GEMINI_TIMEOUT_MS = Number(process.env.CAREER_AGENT_GEMINI_TIMEOUT_MS) || 45000;
+// The Gemini API refuses a manually set deadline below 10s outright ("Minimum allowed deadline is
+// 10s"), and that refusal is a 400 - which would burn an attempt without ever reaching the model.
+// So when the remaining budget is thinner than this we do not pass a deadline down at all; the
+// abort signal below still enforces the real ceiling on our side.
+const GEMINI_MIN_DEADLINE_MS = 10000;
 
-async function generateCareerAgentReply(prompt) {
-  if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
-    return null;
+// Returns { text, failure } to match the Ollama provider, so the caller can tell "the key is
+// rejected" (never retry) from "the request timed out" (budget spent) from "it answered with
+// nothing" (worth one more attempt).
+function classifyGeminiError(error) {
+  const status = error?.status || error?.response?.status;
+  const message = String(error?.message || "");
+
+  if (error?.name === "AbortError" || /abort|timeout|timed out/i.test(message)) {
+    return { kind: "timeout", retryable: false, message: "Gemini did not respond within the time budget." };
   }
 
-  try {
-    const ai = getClient();
-    if (!ai) {
-      return null;
-    }
+  if (status === 401 || status === 403 || /API key|PERMISSION_DENIED|UNAUTHENTICATED/i.test(message)) {
+    return { kind: "unauthorized", retryable: false, message: "Gemini rejected the configured API key." };
+  }
 
-    console.log(`[Gemini] Career agent (text) request to model: ${CAREER_AGENT_GEMINI_MODEL}, prompt length: ${prompt.length}`);
+  if (status === 429 || /RESOURCE_EXHAUSTED|quota|rate limit/i.test(message)) {
+    return { kind: "rate_limited", retryable: false, message: "Gemini quota or rate limit reached." };
+  }
+
+  // A 400 is a malformed request. It will be malformed the second time too, so retrying only
+  // spends budget the Ollama fallback still needs.
+  if (status === 400 || /INVALID_ARGUMENT/i.test(message)) {
+    return { kind: "bad_request", retryable: false, message: "Gemini rejected the request as invalid." };
+  }
+
+  if (/ENOTFOUND|ECONNREFUSED|EAI_AGAIN|network/i.test(message)) {
+    return { kind: "unreachable", retryable: false, message: "Gemini is not reachable from this network." };
+  }
+
+  return { kind: "error", retryable: true, message: message || "Gemini request failed." };
+}
+
+async function generateCareerAgentReply(prompt, options = {}) {
+  if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+    return { text: null, failure: { kind: "error", retryable: false, message: "Empty prompt." } };
+  }
+
+  const ai = getClient();
+  if (!ai) {
+    return { text: null, failure: { kind: "not_configured", retryable: false, message: "No usable Gemini API key." } };
+  }
+
+  const timeoutMs = Number(options.timeoutMs) > 0
+    ? Math.min(Number(options.timeoutMs), CAREER_AGENT_GEMINI_TIMEOUT_MS)
+    : CAREER_AGENT_GEMINI_TIMEOUT_MS;
+
+  // Both are set deliberately. httpOptions.timeout bounds the HTTP round trip; the abort signal is
+  // the belt-and-braces that also unblocks us if the SDK stalls somewhere other than the socket.
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), timeoutMs);
+  const httpOptions = timeoutMs >= GEMINI_MIN_DEADLINE_MS ? { timeout: timeoutMs } : undefined;
+
+  try {
+    console.log(`[Gemini] Career agent (text) request to model: ${CAREER_AGENT_GEMINI_MODEL}, prompt length: ${prompt.length}, timeout: ${(timeoutMs / 1000).toFixed(0)}s`);
     const startTime = Date.now();
 
     const response = await ai.models.generateContent({
       model: CAREER_AGENT_GEMINI_MODEL,
       config: {
         temperature: 0.5,
-        topP: 0.9
+        topP: 0.9,
+        abortSignal: controller.signal,
+        ...(httpOptions ? { httpOptions } : {})
       },
       contents: prompt.trim()
     });
@@ -334,10 +394,18 @@ async function generateCareerAgentReply(prompt) {
     const elapsed = Date.now() - startTime;
     console.log(`[Gemini] Career agent (text) completed in ${(elapsed / 1000).toFixed(2)}s`);
 
-    return typeof response?.text === "string" ? response.text.trim() : null;
+    const text = typeof response?.text === "string" ? response.text.trim() : "";
+    if (text) {
+      return { text, failure: null };
+    }
+
+    return { text: null, failure: { kind: "empty", retryable: true, message: "Gemini returned no text." } };
   } catch (error) {
-    console.error("[Gemini] Career agent (text) generation failed:", error.message);
-    return null;
+    const failure = classifyGeminiError(error);
+    console.error(`[Gemini] Career agent (text) generation failed (${failure.kind}):`, error.message);
+    return { text: null, failure };
+  } finally {
+    clearTimeout(abortTimer);
   }
 }
 

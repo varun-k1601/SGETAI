@@ -1,0 +1,34 @@
+%===============================================================================================
+% VARIANT A — no headline; Experience leads Skills; skills joined with " | ".
+%===============================================================================================
+% Distinguishing axes: NO headline line, Experience ABOVE Skills (the only variant that does), and
+% the pipe-separated skills join. A candidate with real experience gets it in the first third of
+% the page; the skills line reads as supporting evidence rather than as the lead.
+%
+% Certifications sits after Education. See the note in _sections.tex about why every variant
+% carries the block even though the reference layout this variant is modelled on shows no
+% Certifications section: that reference shows none because that person listed none, and the block
+% strips itself when empty. Hard-omitting it would silently destroy a real credential whenever a
+% certified candidate happened to hash to this layout.
+%
+% Relevant Coursework and Extracurricular are optional tails, stripped when empty — which is the
+% common case, so for a profile without them this renders exactly the five-section reference shape.
+%===============================================================================================
+
+%%PREAMBLE%%
+%%STYLE a%%
+
+\begin{document}
+
+\resumeHeader{NAME}{}{CONTACT_LINE}
+
+%%SECTION summary%%
+%%SECTION experience%%
+%%SECTION skills%%
+%%SECTION education%%
+%%SECTION certifications%%
+%%SECTION projects%%
+%%SECTION coursework%%
+%%SECTION extracurricular%%
+
+\end{document}

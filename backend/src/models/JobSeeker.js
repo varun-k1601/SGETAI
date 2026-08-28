@@ -167,6 +167,25 @@ const jobSeekerSchema = new mongoose.Schema(
     gender: { type: String, trim: true },
     dateOfBirth: Date,
     isPro: { type: Boolean, default: false },
+    // Resume layout override. Unset means "whichever of the six this candidate's _id hashes to",
+    // which is stable for them forever; setting it pins a different one. Deliberately NOT defaulted
+    // to a variant — a stored default would freeze whichever layout happened to be picked at
+    // signup and make a future change to the selection invisible to existing users.
+    resumeTemplateVariant: {
+      type: String,
+      enum: ["a", "b", "c", "d", "e", "f"],
+      default: undefined
+    },
+    // How many resumes this candidate has generated, ever. Drives the layout rotation so each
+    // generation uses a different one of the six. DELIBERATELY HAS NO DEFAULT: an existing
+    // candidate must read `undefined` here so resumeVariantRotation seeds them from their real
+    // GeneratedArtifact history instead of restarting the cycle. Monotonic, never reset — unlike
+    // resumesGeneratedToday, which is a daily quota counter and would rewind the rotation nightly.
+    resumeGenerationCount: {
+      type: Number,
+      min: 0,
+      default: undefined
+    },
     profileVisibility: {
       type: String,
       enum: ["Public", "Private", "NetworkOnly"],

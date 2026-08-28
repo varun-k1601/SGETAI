@@ -1,0 +1,188 @@
+%===============================================================================================
+% PER-VARIANT VISUAL IDENTITY.
+%===============================================================================================
+% Section ORDER alone was never enough. Six documents with identical fonts, name treatment,
+% section rules, bullet glyph and spacing read as one template with the blocks shuffled — which
+% was exactly the complaint. Each block below overrides the universal defaults so that every
+% variant is a different document at a glance, before a word of it is read.
+%
+% THE AXES, AND WHY THESE ONES. Every axis fires for EVERY profile. Nothing here is contingent on
+% optional data, so no variant can collapse onto its neighbour because a field happened to be
+% empty — the way D used to become byte-identical to C whenever a project had no tech stack.
+%
+%   variant   section header        name block            bullet      skills          density
+%   -------   -------------------   -------------------   ---------   -------------   --------
+%   A         rule beneath          centred small caps    en dash     label per line  normal
+%   B         rules above + below   centred + underline   disc        label table     airy
+%   C         small caps, no rule   centred bold roman    asterisk    flowing prose   tight
+%   D         vertical bar, left    left-aligned block    open square two columns     normal
+%   E         shaded bar            centred, wide rule    open circle hanging indent  airy
+%   F         short accent rule     name over full rule   none        label table     tight
+%
+% Experience entry shape is a seventh axis, chosen in the content builder (VARIANT_STYLE) because
+% it decides which command to call: inline for A, C and F, stacked-company for B and E,
+% stacked-role for D.
+%
+% CONSTRAINTS HONOURED THROUGHOUT:
+%   * No package beyond what _preamble.tex already loads.
+%   * No colour. Variant E's bar is achromatic grey via the `gray` model, which is the one
+%     shaded treatment the design brief sanctioned; it is a filled box behind live text, not an
+%     image, so extraction is unaffected.
+%   * Single column throughout. Variant D's two-column block is multicol around the skills list
+%     only — short label/value pairs, which extract in reading order. The document body is never
+%     multi-column, because that is what actually breaks an ATS.
+%   * Base font size is never reduced below 10pt. Density is spacing, not shrinking.
+%
+% CONTAINS NO CANDIDATE DATA.
+%===============================================================================================
+
+%%STYLE a%%
+% ---- A: the reference look. Bold section label over a full-width rule, centred small-caps name,
+%         en-dash bullets, one skills line per category, normal density, one-line entries. Its
+%         distinguishing mark against the rest is the pipe-separated skills list.
+% The below-space has to absorb the \vspace{-5pt} the header's after-code applies once the rule is
+% drawn; at 4pt the net was negative and the first line of every section sat ON the rule.
+\titlespacing*{\section}{0pt}{9pt}{10pt}
+\setlist[itemize]{topsep=9pt, partopsep=0pt, parsep=0pt, itemsep=1pt}
+
+%%STYLE b%%
+% ---- B: rules ABOVE and below a small-caps label — the section headers read as banded strips
+%         rather than underlined words. Airy: the most generous spacing of the six. Skills sit in
+%         a two-column label table, and experience entries stack company over an italic role.
+% \titleline puts the rule on its OWN full-width line. A bare \titlerule in the before-code fills
+% the line itself and shoves the label to the right margin, which is how the first attempt at this
+% ended up with right-aligned section names.
+\titleformat{\section}[block]{\raggedright\normalsize\scshape\bfseries}{}{0em}{\titleline{\titlerule}\vspace{3pt}}[\vspace{2pt}\titleline{\titlerule}]
+\titlespacing*{\section}{0pt}{11pt}{8pt}
+\setlist[itemize]{topsep=13pt, partopsep=0pt, parsep=0pt, itemsep=4pt}
+
+\renewcommand{\resumebullet}{\textbullet}
+
+\renewcommand{\resumeHeadline}[1]{\textbf{\small #1}\\ \vspace{3pt}}
+\renewcommand{\resumeHeader}[3]{
+\begin{center}
+{\LARGE \bfseries #1} \\ \vspace{4pt}
+#2#3
+\end{center}
+\vspace{-6pt}
+}
+
+% PLAIN tabular, not tabularx. tabularx grabs its whole body as a macro ARGUMENT so it can
+% measure the X column, which means it cannot find its own \end when the begin and end live in
+% separate commands — it aborts while still scanning for the end of its own body. Two fixed
+% p-columns need no measuring pass and split across macros cleanly.
+\renewcommand{\resumeSkillsStart}{\begingroup\small\begin{tabular}{@{}p{0.24\textwidth}p{0.72\textwidth}@{}}}
+\renewcommand{\resumeSkillEntry}[2]{\textbf{#1} & #2 \\[2pt]}
+\renewcommand{\resumeSkillsEnd}{\end{tabular}\endgroup\vspace{-2pt}}
+
+%%STYLE c%%
+% ---- C: no rules anywhere. Section labels are small caps carried by whitespace alone, which is
+%         the quietest and most typographic of the six. Tight: the densest spacing, so a long
+%         profile fits a page. Skills run as one flowing paragraph with bold labels.
+\titleformat{\section}{\raggedright\large\scshape\bfseries}{}{0em}{}[\vspace{-2pt}]
+\titlespacing*{\section}{0pt}{9pt}{2pt}
+\setlist[itemize]{topsep=8pt, partopsep=0pt, parsep=0pt, itemsep=0pt}
+
+\renewcommand{\resumebullet}{\textasteriskcentered}
+
+\renewcommand{\resumeHeader}[3]{
+\begin{center}
+{\Huge \bfseries #1} \\ \vspace{2pt}
+#2#3
+\end{center}
+\vspace{-10pt}
+}
+
+% One flowing paragraph, categories separated by a spaced glyph. The separator LEADS each entry
+% and is suppressed for the first, rather than trailing each entry — a trailing separator leaves a
+% dangling glyph after the last category, and \unskip removes the space but not the glyph.
+% \newif is plain TeX; this is preamble scope, so it is legal here and needs no package.
+\newif\ifresumeskillfirst
+\renewcommand{\resumeSkillsStart}{\begingroup\small\noindent\resumeskillfirsttrue}
+\renewcommand{\resumeSkillEntry}[2]{\ifresumeskillfirst\resumeskillfirstfalse\else\hspace{6pt}\resumebullet\hspace{6pt}\fi\textbf{#1:} #2}
+\renewcommand{\resumeSkillsEnd}{\par\endgroup\vspace{-2pt}}
+
+%%STYLE d%%
+% ---- D: the only left-aligned masthead, and the only one whose section labels are marked by a
+%         vertical bar instead of a horizontal rule. Skills run in two columns. Every one of those
+%         fires on every profile — which is the point, because D's old sole differentiator (the
+%         project tech stack on its own line) vanished for any profile that recorded no tech
+%         stack, leaving D byte-identical to C. It keeps that tech-stack treatment as a bonus.
+\titleformat{\section}{\raggedright\large\bfseries}{}{0em}{\rule[-0.55ex]{2.5pt}{1.6ex}\hspace{7pt}}[\vspace{-4pt}]
+\titlespacing*{\section}{0pt}{10pt}{4pt}
+\setlist[itemize]{topsep=10pt, partopsep=0pt, parsep=0pt, itemsep=1pt}
+
+\renewcommand{\resumebullet}{\scalebox{0.62}{$\Box$}}
+\renewcommand{\resumeEntrySecondary}[1]{\small#1}
+
+% Left-aligned block: name, then headline and contact beneath it, all flush left, closed by a
+% rule. Nothing is centred, which is the difference visible from across the room.
+\renewcommand{\resumeHeadline}[1]{\textbf{\small #1}\\ \vspace{2pt}}
+\renewcommand{\resumeHeader}[3]{
+\noindent{\LARGE \bfseries #1} \\ \vspace{3pt}
+\noindent #2#3
+\vspace{3pt}
+\noindent\rule{\linewidth}{0.4pt}
+\vspace{-4pt}
+}
+
+\renewcommand{\resumeSkillsStart}{\begingroup\small\begin{multicols}{2}}
+\renewcommand{\resumeSkillEntry}[2]{\noindent\textbf{#1:} #2\par\vspace{2pt}}
+\renewcommand{\resumeSkillsEnd}{\end{multicols}\endgroup\vspace{-2pt}}
+
+%%STYLE e%%
+% ---- E: section labels sit in a shaded bar running the full text width — the heaviest header
+%         treatment of the six and unmistakable at a glance. Airy spacing, open-circle bullets,
+%         and a hanging indent on the skills lines so a long category wraps under its own text
+%         rather than back to the margin.
+\newcommand{\resumeShadedTitle}[1]{\colorbox[gray]{0.90}{\makebox[\dimexpr\textwidth-2\fboxsep\relax][l]{\strut\normalsize\bfseries #1}}}
+\titleformat{\section}{\raggedright}{}{0em}{\resumeShadedTitle}[\vspace{-2pt}]
+\titlespacing*{\section}{0pt}{12pt}{6pt}
+\setlist[itemize]{topsep=12pt, partopsep=0pt, parsep=0pt, itemsep=3pt}
+
+\renewcommand{\resumebullet}{\scalebox{0.75}{$\circ$}}
+
+\renewcommand{\resumeHeadline}[1]{\textbf{\small #1}\\ \vspace{3pt}}
+\renewcommand{\resumeHeader}[3]{
+\begin{center}
+{\LARGE \scshape #1} \\ \vspace{3pt}
+#2#3
+\end{center}
+\vspace{-6pt}
+}
+
+\renewcommand{\resumeSkillsStart}{\begingroup\small}
+\renewcommand{\resumeSkillEntry}[2]{\noindent\hangindent=1.4em\hangafter=1\textbf{#1:} #2\par\vspace{3pt}}
+\renewcommand{\resumeSkillsEnd}{\par\endgroup\vspace{-3pt}}
+
+%%STYLE f%%
+% ---- F: a short accent rule under each section label rather than a full-width one, and the name
+%         set over a rule spanning the page. Tight spacing, and the only variant with NO bullet
+%         glyph at all — bullets are hanging-indented lines, which reads as a report rather than a
+%         list. Each \item still starts its own line in the PDF, so extraction is unaffected.
+\titleformat{\section}{\raggedright\large\bfseries}{}{0em}{}[\vspace{-7pt}\rule{0.16\textwidth}{1.3pt}\vspace{-3pt}]
+\titlespacing*{\section}{0pt}{10pt}{3pt}
+\setlist[itemize]{topsep=8pt, partopsep=0pt, parsep=0pt, itemsep=0pt}
+
+\renewcommand{\resumebullet}{}
+\renewcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=1.1em, label={}, itemindent=0pt]}
+
+\renewcommand{\resumeHeadline}[1]{\textbf{\small #1}\\ \vspace{2pt}}
+\renewcommand{\resumeHeader}[3]{
+\begin{center}
+{\LARGE \bfseries #1}
+\end{center}
+\vspace{-6pt}
+\noindent\rule{\linewidth}{0.4pt}
+% center adds its own \topsep above, so this pulls the block back under the rule rather than
+% leaving a band of white between the name and the contact line.
+\vspace{-16pt}
+\begin{center}
+#2#3
+\end{center}
+\vspace{-10pt}
+}
+
+\renewcommand{\resumeSkillsStart}{\begingroup\small\begin{tabular}{@{}p{0.22\textwidth}p{0.74\textwidth}@{}}}
+\renewcommand{\resumeSkillEntry}[2]{\textbf{#1} & #2 \\}
+\renewcommand{\resumeSkillsEnd}{\end{tabular}\endgroup\vspace{-2pt}}

@@ -2,6 +2,21 @@ const { generateCareerAgentReply: generateCareerAgentReplyOllama } = require("./
 const { generateCareerAgentReply: generateCareerAgentReplyGemini, hasUsableApiKey: hasGeminiKey } = require("./geminiGenerativeService");
 const { buildJobText } = require("../utils/textBuilders");
 
+// TOTAL wall-clock budget for producing a model reply, across every provider and every attempt.
+// It sits between the per-provider timeouts below it and the proxy/browser timeouts above it:
+//
+//   Gemini 45s / Ollama 100s  <  THIS 120s  <  nginx proxy_read_timeout 150s  <  browser abort 180s
+//
+// Each layer must be strictly shorter than the one wrapping it. If this budget were ever raised
+// above nginx's read timeout, the proxy would cut the connection first and its 504 - which carries
+// none of our CORS headers - would reach the browser as an unreadable "Failed to fetch" again.
+const CAREER_AGENT_TOTAL_BUDGET_MS = Number(process.env.CAREER_AGENT_TOTAL_BUDGET_MS) || 120000;
+// Below this much remaining budget a provider cannot plausibly finish, so we stop rather than
+// start a call we know will time out.
+// 12s, not less: Gemini's API rejects any deadline under 10s outright, so a thinner slice than
+// that cannot produce an answer from either provider - it can only produce a wasted attempt.
+const MIN_PROVIDER_SLICE_MS = Number(process.env.CAREER_AGENT_MIN_PROVIDER_SLICE_MS) || 12000;
+
 // Phase 2: Caching for performance optimization
 const profileCache = new Map();
 const PROFILE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -1062,31 +1077,65 @@ async function chatWithCareerAgentOllama(message, history, profile, jobs, applic
     // Providers are tried in order: Gemini (cloud) first when a usable API key is configured,
     // then the local Ollama model as a fallback. Each provider gets up to MAX_ATTEMPTS tries
     // before moving on. If every provider fails, we fall back to the rule-based canned reply.
+    //
+    // THE BUDGET IS TOTAL, NOT PER ATTEMPT. Per-attempt timeouts multiply: two providers times two
+    // attempts each used to mean four full timeouts back to back, and with Ollama's old ten-minute
+    // ceiling that was a request the browser could sit on for the better part of an hour. Nothing
+    // in front of it waits that long, so the socket died and the user got "Failed to fetch" instead
+    // of the rule-based reply this function is careful to always produce. Every provider call now
+    // gets whatever is LEFT of the budget, and the loop stops the moment it is spent.
+    const deadline = Date.now() + CAREER_AGENT_TOTAL_BUDGET_MS;
+    const remainingMs = () => deadline - Date.now();
+
     const providers = [];
     if (hasGeminiKey()) {
       providers.push({
         name: "gemini",
         label: "Gemini",
-        call: () => generateCareerAgentReplyGemini(prompt)
+        call: (timeoutMs) => generateCareerAgentReplyGemini(prompt, { timeoutMs })
       });
     }
     providers.push({
       name: "ollama",
       label: "Ollama",
-      call: () => generateCareerAgentReplyOllama(prompt, model)
+      call: (timeoutMs) => generateCareerAgentReplyOllama(prompt, model, { timeoutMs })
     });
 
     let lastAttemptInfo = "no attempt completed";
+    // Collected so the caller can tell the user something specific ("Ollama is not running")
+    // rather than the generic canned line, and so the reason survives into the response body.
+    const providerFailures = [];
 
     for (const provider of providers) {
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-        console.log(`[CareerAgent] Calling ${provider.label} (attempt ${attempt}/${MAX_ATTEMPTS})`);
+        const budgetLeft = remainingMs();
 
-        const rawReply = await provider.call();
+        // A provider needs a workable slice to be worth starting at all. Firing one off with two
+        // seconds left just burns the tail of the budget and guarantees a timeout.
+        if (budgetLeft < MIN_PROVIDER_SLICE_MS) {
+          lastAttemptInfo = `ran out of time before ${provider.label} could be tried (budget ${(CAREER_AGENT_TOTAL_BUDGET_MS / 1000).toFixed(0)}s exhausted).`;
+          console.warn(`[CareerAgent] ${lastAttemptInfo}`);
+          break;
+        }
+
+        console.log(`[CareerAgent] Calling ${provider.label} (attempt ${attempt}/${MAX_ATTEMPTS}, ${(budgetLeft / 1000).toFixed(0)}s of budget left)`);
+
+        const { text: rawReply, failure } = await provider.call(budgetLeft);
+
+        // FAIL FAST. A refused connection, a rejected API key or an exhausted quota will fail the
+        // same way every time - retrying it only spends budget the NEXT provider needs. Only a
+        // genuinely transient failure earns a second attempt.
+        if (failure && !failure.retryable) {
+          lastAttemptInfo = `${provider.label}: ${failure.message}`;
+          console.warn(`[CareerAgent] ${lastAttemptInfo} - not retrying this provider.`);
+          providerFailures.push({ provider: provider.name, kind: failure.kind, message: failure.message });
+          break;
+        }
+
         const trimmedReply = cleanModelText(rawReply).trim();
 
         if (!trimmedReply) {
-          lastAttemptInfo = `${provider.label} returned an empty response.`;
+          lastAttemptInfo = failure ? `${provider.label}: ${failure.message}` : `${provider.label} returned an empty response.`;
           console.warn(`[CareerAgent] ${lastAttemptInfo} (attempt ${attempt}/${MAX_ATTEMPTS})`);
           continue;
         }
@@ -1133,7 +1182,10 @@ async function chatWithCareerAgentOllama(message, history, profile, jobs, applic
       ...fallback,
       reasoning: `${fallback.reasoning} ${lastAttemptInfo} (after trying: ${providers.map((provider) => provider.label).join(", ")})`,
       usedFallback: true,
-      modelUsed: null
+      modelUsed: null,
+      // Machine-readable so the widget can say WHICH thing is down instead of the generic canned
+      // line. Never contains candidate data - only provider names and failure kinds.
+      providerFailures
     };
   } catch (error) {
     console.error("[CareerAgent] Error calling AI provider:", error.message);
@@ -1141,7 +1193,8 @@ async function chatWithCareerAgentOllama(message, history, profile, jobs, applic
       ...fallback,
       reasoning: `${fallback.reasoning} AI request failed: ${error.message}`,
       usedFallback: true,
-      modelUsed: null
+      modelUsed: null,
+      providerFailures: [{ provider: "chain", kind: "error", message: error.message }]
     };
   }
 }

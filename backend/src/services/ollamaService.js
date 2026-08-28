@@ -4,10 +4,65 @@ const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 const EMBEDDING_MODEL = process.env.OLLAMA_EMBEDDING_MODEL || "nomic-embed-text";
 const ANALYSIS_MODEL = process.env.OLLAMA_ANALYSIS_MODEL || "qwen2.5:7b";
 
+// TIMEOUT LADDER. Each layer must be strictly shorter than the one wrapping it, so the INNERMOST
+// one always fires first and the user gets a real error message instead of a dead socket:
+//
+//   this client (100s)  <  career-agent total budget (120s)  <  nginx proxy_read_timeout (150s)
+//                                                            <  browser abort (180s)
+//
+// This used to be 600000 - ten minutes. Nothing in front of it ever waited that long: nginx caps a
+// proxied response at 60s by default, and in dev a nodemon restart destroys the socket outright.
+// Either way the browser gets zero bytes and reports "Failed to fetch", which is why the
+// rule-based fallback reply was never seen. See CAREER_AGENT_TOTAL_BUDGET_MS in careerAgentService
+// and proxy_read_timeout in nginx.conf - change one and you must re-check the rest of the ladder.
+const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS) || 100000;
+
+// THE TOKEN BUDGET HAS TO FIT THE TIME BUDGET. This was 1400, which on CPU-only hardware measured
+// 135s for a single career-agent reply - past the 100s ceiling above, so the fallback provider
+// timed out every time and the user always got the canned rule-based line. Latency here is mostly
+// a fixed prompt-processing cost plus a per-token cost, measured on this box as:
+//
+//   num_predict 1400 -> 135.6s     700 -> 111.6s     500 -> 92.3s     350 -> 67.2s
+//
+// Note how flat that curve is: most of the cost is FIXED prompt processing, not per-token, so
+// trimming tokens buys headroom against load variance more than it shortens the reply. 400 came
+// back in 94.8s on a loaded box - inside the ceiling, but only just. 350 keeps a usable ~225-word
+// structured answer (it clears the usability check in careerAgentService: 15+ words AND a bullet,
+// heading or bold run) with roughly a third of the budget still in hand.
+// Raise it only alongside OLLAMA_TIMEOUT_MS, and only if your hardware is faster.
+const CAREER_AGENT_NUM_PREDICT = Number(process.env.CAREER_AGENT_OLLAMA_NUM_PREDICT) || 350;
+
+// Resume parsing and match analysis ask for far more tokens (num_predict 2000) than a chat reply,
+// so they get their own, longer ceiling instead of silently inheriting the chat one. They are
+// still REQUEST paths, so this stays below nginx's 150s proxy_read_timeout - past that the proxy
+// kills the connection first and its CORS-less 504 reaches the browser as "Failed to fetch",
+// which is the same failure this whole ladder exists to prevent.
+const OLLAMA_ANALYSIS_TIMEOUT_MS = Number(process.env.OLLAMA_ANALYSIS_TIMEOUT_MS) || 140000;
+
 const ollamaClient = axios.create({
   baseURL: OLLAMA_BASE_URL,
-  timeout: 600000  // 10 minutes - career agent prompts can be very large
+  timeout: OLLAMA_TIMEOUT_MS
 });
+
+// Callers that retry need to know WHY a call failed: retrying a refused connection four times
+// helps nobody, and a timeout means the budget is spent rather than that the model is broken.
+function classifyOllamaError(error) {
+  const code = error?.code || "";
+
+  if (code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "EHOSTUNREACH" || code === "ECONNRESET") {
+    return { kind: "unreachable", retryable: false, message: `Ollama is not reachable at ${OLLAMA_BASE_URL} (${code}).` };
+  }
+
+  if (code === "ECONNABORTED" || code === "ETIMEDOUT" || error?.name === "CanceledError") {
+    return { kind: "timeout", retryable: false, message: `Ollama did not respond within the time budget.` };
+  }
+
+  if (error?.response?.status === 404) {
+    return { kind: "model_missing", retryable: false, message: `Ollama has no such model pulled. Run: ollama pull <model>` };
+  }
+
+  return { kind: "error", retryable: true, message: error?.message || "Ollama request failed." };
+}
 
 async function checkOllamaHealth() {
   try {
@@ -91,7 +146,7 @@ IMPORTANT:
       prompt,
       stream: false,
       format: "json"
-    });
+    }, { timeout: OLLAMA_ANALYSIS_TIMEOUT_MS });
 
     if (response.data && response.data.response) {
       try {
@@ -157,13 +212,25 @@ async function chatWithCareerAgent(prompt, model = ANALYSIS_MODEL) {
 // Career agent replies are detailed markdown prose, NOT JSON. Forcing format:"json"
 // on small local models pushes them to satisfy the grammar with a one-line stub, so we
 // deliberately request free-form text here and let the caller structure the result.
-async function generateCareerAgentReply(prompt, model = ANALYSIS_MODEL) {
+//
+// Returns { text, failure } rather than a bare string|null. The caller retries, and it can only
+// decide sensibly whether to retry - or to stop and tell the user something specific - if it knows
+// the difference between "nothing is listening on 11434", "the budget ran out" and "the model
+// answered with nothing". Collapsing all three to null is what produced four pointless retries
+// against a refused connection.
+async function generateCareerAgentReply(prompt, model = ANALYSIS_MODEL, options = {}) {
   if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
-    return null;
+    return { text: null, failure: { kind: "error", retryable: false, message: "Empty prompt." } };
   }
 
+  // A per-call ceiling below the client default lets the caller hand over whatever is LEFT of the
+  // total budget, so one slow provider cannot spend time the next one still needs.
+  const timeoutMs = Number(options.timeoutMs) > 0
+    ? Math.min(Number(options.timeoutMs), OLLAMA_TIMEOUT_MS)
+    : OLLAMA_TIMEOUT_MS;
+
   try {
-    console.log(`[Ollama] Career agent (text) request to model: ${model}, prompt length: ${prompt.length}`);
+    console.log(`[Ollama] Career agent (text) request to model: ${model}, prompt length: ${prompt.length}, timeout: ${(timeoutMs / 1000).toFixed(0)}s`);
     const startTime = Date.now();
 
     const response = await ollamaClient.post("/api/generate", {
@@ -171,24 +238,25 @@ async function generateCareerAgentReply(prompt, model = ANALYSIS_MODEL) {
       prompt: prompt.trim(),
       stream: false,
       options: {
-        num_predict: 1400,
+        num_predict: CAREER_AGENT_NUM_PREDICT,
         temperature: 0.5,
         top_p: 0.9,
         repeat_penalty: 1.1
       }
-    });
+    }, { timeout: timeoutMs });
 
     const elapsed = Date.now() - startTime;
     console.log(`[Ollama] Career agent (text) completed in ${(elapsed / 1000).toFixed(2)}s`);
 
     if (response.data && typeof response.data.response === "string") {
-      return response.data.response.trim();
+      return { text: response.data.response.trim(), failure: null };
     }
 
-    return null;
+    return { text: null, failure: { kind: "empty", retryable: true, message: "Ollama returned no text." } };
   } catch (error) {
-    console.error("[Ollama] Career agent (text) generation failed:", error.message);
-    return null;
+    const failure = classifyOllamaError(error);
+    console.error(`[Ollama] Career agent (text) generation failed (${failure.kind}):`, error.message);
+    return { text: null, failure };
   }
 }
 
@@ -213,7 +281,7 @@ async function generateJsonCompletion(prompt, model = ANALYSIS_MODEL) {
         num_predict: 2000,
         temperature: 0.1
       }
-    });
+    }, { timeout: OLLAMA_ANALYSIS_TIMEOUT_MS });
 
     const elapsed = Date.now() - startTime;
     console.log(`[Ollama] JSON completion finished in ${(elapsed / 1000).toFixed(2)}s`);
@@ -235,6 +303,10 @@ async function generateJsonCompletion(prompt, model = ANALYSIS_MODEL) {
 }
 
 module.exports = {
+  OLLAMA_BASE_URL,
+  OLLAMA_TIMEOUT_MS,
+  OLLAMA_ANALYSIS_TIMEOUT_MS,
+  classifyOllamaError,
   checkOllamaHealth,
   generateEmbedding,
   analyzeResumeMatch,

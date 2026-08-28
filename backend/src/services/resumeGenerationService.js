@@ -221,7 +221,11 @@ function extractLatexEntrySortYear(entry) {
 
 function splitEducationEntries(sectionBody) {
   const body = String(sectionBody || "");
-  const entryPattern = /(\\(?:item\b|cventry\b|educationentry\b)[\s\S]*?)(?=\\(?:item\b|cventry\b|educationentry\b)|$)/g;
+  // \resumeEntryWithLine joined the list when Education moved to the one-line family layout. It
+  // has to be here: without it this splitter finds zero entries, silently returns the body
+  // unchanged, and the LaTeX-level newest-first safety net stops working with nothing to show for
+  // it. \item stays for the fallback template and for any legacy stored LaTeX.
+  const entryPattern = /(\\(?:item\b|cventry\b|educationentry\b|resumeEntryWithLine\b)[\s\S]*?)(?=\\(?:item\b|cventry\b|educationentry\b|resumeEntryWithLine\b)|$)/g;
   const entries = [];
   let match;
 
@@ -853,36 +857,202 @@ function buildProfileForTailoring(seeker = {}) {
   return profile;
 }
 
-// ONE template, read from utils/resume.template.txt at module load. The inline copy that used to
-// live here had already drifted from the file (2562 vs 2523 characters), so which layout you got
-// depended on which caller you came through. The file wins; the literal below is only a last-resort
-// fallback for an environment where the file is unreadable, and is intentionally minimal.
+/* ===============================================================================================
+   SIX LAYOUT VARIANTS
+   ===============================================================================================
+   utils/resume-templates/ holds one _preamble.tex (every visual constant and command definition),
+   one _sections.tex (the scaffolding for each section, defined once) and six variant-*.tex files
+   that do nothing but declare a section ORDER and whether a headline line is present. They are
+   assembled here rather than by LaTeX \input, because a real \input would need the shared files
+   copied next to the .tex in whatever temp directory compileLatexToPdf creates — a failure mode
+   with no upside.
+
+   The template files contain PLACEHOLDERS ONLY. No name, employer, institution, metric, phone
+   number or email address appears in any of them; resumeTemplates.test.js fails the build if one
+   ever does. Every word of a generated resume comes from the target candidate's own stored
+   profile.
+   =============================================================================================== */
 const path = require("path");
 const fs = require("fs");
 
-const TEMPLATE_PATH = path.join(__dirname, "..", "utils", "resume.template.txt");
+const TEMPLATES_DIR = path.join(__dirname, "..", "utils", "resume-templates");
 
+const RESUME_VARIANTS = ["a", "b", "c", "d", "e", "f"];
+
+/* The two rendering differences that a .tex skeleton cannot express, because they live inside a
+   single substituted blob rather than in the scaffolding around it:
+
+     skillSeparator     what joins the skills within one category line. Variant A uses a pipe;
+                        the rest use a comma. `$|$` and not a bare `|`, which the default OT1
+                        encoding renders as an em-dash.
+     projectTechLayout  "inline" puts the tech stack on the title line after a pipe; "block"
+                        (variant D only) gives it its own bold "Technologies:" line beneath. */
+/* The rendering differences a .tex skeleton cannot express, because they decide WHICH command the
+   content builder calls or what goes inside one substituted blob. Everything else that separates
+   the six — section header treatment, name block, bullet glyph, skills arrangement, density — is
+   pure LaTeX and lives in _styles.tex.
+
+     skillSeparator     what joins the skills within one category. `$|$` and not a bare `|`, which
+                        the default OT1 encoding renders as an em-dash.
+     projectTechLayout  "inline" puts the tech stack on the title line after a pipe; "block" gives
+                        it its own bold "Technologies:" line beneath.
+     entryLayout        the shape of an Experience entry:
+                          "inline"           Role | Company, Location ....... Dates   (one line)
+                          "stacked-company"  Company, Location ............... Dates
+                                             Role                                    (italic)
+                          "stacked-role"     Role ............................ Dates
+                                             Company, Location                       (plain)
+                        Chosen here rather than in LaTeX because the three shapes take different
+                        arguments in a different order. */
+const VARIANT_STYLE = {
+  a: { skillSeparator: " $|$ ", projectTechLayout: "inline", entryLayout: "inline" },
+  b: { skillSeparator: ", ", projectTechLayout: "inline", entryLayout: "stacked-company" },
+  c: { skillSeparator: ", ", projectTechLayout: "inline", entryLayout: "inline" },
+  d: { skillSeparator: ", ", projectTechLayout: "block", entryLayout: "stacked-role" },
+  e: { skillSeparator: ", ", projectTechLayout: "inline", entryLayout: "stacked-company" },
+  f: { skillSeparator: ", ", projectTechLayout: "inline", entryLayout: "inline" }
+};
+
+// Last resort only, for an environment where the template directory is unreadable. Deliberately
+// minimal, and loud in the logs — a silent fall-through to a stub document is how a two-line
+// page 2 shipped once already.
 const FALLBACK_TEMPLATE = String.raw`\documentclass[letterpaper,11pt]{article}
 \usepackage[empty]{fullpage}
 \usepackage{enumitem}
 \begin{document}
 \begin{center}{\Huge NAME}\end{center}
-OBJECTIVE
+SUMMARY
 \end{document}`;
 
-function loadResumeTemplate() {
-  try {
-    const contents = fs.readFileSync(TEMPLATE_PATH, "utf8");
-    if (String(contents || "").includes("begin{document}")) {
-      return contents;
-    }
-  } catch {
-    // Fall through to the built-in fallback.
+function parseMarkerBlocks(source, marker) {
+  // split() on a capturing group yields [leading-comment, name, body, name, body, ...].
+  const parts = String(source).split(new RegExp(`^%%${marker} ([a-z]+)%%$`, "m"));
+  const blocks = new Map();
+
+  for (let index = 1; index < parts.length; index += 2) {
+    blocks.set(parts[index], String(parts[index + 1]).trim());
   }
-  return FALLBACK_TEMPLATE;
+
+  return blocks;
 }
 
-const defaultResumeTemplate = loadResumeTemplate();
+function assembleVariantTemplate(variant, preamble, styleBlocks, sectionBlocks) {
+  const skeleton = fs.readFileSync(path.join(TEMPLATES_DIR, `variant-${variant}.tex`), "utf8");
+
+  // Function replacements throughout: a `$&` or `$1` occurring inside the preamble, a style block
+  // or a section body would otherwise be interpreted as a replacement pattern.
+  return skeleton
+    .replace(/^%%PREAMBLE%%$/m, () => preamble)
+    .replace(/^%%STYLE ([a-z]+)%%$/m, (_match, name) => {
+      const block = styleBlocks.get(name);
+
+      if (block === undefined) {
+        throw new Error(`variant-${variant}.tex names style "${name}", which _styles.tex does not define.`);
+      }
+
+      return block;
+    })
+    .replace(/^%%SECTION ([a-z]+)%%$/gm, (_match, name) => {
+      const block = sectionBlocks.get(name);
+
+      if (block === undefined) {
+        throw new Error(`variant-${variant}.tex names section "${name}", which _sections.tex does not define.`);
+      }
+
+      return block;
+    })
+    .trim();
+}
+
+function loadResumeTemplates() {
+  try {
+    const preamble = fs.readFileSync(path.join(TEMPLATES_DIR, "_preamble.tex"), "utf8").trim();
+    // Same marker-split as the section blocks. The style block is what makes each variant a
+    // different-looking document rather than the same one with its sections shuffled.
+    const styleBlocks = parseMarkerBlocks(fs.readFileSync(path.join(TEMPLATES_DIR, "_styles.tex"), "utf8"), "STYLE");
+    const sectionBlocks = parseMarkerBlocks(fs.readFileSync(path.join(TEMPLATES_DIR, "_sections.tex"), "utf8"), "SECTION");
+
+    return Object.fromEntries(
+      RESUME_VARIANTS.map((variant) => {
+        const template = assembleVariantTemplate(variant, preamble, styleBlocks, sectionBlocks);
+
+        if (!template.includes("begin{document}")) {
+          throw new Error(`variant-${variant}.tex assembled without a \\begin{document}.`);
+        }
+
+        return [variant, template];
+      })
+    );
+  } catch (error) {
+    console.error("Resume templates could not be assembled; falling back to the stub layout:", error.message);
+    return Object.fromEntries(RESUME_VARIANTS.map((variant) => [variant, FALLBACK_TEMPLATE]));
+  }
+}
+
+const resumeTemplatesByVariant = loadResumeTemplates();
+
+function normalizeResumeVariant(value) {
+  const variant = String(value || "").trim().toLowerCase();
+  return RESUME_VARIANTS.includes(variant) ? variant : "";
+}
+
+/* FNV-1a, 32-bit. Deterministic across processes, machines and Node versions, which is the whole
+   point — a hash that varies would reintroduce exactly the per-call randomness this avoids. */
+function hashVariantSeed(seed) {
+  const text = String(seed);
+  let hash = 0x811c9dc5;
+
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+
+  return hash;
+}
+
+/* SELECTION ROTATES PER GENERATION, FROM A PER-CANDIDATE STARTING POINT.
+ *
+ *     index = (hash(seed) + rotation) % 6
+ *
+ * ROTATE, DO NOT RANDOMISE. With six options a random draw repeats the previous layout about one
+ * time in six — which is the exact symptom this replaces, and would read as the change never
+ * having landed. Stepping guarantees all six appear before any repeat and spreads usage evenly.
+ *
+ * THE HASH STILL EARNS ITS PLACE, for one job: it sets WHERE each candidate starts. Without it
+ * every candidate's first resume would be variant A, so a whole signup cohort would move through
+ * the six in lockstep. With it the six are evenly occupied at every rotation step.
+ *
+ * Both inputs are passed IN. This function performs no I/O and never reaches into profile._id,
+ * which is what makes all six layouts testable without inventing an id that hashes just so, and
+ * without a database.
+ *
+ *   variant      an explicit override — a candidate's saved preference, or a test pinning one.
+ *                It wins outright and does not rotate; a pinned layout is a pinned layout.
+ *   variantSeed  the stable identifier that fixes the starting offset.
+ *   rotation     how many resumes this candidate has already generated. Anything that is not a
+ *                finite, non-negative number is treated as 0 rather than propagating NaN — a NaN
+ *                here would make `(start + NaN) % 6` NaN, index into nothing, and collapse every
+ *                generation onto the fallback template.
+ */
+function resolveResumeVariant({ variant, variantSeed, rotation = 0 } = {}) {
+  const explicit = normalizeResumeVariant(variant);
+
+  if (explicit) {
+    return explicit;
+  }
+
+  const seed = String(variantSeed === null || variantSeed === undefined ? "" : variantSeed).trim();
+  const start = seed ? hashVariantSeed(seed) % RESUME_VARIANTS.length : 0;
+
+  const parsedRotation = Number(rotation);
+  const steps = Number.isFinite(parsedRotation) && parsedRotation > 0 ? Math.trunc(parsedRotation) : 0;
+
+  return RESUME_VARIANTS[(start + steps) % RESUME_VARIANTS.length];
+}
+
+function getResumeTemplate(variant) {
+  return resumeTemplatesByVariant[normalizeResumeVariant(variant) || RESUME_VARIANTS[0]];
+}
 
 function linkLabel(url) {
   return String(url || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
@@ -894,6 +1064,187 @@ function firstPresent(...values) {
 
 function rawUrl(value) {
   return String(value || "").trim().replace(/[{}]/g, "");
+}
+
+/* ===============================================================================================
+   THE CONTACT LINE IS BUILT FROM PROFILE DATA. NOTHING IS ASSUMED AND NOTHING IS INVENTED.
+   ===============================================================================================
+   The reference layouts this family is modelled on all open with "USA (Open to Relocate) | +1 …".
+   None of that is hardcoded here, and none of it may be: this platform's candidates are largely in
+   India, with Indian institutions and +91 numbers, and stamping a US location or a +1 country code
+   onto their resume would be a factual claim they never made.
+
+   Only the fields the profile actually holds are emitted, and the separators collapse with them —
+   the parts are collected into an array and joined, so a missing LinkedIn leaves no dangling
+   separator. Absent fields now render NOTHING. The previous template substituted
+   "Phone not available", "email-not-available@example.com" and a bare "https://linkedin.com" for
+   missing values, which put a fake contact address on a document an employer replies to. No
+   contact line at all is better than a wrong one.
+   =============================================================================================== */
+function readProfileLocation(profile = {}) {
+  return (
+    firstPresent(
+      profile.location,
+      profile.currentLocation,
+      profile.city,
+      Array.isArray(profile.locationPreferences) ? profile.locationPreferences[0] : undefined,
+      profile.headquartersLocation
+    ) || ""
+  );
+}
+
+function buildContactLine(profile = {}) {
+  const location = readProfileLocation(profile);
+  const phone = firstPresent(profile.phone, profile.mobile, profile.mobileNumber, profile.phoneNumber) || "";
+  const email = firstPresent(profile.email, profile.userEmail, profile.contactEmail) || "";
+  const linkedinUrl = firstPresent(profile.linkedinUrl, profile.linkedInUrl, profile.linkedin, profile.linkedIn) || "";
+  const githubUrl = firstPresent(profile.githubUrl, profile.github, profile.gitHubUrl, profile.gitHub) || "";
+  const portfolioUrl = firstPresent(profile.portfolioUrl, profile.websiteUrl, profile.website) || "";
+
+  const parts = [
+    location ? `\\small ${escapeLatex(location)}` : "",
+    phone ? `\\small \\faPhone\\ ${escapeLatex(phone)}` : "",
+    email ? `\\small \\href{mailto:${rawUrl(email)}}{\\faEnvelope\\ \\underline{${escapeLatex(email)}}}` : "",
+    linkedinUrl
+      ? `\\small \\href{${rawUrl(linkedinUrl)}}{\\faLinkedin\\ \\underline{${escapeLatex(linkLabel(linkedinUrl))}}}`
+      : "",
+    githubUrl
+      ? `\\small \\href{${rawUrl(githubUrl)}}{\\faGithub\\ \\underline{${escapeLatex(linkLabel(githubUrl))}}}`
+      : "",
+    portfolioUrl
+      ? `\\small \\href{${rawUrl(portfolioUrl)}}{\\faGlobe\\ \\underline{${escapeLatex(linkLabel(portfolioUrl))}}}`
+      : ""
+  ].filter(Boolean);
+
+  // Wrapped in \resumeContact rather than carrying its own trailing line break, so each variant's
+  // style block decides how the contact line sits in the header. An absent contact line emits
+  // NOTHING — no command, no break — which is what lets a variant lay the header out freely.
+  return parts.length ? `\\resumeContact{${parts.join(" ~ ")}}\n` : "";
+}
+
+/* The optional positioning line beneath the name — present in variants B, E and F.
+ *
+ * Built ONLY from what the candidate stored about themselves: their tagline, or their preferred
+ * roles plus their own top skills. Never the target job's title, and never the posting's
+ * requirements — that is the same mistake as the removed "Core Concepts" line, which attributed an
+ * employer's wish-list to the candidate.
+ *
+ * Requires a tagline or a preferred role to exist. A bare list of skills is not a positioning
+ * line, and a headline that reads "Python | SQL | Git" says less than no headline at all — so when
+ * there is nothing to say, this returns "" and the header closes up rather than printing an empty
+ * bold line (which pdflatex would reject anyway, given the \\ that follows it).
+ */
+/* One dated entry, in whichever of the three shapes the variant asks for.
+ *
+ * The empty cases are resolved HERE rather than with a LaTeX \ifx test, because the caller knows
+ * which fields the profile actually holds: a role with no recorded company must not emit a
+ * dangling " $|$ ", and a stacked entry with nothing for its second line passes an empty tabular
+ * cell, which renders as nothing. Neither shape can produce the "There's no line here to end"
+ * abort that a `\\` after an absent field used to cause.
+ */
+function buildEntryHeading(style, role, company, dates) {
+  const escapedDates = escapeLatex(dates);
+  const present = [role, company].filter(Boolean);
+
+  if (style.entryLayout === "stacked-company" && present.length === 2) {
+    return `\\resumeEntryStacked{${escapeLatex(company)}}{${escapeLatex(role)}}{${escapedDates}}`;
+  }
+
+  if (style.entryLayout === "stacked-role" && present.length === 2) {
+    return `\\resumeEntryStacked{${escapeLatex(role)}}{${escapeLatex(company)}}{${escapedDates}}`;
+  }
+
+  // Inline, and the fallback for a one-sided entry: a stacked shape with only one line to show is
+  // just a one-line entry with wasted vertical space.
+  const heading = present.map(escapeLatex).join(" $|$ ") || escapeLatex("Experience");
+  return `\\resumeEntry{${heading}}{${escapedDates}}`;
+}
+
+function buildResumeHeadline(profile = {}, categorizedSkills = []) {
+  const tagline = sentence(profile.tagline);
+
+  if (tagline) {
+    return tagline;
+  }
+
+  /* THE ROLE MUST BE ONE THE CANDIDATE ACTUALLY CLAIMED. Three sources, all their own words, in
+     descending order of how deliberately they chose it:
+       1. preferredRoles  — what they told us they are targeting.
+       2. the job title of their most recent role — a title they have genuinely held.
+       3. nothing.
+     The target JOB's title is deliberately absent from that list. Putting the employer's role
+     title under the candidate's name would be the same misattribution as the removed "Core
+     Concepts" line, which credited a posting's wish-list to the candidate. */
+  const preferred = [...new Set((profile.preferredRoles || []).map((role) => sentence(role)).filter(Boolean))];
+  const mostRecentTitle = sentence(
+    (profile.experience || [])
+      .slice()
+      .sort((left, right) => getRecencySortValue(right) - getRecencySortValue(left))
+      .map((item) => item.jobTitle || item.role || item.title)
+      .find(Boolean)
+  );
+  const roles = (preferred.length ? preferred : [mostRecentTitle].filter(Boolean)).slice(0, 2);
+
+  /* ONE SKILL PER CATEGORY, not the top four overall. Four entries from a single bucket reads as
+     a fragment of the skills section ("Java | Python | C++ | Go"); one from each reads as a
+     positioning line ("Backend Engineer | Spring Boot | PostgreSQL | Docker"), which is what the
+     reference layouts do. */
+  const specialisms = categorizedSkills
+    .map((category) => sentence((category.skills || [])[0]))
+    .filter((skill) => skill && !roles.some((role) => role.toLowerCase() === skill.toLowerCase()))
+    .slice(0, 4);
+
+  const parts = [...roles, ...specialisms];
+
+  /* Emit whenever there is something worth saying, and omit only when there genuinely is not.
+     A role plus anything is a headline; so is a broad enough spread of skills on its own. A lone
+     fragment is not — a line reading just "Python" under a name says less than no line at all,
+     and the header closes up cleanly rather than printing an empty bold line. */
+  if (roles.length ? parts.length < 2 : parts.length < 3) {
+    return [];
+  }
+
+  return parts;
+}
+
+/* Returns the PARTS, not a joined string, because the separator has to survive escaping. A literal
+   `|` in OT1 text mode renders as an EM DASH — "Backend Engineer — Spring Boot" — so the pipe has
+   to be `$|$`, and escapeLatex would turn a pre-joined `$|$` into `\$|\$`. Escape each part, then
+   join with the raw separator. */
+function formatResumeHeadline(parts = []) {
+  return parts.map(escapeLatex).join(" $|$ ");
+}
+
+/* Work-authorisation status is a LEGAL FACT about a person. The reference resumes carry lines like
+ * "Authorized to work in the U.S. on F1 OPT with STEM extension eligibility", and the summary is
+ * the one field on this document that passes through a language model — so it is the one place a
+ * status could be invented. A sentence claiming one is dropped unless the candidate's own stored
+ * text says the same thing, in which case there is nothing to invent.
+ */
+const WORK_AUTHORISATION_PATTERN =
+  /\b(F-?1|H-?1B|OPT|CPT|STEM extension|green card|work(?:ing)? (?:visa|permit|authoriz|authoris)|authoriz(?:ed|ation) to work|authoris(?:ed|ation) to work|EAD|TN visa|permanent resident)\b/i;
+
+function stripUnsupportedWorkAuthorisation(summary, profile = {}) {
+  if (!WORK_AUTHORISATION_PATTERN.test(summary)) {
+    return summary;
+  }
+
+  const ownText = [
+    profile.careerObjective,
+    profile.bio,
+    profile.tagline,
+    ...(profile.experience || []).map((item) => item.description),
+    ...(profile.achievements || []).map((item) => `${item.title || ""} ${item.description || ""}`),
+    ...(profile.licensesAndCertifications || []).map((item) => `${item.title || ""} ${item.description || ""}`)
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const kept = splitSentences(summary).filter(
+    (line) => !WORK_AUTHORISATION_PATTERN.test(line) || WORK_AUTHORISATION_PATTERN.test(ownText)
+  );
+
+  return sentence(kept.join(" "));
 }
 
 function itemRelevanceScore(item, jobText) {
@@ -1007,25 +1358,18 @@ function buildTargetedResumeObjective(profile, job, skills = []) {
 
 function buildResumeContent(profile, job, options = {}) {
   const omitEmptySections = Boolean(options.omitEmptySections);
+  const style = VARIANT_STYLE[normalizeResumeVariant(options.variant) || RESUME_VARIANTS[0]];
+  // A single-name candidate is a real shape, not a data error — the join collapses rather than
+  // leaving a trailing space, and "Applicant" is used only when there is no name at all.
   const name = sentence(`${profile.firstName || ""} ${profile.lastName || ""}`, "Applicant");
   const skills = pickRelevantSkills(profile, job);
   const jobSkills = [...(job.skillsRequired || []), ...(job.skills || [])].filter(Boolean);
   const roleTitle = job.title || (profile.preferredRoles || [])[0] || "Target Role";
   const targetTerms = buildTargetTerms(job);
-  const institutionLine = firstPresent(
-    profile.universityName,
-    profile.collegeName,
-    profile.college,
-    profile.institution,
-    profile.education?.[0]?.institution,
-    profile.headquartersLocation,
-    profile.location
-  ) || "";
-  const phone = firstPresent(profile.phone, profile.mobile, profile.mobileNumber, profile.phoneNumber) || "";
-  const email = firstPresent(profile.email, profile.userEmail, profile.contactEmail) || "";
-  const linkedinUrl = firstPresent(profile.linkedinUrl, profile.linkedInUrl, profile.linkedin, profile.linkedIn) || "";
-  const githubUrl = firstPresent(profile.githubUrl, profile.github, profile.gitHubUrl, profile.gitHub) || "";
-  const objective = sentence(options.objective, buildTargetedResumeObjective(profile, job, skills));
+  const summary = stripUnsupportedWorkAuthorisation(
+    sentence(options.objective, buildTargetedResumeObjective(profile, job, skills)),
+    profile
+  );
 
   // Terms eligible for bold emphasis inside bullets: the target job's keywords, longest first so
   // "Spring Boot" wins over "Spring". These only ever EMPHASISE text the candidate already wrote.
@@ -1033,15 +1377,20 @@ function buildResumeContent(profile, job, options = {}) {
     .sort((left, right) => right.length - left.length)
     .slice(0, 40);
 
-  // Company leads (bold, left) with dates on the right; role and location on the italic second
-  // line. Location was previously never passed at all, which is why it never appeared.
+  /* ONE LINE PER ROLE: "Role | Company, Location" bold-left, dates bold-right.
+     This replaces the two-line \resumeSubheading, where the company sat bold on one line with the
+     role in italics beneath it. The pieces are assembled into an array and joined, so a role with
+     no recorded location — or an entry that has a company but no title — collapses cleanly instead
+     of emitting a stray "|" or a trailing comma. */
   const experienceItems = selectRelevantItems(profile.experience || [], targetTerms, 4).map((item) => {
     const dates = [formatDate(item.startDate), item.isCurrent ? "Present" : formatDate(item.endDate)]
       .filter(Boolean)
       .join(" -- ");
     const location = firstPresent(item.location, item.city, item.jobLocation) || "";
+    const role = sentence(item.jobTitle || item.role || item.title);
+    const company = [sentence(item.companyName), sentence(location)].filter(Boolean).join(", ");
     return [
-      `\\resumeSubheading{${escapeLatex(item.companyName || "Company")}}{${escapeLatex(dates)}}{${escapeLatex(item.jobTitle || item.role || item.title || "")}}{${escapeLatex(location)}}`,
+      buildEntryHeading(style, role, company, dates),
       "\n\\resumeItemListStart\n",
       buildResumeItemBullets(
         item.description,
@@ -1064,9 +1413,21 @@ function buildResumeContent(profile, job, options = {}) {
     const titleMarkup = link
       ? `\\href{${rawUrl(link)}}{\\textbf{${escapedTitle}} \\faGithub}`
       : `\\textbf{${escapedTitle}}`;
+
+    // Variant D breaks the tech stack onto its own bold "Technologies:" line; every other variant
+    // keeps it inline after a pipe. Either way the stack is the candidate's own stored list —
+    // flattenProjectTechStack never reads the job posting.
+    const inlineTech = style.projectTechLayout === "inline" && techStack
+      ? ` $|$ \\emph{${escapeLatex(techStack)}}`
+      : "";
+    const blockTech = style.projectTechLayout === "block" && techStack
+      ? `\n\\resumeProjectTech{${escapeLatex(techStack)}}`
+      : "";
+
     return [
-      `\\resumeProjectHeading{${titleMarkup}${techStack ? ` $|$ \\emph{${escapeLatex(techStack)}}` : ""}}{${escapeLatex(dates)}}`,
-      "\\resumeItemListStart\n",
+      `\\resumeProjectHeading{${titleMarkup}${inlineTech}}{${escapeLatex(dates)}}`,
+      blockTech,
+      "\n\\resumeItemListStart\n",
       buildResumeItemBullets(
         item.description,
         `Built a project aligned with ${roleTitle} requirements.`,
@@ -1108,11 +1469,11 @@ function buildResumeContent(profile, job, options = {}) {
         item.cgpa,
         item === mostRecentEducationItem ? profile.currentGPA : undefined
       );
-      const gpa = gpaValue ? ` \\hfill CGPA: ${escapeLatex(formatGpa(gpaValue))}` : "";
-      return [
-        `\\item\\textbf{${formatDegreeWithField(item.degree, item.fieldOfStudy)}} ${year ? `\\hfill ${escapeLatex(year)}` : ""} \\\\`,
-        `${escapeLatex(item.institution || "Institution")}${gpa}`
-      ].join("");
+      // Degree bold-left, dates bold-right, institution on the line beneath with the GPA opposite
+      // it — the family's education shape. Both right-hand cells accept an empty string, so an
+      // undated degree or a missing GPA leaves a blank cell rather than a dangling \hfill.
+      const gpa = gpaValue ? `CGPA: ${escapeLatex(formatGpa(gpaValue))}` : "";
+      return `\\resumeEntryWithLine{${formatDegreeWithField(item.degree, item.fieldOfStudy)}}{${year ? escapeLatex(year) : ""}}{${escapeLatex(item.institution || "Institution")}}{${gpa}}`;
     });
 
   // ONE merged section, matching the reference. The two arrays routinely hold the same entries —
@@ -1137,10 +1498,10 @@ function buildResumeContent(profile, job, options = {}) {
   const extracurricularItems = collectExtracurricular(profile)
     .slice(0, 4)
     .map((item) => {
-      // Argument order matches Experience: organisation bold-left, dates right, role italic-left,
-      // place italic-right. This was inverted — `organization` (the ROLE, e.g. "Volunteer") was
-      // passed as the bold organisation and `title` (the actual body, e.g. "NSS") as the italic
-      // role, so the entry read upside down against every other entry on the page.
+      // Reads in the same order as an Experience entry — "Role | Organisation" bold-left, dates
+      // bold-right. The stored fields were being passed inverted before: `organization` (the ROLE,
+      // e.g. "Volunteer") led as the organisation and `title` (the body, e.g. "NSS") followed as
+      // the role, so the entry read upside down against every other entry on the page.
       const explicitDates = [formatDate(item.startDate), formatDate(item.endDate)].filter(Boolean).join(" -- ");
       // Parsers routinely fuse the dates into the title ("NSS 2019 - 2022") because a flat
       // activity line has nowhere else to put them. Splitting a trailing date RANGE back out is
@@ -1149,7 +1510,11 @@ function buildResumeContent(profile, job, options = {}) {
       const organisation = splitTitle.text || sentence(item.organization) || "Activity";
       const role = splitTitle.text ? sentence(item.organization) : "";
       const dates = explicitDates || splitTitle.dates;
-      const heading = `\\resumeSubheading{${escapeLatex(organisation)}}{${escapeLatex(dates)}}{${escapeLatex(role)}}{${escapeLatex(item.location || "")}}`;
+      const left = [role, organisation, sentence(item.location)]
+        .filter(Boolean)
+        .map(escapeLatex)
+        .join(" $|$ ");
+      const heading = `\\resumeEntry{${left}}{${escapeLatex(dates)}}`;
       if (!sentence(item.description)) {
         return heading;
       }
@@ -1165,12 +1530,19 @@ function buildResumeContent(profile, job, options = {}) {
   // the last one too, and when Technical Skills happened to be the final section — a sparse profile
   // with no experience, projects or achievements — that trailing `\\` had no line to end and
   // pdflatex aborted with "There's no line here to end". The resume simply failed to build.
+  /* One \resumeSkillEntry per category. Whether those render as lines, two columns, a flowing
+     paragraph or a label table is the VARIANT's business, decided in _styles.tex — this only says
+     what the categories ARE. That split is why the skills block can differ visually across the six
+     without the content builder growing a branch per layout.
+
+     Each skill is escaped INDIVIDUALLY and then joined with the variant's raw separator; joining
+     first and escaping after would turn variant A's `$|$` into a literal `\$|\$`. */
   const categorizedSkills = categorizeResumeSkills(profile, skills);
   const technicalLines = categorizedSkills.length
     ? categorizedSkills.map((category) =>
-      `\\textbf{${escapeLatex(category.label)}:} ${escapeLatex(category.skills.join(", "))}`
+      `\\resumeSkillEntry{${escapeLatex(category.label)}}{${category.skills.map(escapeLatex).join(style.skillSeparator)}}`
     )
-    : (omitEmptySections ? [] : [`\\textbf{Skills:} Relevant technical skills`]);
+    : (omitEmptySections ? [] : [`\\resumeSkillEntry{Skills}{Relevant technical skills}`]);
 
   // REMOVED, permanently: a "Core Concepts" line built from `jobSkills` — the EMPLOYER'S OWN
   // stated requirements — attributed the job posting's wish-list to the candidate as if it were
@@ -1180,33 +1552,37 @@ function buildResumeContent(profile, job, options = {}) {
   // Player") identical on every candidate's resume, which weakens rather than strengthens it.
   // Neither is reinstatable behind a flag: both are gone.
 
+  const headline = buildResumeHeadline(profile, categorizedSkills);
+
   return {
     NAME: escapeLatex(name),
-    // Carries its OWN line break, so an empty value emits nothing at all. Previously the template
-    // hard-coded `LOCATION_OR_UNIVERSITY \ space{1pt}`, and a profile with no university or
-    // location left a line containing only `\` — which pdflatex rejects outright with
-    // "There's no line here to end". The resume did not render badly; it failed to build.
-    LOCATION_OR_UNIVERSITY: institutionLine
-      ? `${escapeLatex(institutionLine)} \\\\ \\vspace{1pt}\n`
-      : "",
-    PHONE: escapeLatex(phone || "Phone not available"),
-    EMAIL: escapeLatex(email || "email-not-available@example.com"),
-    LINKEDIN: rawUrl(linkedinUrl || "https://linkedin.com"),
-    LINKEDIN_LABEL: escapeLatex(linkLabel(linkedinUrl || "linkedin.com")),
-    GITHUB: rawUrl(githubUrl || "https://github.com"),
-    GITHUB_LABEL: escapeLatex(linkLabel(githubUrl || "github.com")),
-    OBJECTIVE: escapeLatex(objective),
+    /* HEADLINE and CONTACT_LINE emit a COMMAND CALL or nothing at all — never markup with a
+       trailing line break baked in. That is what lets each variant's style block arrange the
+       header freely (centred, left-aligned, over a rule, under a rule) without inheriting a `\\`
+       that belongs to a different layout. An absent field emits no command, so there is no stray
+       break to produce the "There's no line here to end" abort.
+
+       Superseded: the old placeholder set (LOCATION_OR_UNIVERSITY / PHONE / EMAIL / LINKEDIN /
+       GITHUB) substituted "Phone not available" and "email-not-available@example.com" for missing
+       values. That put a fake contact address on a document an employer replies to; a missing
+       field now renders nothing at all. */
+    HEADLINE: headline.length ? `\\resumeHeadline{${formatResumeHeadline(headline)}}\n` : "",
+    CONTACT_LINE: buildContactLine(profile),
+    SUMMARY: escapeLatex(summary),
     EDUCATION: educationItems.length
       ? educationItems.join("\n\n")
       : (omitEmptySections ? "" : "\\item\\textbf{Education details available on request}"),
     EXPERIENCE: experienceItems.length
       ? experienceItems.join("\n\n")
-      : (omitEmptySections ? "" : `\\item \\textbf{Relevant Experience} \\hfill ${escapeLatex(roleTitle)} \\\\\n\\resumeItemListStart\n\\resumeItem{${escapeLatex(`Applied profile skills to responsibilities aligned with ${roleTitle}.`)}}\n\\resumeItemListEnd`),
+      : (omitEmptySections ? "" : `\\resumeEntry{Relevant Experience}{${escapeLatex(roleTitle)}}\n\\resumeItemListStart\n\\resumeItem{${escapeLatex(`Applied profile skills to responsibilities aligned with ${roleTitle}.`)}}\n\\resumeItemListEnd`),
     PROJECTS: projectItems.length
       ? projectItems.join("\n\n")
       : (omitEmptySections ? "" : `\\resumeProjectHeading{\\textbf{Role-Aligned Project} $|$ \\emph{${escapeLatex((jobSkills.length ? jobSkills : skills).slice(0, 4).join(", ") || roleTitle)}}}{}\n\\resumeItemListStart\n\\resumeItem{${escapeLatex(`Project details can be tailored around ${roleTitle} requirements.`)}}\n\\resumeItemListEnd`),
-    TECHNICAL_SKILLS: technicalLines.join(" \\\\[3pt]\n"),
-    ACHIEVEMENTS_CERTIFICATIONS: achievementCertificationItems.length
+    // Joined with a plain newline, not a `\\` separator: each \resumeSkillEntry now ends itself
+    // (with \par, a tabular row, or nothing at all) according to the variant's arrangement, so
+    // there is no separator-versus-suffix hazard left for the last line to trip over.
+    SKILLS: technicalLines.join("\n"),
+    CERTIFICATIONS: achievementCertificationItems.length
       ? achievementCertificationItems.join("\n")
       : "",
     // Both are new sections with no legacy placeholder text: a profile with no coursework or no
@@ -1217,29 +1593,48 @@ function buildResumeContent(profile, job, options = {}) {
 }
 
 // Sections whose heading is removed outright when the corresponding content key is empty.
-// COURSEWORK, EXTRACURRICULAR and ACHIEVEMENTS_CERTIFICATIONS are stripped UNCONDITIONALLY — they
-// have no placeholder fallback, so an empty one would render as a bare heading over blank space.
+// CERTIFICATIONS, COURSEWORK and EXTRACURRICULAR are stripped UNCONDITIONALLY — they have no
+// placeholder fallback, so an empty one would render as a bare heading over blank space.
+//
+// This matters more with six layouts than it did with one. Every variant carries the whole set of
+// blocks; which of them a given resume shows is decided entirely HERE, by what the profile holds.
+// The alternative — hard-omitting Certifications from the variants whose reference layout shows
+// none — would mean a certified candidate silently losing every licence they hold because their
+// id happened to hash to variant A. The reference layouts show no Certifications section because
+// those people listed none, which is exactly what this stripping reproduces.
 const ALWAYS_OMITTED_WHEN_EMPTY = {
   COURSEWORK: "Relevant Coursework",
   EXTRACURRICULAR: "Extracurricular",
-  ACHIEVEMENTS_CERTIFICATIONS: "Achievements/Certifications"
+  CERTIFICATIONS: "Certifications and Achievements"
 };
 
 const OMITTABLE_SECTION_LABELS_BY_CONTENT_KEY = {
   EDUCATION: "Education",
   EXPERIENCE: "Experience",
   PROJECTS: "Projects",
-  TECHNICAL_SKILLS: "Technical Skills",
+  SKILLS: "Skills",
+  SUMMARY: "Summary",
   ...ALWAYS_OMITTED_WHEN_EMPTY
 };
 
-function buildLatexResumeFromTemplate(profile, job, template = defaultResumeTemplate, options = {}) {
-  const content = buildResumeContent(profile || {}, job || {}, options);
+/* ONE PASS, and it has to be one pass.
+ *
+ * The previous implementation reduced over the content entries longest-key-first, calling
+ * replaceAll for each. Key length ordering stops "SKILLS" matching inside "TECHNICAL_SKILLS", but
+ * it does nothing about the real hazard: a replacement's own TEXT being rescanned by a later key.
+ * A candidate at a company called "NAME Corp", or a project titled "SUMMARY", would have had that
+ * word substituted away inside their own already-inserted content. A single regex pass never
+ * revisits what it has written. */
+const PLACEHOLDER_PATTERN =
+  /\b(?:NAME|HEADLINE|CONTACT_LINE|SUMMARY|SKILLS|EXPERIENCE|EDUCATION|CERTIFICATIONS|PROJECTS|COURSEWORK|EXTRACURRICULAR)\b/g;
 
-  let latex = Object.entries(content).sort(([left], [right]) => right.length - left.length).reduce(
-    (compiled, [key, value]) => compiled.replaceAll(key, value),
-    template || defaultResumeTemplate
-  ).trim();
+function buildLatexResumeFromTemplate(profile, job, template = null, options = {}) {
+  const variant = resolveResumeVariant(options);
+  const content = buildResumeContent(profile || {}, job || {}, { ...options, variant });
+
+  let latex = String(template || getResumeTemplate(variant))
+    .replace(PLACEHOLDER_PATTERN, (token) => content[token] ?? "")
+    .trim();
 
   // These three never have placeholder text, so an empty one is always stripped — regardless of
   // the omitEmptySections flag, which only governs the legacy sections that DO have fallbacks.
@@ -1258,8 +1653,8 @@ function buildLatexResumeFromTemplate(profile, job, template = defaultResumeTemp
   return postProcessLatexResume(latex);
 }
 
-function buildFallbackLatexResume(profile, job) {
-  return buildLatexResumeFromTemplate(profile, job, defaultResumeTemplate);
+function buildFallbackLatexResume(profile, job, options = {}) {
+  return buildLatexResumeFromTemplate(profile, job, null, options);
 }
 
 function buildResumeFileName(profile, job, extension) {
@@ -1282,5 +1677,12 @@ module.exports = {
   buildTargetedResumeObjective,
   buildProfileForTailoring,
   getResumeProfileReadiness,
-  postProcessLatexResume
+  postProcessLatexResume,
+  RESUME_VARIANTS,
+  TEMPLATES_DIR,
+  normalizeResumeVariant,
+  resolveResumeVariant,
+  getResumeTemplate,
+  buildContactLine,
+  buildResumeHeadline
 };

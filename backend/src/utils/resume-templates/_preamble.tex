@@ -1,0 +1,152 @@
+%===============================================================================================
+% UNIVERSAL PREAMBLE — the parts that are the same in every layout, and nothing else.
+%===============================================================================================
+% Everything here is either a correctness guarantee or a DEFAULT that a variant's style block is
+% free to override. What lives here:
+%
+%   * the document class and package set. No variant may add a package; the six differ in how they
+%     use these, never in what they load.
+%   * page geometry, and the setting that keeps text extraction clean.
+%   * DEFAULT definitions of every restylable command. _styles.tex redefines them per variant.
+%
+% What does NOT live here any more: the section-header treatment, the name block, the bullet
+% glyph, the skills arrangement, the entry shape and the density. Those used to be here, which is
+% why reordering sections inside an identical visual shell read as "the same template with the
+% blocks moved". They are now per-variant, in _styles.tex.
+%
+% Assembled in Node, not by LaTeX. Each variant file opens with a preamble marker and a style
+% marker that loadResumeTemplates() replaces. A real \input would need these files copied next to
+% the .tex in whatever temp directory compileLatexToPdf creates, which is a failure mode with no
+% upside.
+%
+% CONTAINS NO CANDIDATE DATA AND NO SAMPLE CONTENT. Every human-readable string below is either a
+% LaTeX control sequence or a fixed section label. See resumeTemplates.test.js.
+%===============================================================================================
+
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\usepackage{fontawesome5}
+\usepackage{multicol}
+\usepackage{graphicx}
+\setlength{\multicolsep}{-3.0pt}
+\setlength{\columnsep}{18pt}
+\input{glyphtounicode}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Page geometry. Every variant shares it: a resume whose margins change between generations reads
+% as a different DOCUMENT rather than a different design, and the six are meant to be one family.
+\addtolength{\oddsidemargin}{-0.6in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1.19in}
+\addtolength{\topmargin}{-.7in}
+\addtolength{\textheight}{1.4in}
+
+\urlstyle{same}
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% This is what keeps every one of the six machine-readable: it embeds a ToUnicode map, so a PDF
+% text extractor — and therefore an ATS — recovers real characters instead of font glyph indices.
+% Never remove it, in any variant.
+\pdfgentounicode=1
+
+%-----------------------------------------------------------------------------------------------
+% DEFAULTS. _styles.tex overrides these per variant; what follows is the safe fallback for any
+% command a style block chooses not to touch.
+%-----------------------------------------------------------------------------------------------
+
+% BULLET GLYPH. Referenced by every list in the document, so one redefinition restyles them all.
+\newcommand{\resumebullet}{\raisebox{0.25ex}{\scalebox{0.9}{\textbf{--}}}}
+% Kept under its old name because _sections.tex and any previously stored LaTeX reference it.
+\newcommand{\resumedash}{\resumebullet}
+
+\newcommand{\resumeItem}[1]{\item\small{{#1 \vspace{-2pt}}}}
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=*, label=\resumebullet]}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+% SECTION HEADER — default is a bold label with a full-width rule beneath it.
+\titleformat{\section}{
+  \vspace{-4pt}\raggedright\large\bfseries
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+% ONE-LINE ENTRY: #1 left (bold), #2 right (bold, the date range).
+\newcommand{\resumeEntry}[2]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & \textbf{#2} \\
+    \end{tabular*}\vspace{-6pt}
+}
+
+% How the secondary line of a stacked entry reads. Redefined per variant (italic, plain, spaced).
+\newcommand{\resumeEntrySecondary}[1]{\textit{\small#1}}
+
+% TWO-LINE ENTRY: #1 primary (bold), #2 secondary (beneath), #3 the date range (bold, right).
+% A SECOND TABULAR ROW rather than a `\\` after \end{tabular*}: an empty second argument following
+% a bare `\\` is the "There's no line here to end" abort that used to kill the whole build, and an
+% empty tabular cell simply renders as nothing.
+\newcommand{\resumeEntryStacked}[3]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & \textbf{#3} \\
+      \resumeEntrySecondary{#2} & \\
+    \end{tabular*}\vspace{-6pt}
+}
+
+% Education entry: #1 degree (bold, left), #2 dates (bold, right), #3 institution, #4 GPA or empty.
+\newcommand{\resumeEntryWithLine}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & \textbf{#2} \\
+      \small#3 & \small#4 \\
+    \end{tabular*}\vspace{-6pt}
+}
+
+% Project heading: #1 the title (already carrying its own tech stack or link markup), #2 dates.
+\newcommand{\resumeProjectHeading}[2]{
+\item[]
+\begin{tabular*}{1.001\textwidth}{l@{\extracolsep{\fill}}r}
+\small#1 & \textbf{\small #2}\\
+\end{tabular*}\vspace{-7pt}
+}
+% The leading \vspace offsets \resumeProjectHeading's trailing \vspace{-7pt}; without it the
+% Technologies line climbs onto the project title's descenders.
+\newcommand{\resumeProjectTech}[1]{\vspace{5pt}\item[]\small{\textbf{Technologies:} #1}\vspace{-6pt}}
+
+% Skills. The content builder emits one \resumeSkillEntry per category, between Start and End — so
+% a variant can arrange them as lines, two columns, a flowing paragraph or a label table WITHOUT
+% the content builder knowing which. \par and not `\\`: a trailing `\\` on the final line is the
+% "no line here to end" abort, and this is a section that often ends up last on the page.
+\newcommand{\resumeSkillsStart}{\begingroup\small}
+\newcommand{\resumeSkillEntry}[2]{\noindent\textbf{#1:} #2\par\vspace{2pt}}
+\newcommand{\resumeSkillsEnd}{\par\endgroup\vspace{-4pt}}
+
+% HEADER. The headline and contact arguments arrive as \resumeHeadline{...} / \resumeContact{...}
+% calls, or as NOTHING AT ALL when the profile has no value — that emptiness decision is made in
+% JavaScript, where it is reliable, rather than with a LaTeX \ifx test. It is what lets a variant
+% lay the header out freely: there is never a stray `\\` left behind by an absent field.
+\newcommand{\resumeHeadline}[1]{\textbf{\small #1}\\ \vspace{2pt}}
+\newcommand{\resumeContact}[1]{#1}
+\newcommand{\resumeHeader}[3]{
+\begin{center}
+{\Huge \scshape #1} \\ \vspace{2pt}
+#2#3
+\end{center}
+\vspace{-8pt}
+}

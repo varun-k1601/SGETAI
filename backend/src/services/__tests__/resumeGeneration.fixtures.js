@@ -211,6 +211,67 @@ const fixtures = [
         { title: "Relevant Coursework", entries: [{ title: "Compiler Construction" }, { title: "Distributed Systems" }, { title: "Cryptography" }] }
       ]
     }
+  },
+
+  {
+    // A mononym is a real shape, not a data error — a large share of this platform's candidates
+    // in South India have one legal name. The name join must collapse rather than leaving a
+    // trailing space, and getInitials-style logic must not assume two words.
+    name: "single-name-no-links",
+    description: "One name, no surname, no LinkedIn, no GitHub, no location and no certifications.",
+    expect: { minPages: 1, maxPages: 1, hasExperience: true },
+    profile: {
+      firstName: "Meenakshi",
+      lastName: "",
+      email: "meenakshi@example.com",
+      phone: "+91 80000 11111",
+      skills: ["Java", "Spring Boot", "SQL"],
+      skillGroups: [],
+      education: [
+        { institution: "Anna University", degree: "B.E.", fieldOfStudy: "Information Technology", startDate: "2019-07-01", endDate: "2023-05-01" }
+      ],
+      experience: [
+        { companyName: "Zoho", jobTitle: "Software Engineer", location: "Chennai", startDate: "2023-06-01", isCurrent: true, description: "Built REST services in Spring Boot. Wrote SQL reports for the billing team." }
+      ],
+      projects: [],
+      achievements: [],
+      licensesAndCertifications: []
+    }
+  },
+
+  {
+    // Exercises the HEADLINE line that variants B, E and F carry, plus the location slot on the
+    // contact line. Everything here is a rupee/India-shaped profile on purpose: the reference
+    // layouts are US resumes, and nothing US-specific may leak into a generated one.
+    name: "headline-and-location",
+    description: "Has a tagline, preferred roles, a location and a portfolio URL — the full contact line and a headline.",
+    expect: { minPages: 1, maxPages: 2, hasExperience: true },
+    profile: {
+      firstName: "Ananya",
+      lastName: "Iyer",
+      email: "ananya@example.com",
+      phone: "+91 99000 22334",
+      locationPreferences: ["Pune, India"],
+      portfolioUrl: "https://ananya.example.dev",
+      linkedinUrl: "https://linkedin.com/in/ananyaiyer",
+      tagline: "",
+      preferredRoles: ["Backend Engineer", "Platform Engineer"],
+      skills: ["Java", "Spring Boot", "Docker", "Kubernetes", "PostgreSQL"],
+      skillGroups: [],
+      education: [
+        { institution: "COEP Technological University", degree: "B.Tech", fieldOfStudy: "Computer Engineering", startDate: "2018-08-01", endDate: "2022-06-01" }
+      ],
+      experience: [
+        { companyName: "Postman", jobTitle: "Backend Engineer", location: "Bengaluru", startDate: "2022-07-01", isCurrent: true, description: "Owned the collections service. Cut p99 latency by 45% with a read-through cache." }
+      ],
+      projects: [
+        { title: "Schema Diff", description: "Compares two PostgreSQL schemas and emits a migration.", technologies: ["Java", "PostgreSQL"], startDate: "2023-02-01", endDate: "2023-05-01" }
+      ],
+      achievements: [],
+      licensesAndCertifications: [
+        { title: "Certified Kubernetes Application Developer", description: "" }
+      ]
+    }
   }
 ];
 

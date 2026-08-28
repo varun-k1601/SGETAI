@@ -13,11 +13,33 @@ function AgentIcon() {
   );
 }
 
-function MessageBubble({ item }) {
+// A user message that never reached the agent MUST NOT look identical to one that did. Before
+// this, a failed send left the bubble sitting in the transcript looking perfectly delivered, so
+// the only signal that anything was wrong was a single error line under the composer - which is
+// how two unanswered "hello" bubbles ended up looking like the agent had simply ignored them.
+function MessageBubble({ item, onRetry, isRetrying }) {
+  const isUser = item.role === "user";
+  const hasFailed = item.status === "failed";
+  const className = [
+    "career-widget-message",
+    isUser ? "user" : "assistant",
+    hasFailed ? "failed" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <article className={item.role === "user" ? "career-widget-message user" : "career-widget-message assistant"}>
-      <strong>{item.role === "user" ? "You" : "Career Agent"}</strong>
+    <article className={className}>
+      <strong>{isUser ? "You" : "Career Agent"}</strong>
       <p>{item.content}</p>
+      {hasFailed ? (
+        <p className="career-widget-message__status">
+          <span>Not sent &mdash; {item.failureMessage || "the agent did not receive this."}</span>
+          <button type="button" onClick={() => onRetry(item.id)} disabled={isRetrying}>
+            {isRetrying ? "Retrying…" : "Retry"}
+          </button>
+        </p>
+      ) : null}
     </article>
   );
 }
@@ -87,6 +109,16 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+// Short, bubble-sized versions of the transport failures api.js classifies. The full sentence
+// still appears once under the composer; this is the bit that sits next to the dead message so it
+// is obvious WHICH message did not go through.
+const FAILURE_HINTS = {
+  unreachable: "the server could not be reached.",
+  timeout: "the assistant took too long to answer.",
+  aborted: "the request was cancelled.",
+  http: "the server rejected it.",
+};
+
 export function CareerAgentWidget() {
   const { session } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
@@ -94,6 +126,10 @@ export function CareerAgentWidget() {
   const [agentFiles, setAgentFiles] = useState([]);
   const [chatHistory, setChatHistory] = useState([]);
   const [error, setError] = useState("");
+  // Keyed by message id so a failed turn can be resent with the exact files and history it
+  // originally carried.
+  const pendingPayloadsRef = useRef(new Map());
+  const messageIdRef = useRef(0);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState("");
@@ -239,18 +275,64 @@ export function CareerAgentWidget() {
         formData,
       });
     },
-    onSuccess: (response) => {
+    onSuccess: (response, variables) => {
       const result = response.result || {};
+      // The turn landed, so clear any failed marking left over from an earlier attempt at the
+      // SAME message before appending the reply.
       setChatHistory((current) => [
-        ...current,
-        { role: "assistant", content: result.reply || "No reply received." },
+        ...current.map((item) =>
+          item.id === variables.messageId
+            ? { ...item, status: "sent", failureMessage: "" }
+            : item
+        ),
+        {
+          role: "assistant",
+          id: `assistant-${variables.messageId}`,
+          content: result.reply || "No reply received.",
+        },
       ]);
+      // The retry payload holds File objects; nothing needs them once the turn has landed.
+      pendingPayloadsRef.current.delete(variables.messageId);
       setError("");
     },
-    onError: (requestError) => {
+    onError: (requestError, variables) => {
+      // The underlying error is kept intact in the console for debugging; the user sees the
+      // translated sentence that api.js produced.
+      console.error("[CareerAgent] chat request failed:", requestError.kind || "http", requestError);
+
+      setChatHistory((current) =>
+        current.map((item) =>
+          item.id === variables.messageId
+            ? { ...item, status: "failed", failureMessage: FAILURE_HINTS[requestError.kind] || "" }
+            : item
+        )
+      );
       setError(requestError.message);
     },
   });
+
+  // Retrying needs the exact payload that was sent, including the File objects and the history as
+  // it stood at the time - re-deriving it from the transcript would resend the wrong turn order.
+  function sendTurn({ messageId, message, files, history }) {
+    pendingPayloadsRef.current.set(messageId, { messageId, message, files, history });
+    chatMutation.mutate({ messageId, message, files, history });
+  }
+
+  function handleRetry(messageId) {
+    const payload = pendingPayloadsRef.current.get(messageId);
+
+    if (!payload || chatMutation.isPending) {
+      return;
+    }
+
+    setChatHistory((current) =>
+      current.map((item) =>
+        item.id === messageId ? { ...item, status: "sending", failureMessage: "" } : item
+      )
+    );
+    setError("");
+    chatMutation.mutate(payload);
+  }
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -261,22 +343,33 @@ export function CareerAgentWidget() {
     }
 
     // Capture history BEFORE the optimistic update below so the request sends prior turns only,
-    // not the message we're about to add.
-    const historyBeforeThisTurn = chatHistory;
+    // not the message we're about to add. Messages that never reached the agent are stripped:
+    // they sit in the transcript so the user can retry them, but replaying them as prior context
+    // would tell the model it had already seen and answered a turn it never received.
+    const historyBeforeThisTurn = chatHistory.filter((item) => item.status !== "failed");
     const attachmentNote = agentFiles.length
       ? `Attachments: ${agentFiles.map((file) => file.name).join(", ")}`
       : "";
 
     // Show the user's message immediately instead of waiting for the AI reply to come back —
-    // otherwise the input just sits there with no feedback while Ollama/Gemini responds.
+    // otherwise the input just sits there with no feedback while Ollama/Gemini responds. The id
+    // is what lets onError find this exact bubble again and mark it as never delivered.
+    messageIdRef.current += 1;
+    const messageId = `user-${messageIdRef.current}`;
+
     setChatHistory((current) => [
       ...current,
-      { role: "user", content: [message, attachmentNote].filter(Boolean).join("\n") },
+      {
+        role: "user",
+        id: messageId,
+        status: "sending",
+        content: [message, attachmentNote].filter(Boolean).join("\n"),
+      },
     ]);
     setError("");
     setAgentMessage("");
     setAgentFiles([]);
-    chatMutation.mutate({ message, files: agentFiles, history: historyBeforeThisTurn });
+    sendTurn({ messageId, message, files: agentFiles, history: historyBeforeThisTurn });
   }
 
   function removeFile(file) {
@@ -408,7 +501,12 @@ export function CareerAgentWidget() {
           <div className="career-agent-panel__messages">
             {chatHistory.length ? (
               chatHistory.map((item, index) => (
-                <MessageBubble key={`${item.role}-${index}`} item={item} />
+                <MessageBubble
+                  key={item.id || `${item.role}-${index}`}
+                  item={item}
+                  onRetry={handleRetry}
+                  isRetrying={chatMutation.isPending && chatMutation.variables?.messageId === item.id}
+                />
               ))
             ) : (
               <article className="career-widget-empty">

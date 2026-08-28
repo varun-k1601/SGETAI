@@ -42,7 +42,9 @@ const seekerEditableFields = [
   "openToWork",
   "preferredRoles",
   "expectedSalary",
-  "customSections"
+  "customSections",
+  // Lets a candidate pin one of the six resume layouts instead of the one their _id hashes to.
+  "resumeTemplateVariant"
 ];
 
 function normalizeUsername(value) {

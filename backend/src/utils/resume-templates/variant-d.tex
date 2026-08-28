@@ -1,0 +1,31 @@
+%===============================================================================================
+% VARIANT D — variant C's order, with each project's tech stack on its own line.
+%===============================================================================================
+% Identical section order to C. The single difference is in how the projects section renders: instead of
+% "Title | Tech Stack: ..." on one line, the title stands alone and a bold "Technologies:" line
+% follows beneath it. That is a CONTENT-builder difference (buildProjectItems reads the variant's
+% projectTechLayout), not a template one — the scaffolding is the same shared block, so there is
+% nothing here to keep in sync with C.
+%
+% Worth stating plainly: on a profile with no projects at all, D and C render identically. The
+% variants are layouts, and a profile that exercises none of a layout's distinguishing features
+% cannot be told apart from its neighbour. That is expected, not a selection bug.
+%===============================================================================================
+
+%%PREAMBLE%%
+%%STYLE d%%
+
+\begin{document}
+
+\resumeHeader{NAME}{}{CONTACT_LINE}
+
+%%SECTION summary%%
+%%SECTION skills%%
+%%SECTION experience%%
+%%SECTION education%%
+%%SECTION certifications%%
+%%SECTION projects%%
+%%SECTION coursework%%
+%%SECTION extracurricular%%
+
+\end{document}
