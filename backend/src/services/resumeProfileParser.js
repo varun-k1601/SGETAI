@@ -1,11 +1,39 @@
-const { generateJsonCompletion } = require("./ollamaService");
+const { generateJsonCompletion: generateJsonCompletionOllama } = require("./ollamaService");
+const {
+  generateJsonCompletion: generateJsonCompletionGemini,
+  hasUsableApiKey: hasGeminiKey
+} = require("./geminiGenerativeService");
 
 const CURRENT_STATUS_VALUES = ["Student", "Professional", "Unemployed"];
 const MAX_TEXT_CHARS = 8000;
 const MAX_ATTEMPTS = 2;
 
+/* TOTAL wall-clock budget for extracting a resume, across every provider and every attempt.
+   It is the rung of the timeout ladder that this file owns:
+
+     Gemini 60s / Ollama (whatever is left)  <  THIS 110s  <  nginx proxy_read_timeout 150s
+                                                           <  frontend DEFAULT_TIMEOUT_MS 180s
+
+   THE BUDGET IS TOTAL, NOT PER ATTEMPT, and that is the whole point. This used to be MAX_ATTEMPTS
+   multiplied by ollamaService's 140s per-request ceiling, so a parse could legitimately run for
+   280 SECONDS before falling back - measured, not estimated, on a real two-page resume. Nothing in
+   front of it waits that long: nginx cuts the connection at 150s and answers with its own 504,
+   which carries none of the backend's CORS headers, so the browser cannot read it and reports a
+   bare "Failed to fetch". The user got a dead request with no server-side error at all.
+
+   110s keeps 40s of headroom under nginx so the INNERMOST layer always fires first and the
+   candidate gets a real message. Raising it means raising proxy_read_timeout in nginx.conf and
+   DEFAULT_TIMEOUT_MS in frontend/src/services/api.js, in that order - change one rung and you must
+   re-check the rest. */
+const RESUME_PARSE_TOTAL_BUDGET_MS = Number(process.env.RESUME_PARSE_TOTAL_BUDGET_MS) || 110000;
+
+// Below this much remaining budget a provider cannot plausibly finish, so we stop rather than
+// start a call we already know will time out. 12s because Gemini's API rejects any deadline under
+// 10s outright - a thinner slice can only produce a wasted attempt, never an answer.
+const MIN_PROVIDER_SLICE_MS = Number(process.env.RESUME_PARSE_MIN_PROVIDER_SLICE_MS) || 12000;
+
 function getParserModel() {
-  return process.env.CAREER_AGENT_MODEL || process.env.OLLAMA_ANALYSIS_MODEL || "qwen2.5:7b";
+  return process.env.RESUME_PARSER_MODEL || process.env.CAREER_AGENT_MODEL || process.env.OLLAMA_ANALYSIS_MODEL || "qwen2.5:7b";
 }
 
 // ---------------------------------------------------------------------------
@@ -95,8 +123,20 @@ function toYear(value) {
   return year >= 1950 && year <= 2100 ? year : undefined;
 }
 
+/* Takes the FIRST numeric token, rather than stripping every non-digit and reading what is left.
+   That distinction is load-bearing for a GPA, which almost always arrives carrying its scale.
+   Stripping turns "3.68/4" into the string "3.684" and then into the number 3.684 - a value the
+   candidate never had, silently wrong in the last digit, and impossible to spot by eye. It is the
+   value currently stored on a real profile. Reading the first token instead gives 3.68 from
+   "3.68/4", 8.68 from "8.68/10" and 78.4 from "78.4%".
+
+   The scalar is inherently lossy this way - 8.68 alone cannot say whether the scale was 10 or 4 -
+   which is exactly why education[].gpa keeps the STRING untouched. This scalar exists only to
+   satisfy the legacy `currentGPA` Number field. */
 function toNumber(value, { min, max } = {}) {
-  const num = Number(String(value === null || value === undefined ? "" : value).replace(/[^\d.]/g, ""));
+  const match = String(value === null || value === undefined ? "" : value).match(/\d+(?:\.\d+)?/);
+  if (!match) return undefined;
+  const num = Number(match[0]);
   if (!Number.isFinite(num)) return undefined;
   if (min !== undefined && num < min) return undefined;
   if (max !== undefined && num > max) return undefined;
@@ -152,12 +192,17 @@ function normalizeCurrentStatus(value) {
 // ---------------------------------------------------------------------------
 // Array section normalizers
 // ---------------------------------------------------------------------------
+/* `gpa` is kept as a STRING and never converted. A resume states "8.68/10", "3.68/4", "78.4%" or
+   "First Class with Distinction", and the scale is half the fact: 8.68 parsed to a Number is
+   indistinguishable from a 4-point GPA that would be impossible. cleanString trims and bounds the
+   length; nothing else touches it, so whatever scale the candidate wrote survives to the PDF. */
 function normalizeEducation(items = []) {
   return (Array.isArray(items) ? items : [])
     .map((item) => ({
       institution: cleanString(item.institution),
       degree: cleanString(item.degree),
       fieldOfStudy: cleanString(item.fieldOfStudy || item.major),
+      gpa: cleanString(item.gpa || item.cgpa || item.grade || item.percentage, 40),
       startDate: parseLooseDate(item.startDate),
       endDate: parseLooseDate(item.endDate, { isEnd: true })
     }))
@@ -301,7 +346,7 @@ Return ONLY this JSON object (no extra text):
   "skills": [],
   "preferredRoles": [],
   "skillGroups": [{ "category": "", "skills": [] }],
-  "education": [{ "institution": "", "degree": "", "fieldOfStudy": "", "startDate": "", "endDate": "" }],
+  "education": [{ "institution": "", "degree": "", "fieldOfStudy": "", "gpa": "", "startDate": "", "endDate": "" }],
   "experience": [{ "jobTitle": "", "companyName": "", "startDate": "", "endDate": "", "isCurrent": false, "description": "" }],
   "projects": [{ "title": "", "description": "", "projectUrl": "", "repositoryUrl": "" }],
   "certifications": [{ "title": "", "description": "" }],
@@ -311,6 +356,7 @@ Return ONLY this JSON object (no extra text):
 
 Notes:
 - "universityName"/"degree"/"major"/"graduationYear"/"currentGPA" describe the most recent or highest education; also include every institution in the "education" array.
+- Each entry in "education" has its OWN "gpa". Copy it EXACTLY as printed, INCLUDING THE SCALE: "8.68/10", "3.68/4", "78.4%", "First Class". Never convert between scales and never drop the "/10" or the "%" - a grade without its scale is unreadable. A resume commonly prints a different grade for each degree; fill in every one you can see, and leave "gpa" empty for any degree that shows none.
 - Put each "Category: skill, skill" line from a Skills section into "skillGroups", and also list every individual skill in "skills".
 - "skills" must ALSO include every technology, tool, framework, library, platform or database NAMED anywhere in the experience and project descriptions - those are skills the candidate demonstrated, and a Skills section rarely repeats them. Copy each name exactly as written. Do NOT add any technology the resume does not name.
 - Dates may be years like "2020" or "Mar 2026"; keep them as written. Use "Present" for ongoing.
@@ -557,20 +603,88 @@ function emptyDraft() {
   return normalizeParsedProfile({});
 }
 
+/* PROVIDER CHAIN, in the order careerAgentService already established: Gemini first when a key is
+   configured, the local Ollama model as fallback, and the deterministic regex backstop last.
+
+   The parser used to import from ollamaService ALONE. One provider meant one point of failure, and
+   on CPU-only hardware that provider cannot do this job at all: a two-page resume is a ~9,700-char
+   prompt asking for ~2,000 tokens of JSON, measured here at over 280s against a 140s ceiling. So
+   every real resume degraded to the regex backstop and the candidate got a draft holding a phone
+   number and an email. The same prompt through Gemini measures 25.7s and comes back complete, with
+   every role, project, date and skill present.
+
+   Gemini leads on quality as well as speed: the local model's characteristic failure on this task
+   is to invent a fluent replacement for a section it could not read, which is the origin of the
+   fabricated bullets verifyDraftAgainstSource exists to catch. */
+function buildParserProviders(model, prompt) {
+  const providers = [];
+
+  if (hasGeminiKey()) {
+    providers.push({
+      name: "gemini",
+      label: "Gemini",
+      call: (timeoutMs) => generateJsonCompletionGemini(prompt, { timeoutMs })
+    });
+  }
+
+  providers.push({
+    name: "ollama",
+    label: `Ollama (${model})`,
+    call: (timeoutMs) => generateJsonCompletionOllama(prompt, model, { timeoutMs })
+  });
+
+  return providers;
+}
+
 async function parseResumeToProfile(text) {
   const contact = extractContactInfo(text);
   const model = getParserModel();
   const warnings = [];
   let draft = null;
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    console.log(`[ResumeParser] Parsing resume with ${model} (attempt ${attempt}/${MAX_ATTEMPTS})`);
-    const raw = await generateJsonCompletion(buildResumeParsePrompt(text), model);
-    const candidate = raw ? normalizeParsedProfile(raw) : null;
+  const deadline = Date.now() + RESUME_PARSE_TOTAL_BUDGET_MS;
+  const remainingMs = () => deadline - Date.now();
+  const providers = buildParserProviders(model, buildResumeParsePrompt(text));
+  const providerFailures = [];
+  let modelUsed = null;
 
-    if (candidate && isUsableDraft(candidate)) {
-      draft = candidate;
-      break;
+  outer: for (const provider of providers) {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+      const budgetLeft = remainingMs();
+
+      // A provider needs a workable slice to be worth starting at all. Firing one off with two
+      // seconds left burns the tail of the budget and guarantees a timeout.
+      if (budgetLeft < MIN_PROVIDER_SLICE_MS) {
+        console.warn(`[ResumeParser] Out of budget before ${provider.label} could be tried (${(RESUME_PARSE_TOTAL_BUDGET_MS / 1000).toFixed(0)}s spent).`);
+        providerFailures.push({ provider: provider.name, kind: "timeout", message: `Ran out of time before ${provider.label} could be tried.` });
+        break;
+      }
+
+      console.log(`[ResumeParser] Parsing resume with ${provider.label} (attempt ${attempt}/${MAX_ATTEMPTS}, ${(budgetLeft / 1000).toFixed(0)}s of budget left)`);
+
+      const { json, failure } = await provider.call(budgetLeft);
+
+      if (json) {
+        const candidate = normalizeParsedProfile(json);
+        if (isUsableDraft(candidate)) {
+          draft = candidate;
+          modelUsed = provider.name;
+          break outer;
+        }
+        console.warn(`[ResumeParser] ${provider.label} returned a draft too thin to use (attempt ${attempt}/${MAX_ATTEMPTS}).`);
+        continue;
+      }
+
+      if (failure) {
+        providerFailures.push({ provider: provider.name, kind: failure.kind, message: failure.message });
+        // FAIL FAST. A refused connection, a missing model, a rejected key or an exhausted quota
+        // fails the same way every time - retrying only spends budget the NEXT provider needs.
+        if (!failure.retryable) {
+          console.warn(`[ResumeParser] ${provider.label}: ${failure.message} - not retrying this provider.`);
+          break;
+        }
+        console.warn(`[ResumeParser] ${provider.label}: ${failure.message} (attempt ${attempt}/${MAX_ATTEMPTS})`);
+      }
     }
   }
 
@@ -593,10 +707,18 @@ async function parseResumeToProfile(text) {
     warnings.push(...groundingWarnings);
   }
 
-  // Recover the technologies named in the candidate's own project and role descriptions. Runs
-  // AFTER grounding verification on purpose: a fabricated description is already blanked by this
-  // point, so it cannot contribute a skill the candidate never claimed.
-  const { skills: harvestedSkills, harvested } = harvestSkillsFromNarrative(draft);
+  /* Recover the technologies named in the candidate's own project and role descriptions, AND in
+     the uploaded document itself. Runs AFTER grounding verification on purpose: a fabricated
+     description is already blanked by this point, so it cannot contribute a skill the candidate
+     never claimed.
+
+     `text` is passed as a second source because the failure this exists to catch is the model
+     under-reading the Skills SECTION, and when that happens the technologies are missing from the
+     draft entirely — there is no narrative left to harvest them from. The uploaded document is the
+     candidate's own text by definition, so recognising a name in it is transcription, not
+     inference; and the lexicon match is literal, so nothing can be recovered that the document
+     does not spell out. */
+  const { skills: harvestedSkills, harvested } = harvestSkillsFromNarrative(draft, text);
   draft.skills = harvestedSkills;
   if (harvested.length) {
     warnings.push(
@@ -611,7 +733,33 @@ async function parseResumeToProfile(text) {
     warnings.push("Couldn't detect education details — please review that section.");
   }
 
-  return { draft, warnings, usedFallback };
+  /* Name what came back empty. A draft holding a name and nothing else used to be reported as a
+     plain success ("We extracted what we could…"), which reads to the candidate as a broken
+     feature rather than as a list of things to type in themselves. Reporting the empty sections
+     BY NAME is the difference between a vague apology and an actionable one - and it is honest
+     about a partial result instead of dropping the gap silently. */
+  const missingSections = findEmptyDraftSections(draft);
+  if (missingSections.length) {
+    warnings.push(
+      `Nothing was imported for: ${missingSections.join(", ")}. Please add ${missingSections.length === 1 ? "it" : "them"} manually below.`
+    );
+  }
+
+  return { draft, warnings, usedFallback, missingSections, modelUsed, providerFailures };
+}
+
+// Section labels the candidate will recognise from the form, in the order they appear in it.
+const DRAFT_SECTION_LABELS = [
+  ["education", (draft) => draft.education.length || draft.universityName],
+  ["work experience", (draft) => draft.experience.length],
+  ["projects", (draft) => draft.projects.length],
+  ["skills", (draft) => draft.skills.length],
+  ["certifications", (draft) => draft.certifications.length],
+  ["achievements", (draft) => draft.achievements.length]
+];
+
+function findEmptyDraftSections(draft) {
+  return DRAFT_SECTION_LABELS.filter(([, isPresent]) => !isPresent(draft)).map(([label]) => label);
 }
 
 /* ===============================================================================================
@@ -709,8 +857,13 @@ function collectNarrativeText(draft = {}) {
   return parts.filter(Boolean).join("\n");
 }
 
-function harvestSkillsFromNarrative(draft = {}) {
-  const narrative = collectNarrativeText(draft);
+/* `sourceText` is the raw uploaded resume, optional so existing callers and tests keep working.
+   Two sources, not one: the draft narrative catches technologies the model transcribed into
+   descriptions, and the source document catches the case that actually loses the most — a Skills
+   SECTION the model under-read, where the names never reached the draft at all and there is no
+   narrative to recover them from. */
+function harvestSkillsFromNarrative(draft = {}, sourceText = "") {
+  const narrative = [collectNarrativeText(draft), String(sourceText || "")].filter(Boolean).join("\n");
   if (!narrative.trim()) {
     return { skills: draft.skills || [], harvested: [] };
   }
@@ -744,7 +897,10 @@ function harvestSkillsFromNarrative(draft = {}) {
 module.exports = {
   parseResumeToProfile,
   harvestSkillsFromNarrative,
+  RESUME_PARSE_TOTAL_BUDGET_MS,
   // exported for unit testing
+  buildResumeParsePrompt,
+  findEmptyDraftSections,
   extractContactInfo,
   normalizeParsedProfile,
   parseLooseDate,

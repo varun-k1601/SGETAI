@@ -1,10 +1,15 @@
 import { API_BASE_URL } from "../config/env";
 
-// Outermost rung of the timeout ladder. Everything below it on the server is deliberately shorter
-// (Gemini 45s / Ollama 100s < career-agent budget 120s < nginx proxy_read_timeout 150s < this), so
-// in normal operation the SERVER always gives up first and we render its real message. This only
+// Outermost rung of the timeout ladder. Every server-side budget is deliberately shorter, so in
+// normal operation the SERVER always gives up first and we render its real message. This only
 // fires when the server has stopped talking altogether - and when it does, the user gets a
 // sentence rather than a spinner that never stops.
+//
+//   career agent:  Gemini 45s / Ollama 100s  <  budget 120s  \
+//   résumé parse:  Gemini 60s / Ollama rest  <  budget 110s  /  <  nginx 150s  <  THIS 180s
+//
+// Change one rung and re-check the rest: RESUME_PARSE_TOTAL_BUDGET_MS in resumeProfileParser.js,
+// CAREER_AGENT_TOTAL_BUDGET_MS in careerAgentService.js, proxy_read_timeout in nginx.conf.
 const DEFAULT_TIMEOUT_MS = 180000;
 
 // A failed fetch() rejects with a bare TypeError whose message is the browser's own wording -
@@ -131,6 +136,66 @@ export async function apiFormRequest(path, options = {}) {
   }
 
   return data;
+}
+
+/* Same contract as apiFormRequest, but built on XMLHttpRequest so the caller can watch the upload
+   actually happen. fetch() reports nothing until the whole response arrives, which is fine for a
+   fast call and useless for résumé autofill: that request spends 20-40 seconds inside a language
+   model, and a button stuck in a pending state for that long is indistinguishable from a hang.
+
+   Two phases are reported, and both are REAL rather than a timer pretending to be progress:
+     "uploading"  - xhr.upload progress events, ending when the last byte is sent
+     "processing" - the server now has the file; everything after this is extraction and parsing
+   The server does not stream its own stage back, so "processing" is deliberately one phase and is
+   labelled honestly. The caller pairs it with an elapsed-time counter, which is what actually
+   tells a waiting candidate the thing is still alive. */
+export function apiUploadRequest(path, options = {}) {
+  const { token, formData, headers, timeoutMs = DEFAULT_TIMEOUT_MS, onPhase, method = "POST" } = options;
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let timedOut = false;
+
+    xhr.open(method, `${API_BASE_URL}${path}`);
+    xhr.timeout = timeoutMs;
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    Object.entries(headers || {}).forEach(([key, value]) => xhr.setRequestHeader(key, value));
+
+    onPhase?.({ phase: "uploading", progress: 0 });
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      onPhase?.({ phase: "uploading", progress: event.loaded / event.total });
+    };
+    xhr.upload.onload = () => onPhase?.({ phase: "processing", progress: 1 });
+
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { data = {}; }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data);
+        return;
+      }
+      // Mirrors toApiError so callers can branch on .status/.kind identically either way.
+      const error = new Error(data.message || `Request failed (${xhr.status})`);
+      error.details = data.details;
+      error.status = xhr.status;
+      error.kind = "http";
+      reject(error);
+    };
+
+    xhr.ontimeout = () => {
+      timedOut = true;
+      reject(describeTransportError(new Error("Request timed out"), { path, timeoutMs, timedOut: true }));
+    };
+    // A timeout raises ontimeout only, never onerror, so `timedOut` is here purely to keep the
+    // wording right if the two ever arrive together.
+    xhr.onerror = () => reject(describeTransportError(new TypeError("Network request failed"), { path, timeoutMs, timedOut }));
+    xhr.onabort = () => reject(describeTransportError(new TypeError("Request aborted"), { path, timeoutMs, timedOut }));
+
+    xhr.send(formData);
+  });
 }
 
 function getBlobFileName(headers) {

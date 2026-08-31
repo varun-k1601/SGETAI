@@ -526,12 +526,31 @@ function importStringList(values = [], maxItems = 60) {
   )].slice(0, maxItems);
 }
 
+/* This mapper REBUILDS each entry from a fixed set of keys rather than passing the object through,
+   which is the right shape for an import boundary - but it means a field missing from the list is
+   dropped in silence, with no error anywhere.
+
+   `gpa` was missing, and that is why no education entry in the database had a grade. The whole
+   chain worked: the prompt asks for a per-entry grade, the model returns one for EVERY degree, the
+   normaliser keeps it as a string with its scale, the review panel shows it, and the schema has a
+   `gpa` field waiting. The value was then discarded here, at the last step, by the mapper that
+   writes the candidate's approved draft to their profile.
+
+   The visible symptom pointed somewhere else entirely: the most recent degree still rendered a
+   grade, because resumeGenerationService falls back to the Number-typed `profile.currentGPA` for
+   that one entry, and formatGpa turns 8.2 into "8.2/10" by guessing the scale from the magnitude.
+   That made the top entry look correct and the ones below it look like an extraction failure.
+   Both were the same missing line.
+
+   Kept as a STRING and bounded at 40 to match the parser's own cleanString(gpa, 40), so "8.68/10",
+   "3.68/4", "78.4%" and "First Class with Distinction" all survive with their scale intact. */
 function importEducation(items = []) {
   return (Array.isArray(items) ? items : [])
     .map((item) => ({
       institution: importString(item.institution, 160),
       degree: importString(item.degree, 120),
       fieldOfStudy: importString(item.fieldOfStudy, 120),
+      gpa: importString(item.gpa, 40),
       startDate: importDate(item.startDate),
       endDate: importDate(item.endDate)
     }))
@@ -689,15 +708,25 @@ const parseResumeForProfile = asyncHandler(async (req, res) => {
     );
   }
 
-  const { draft, warnings, usedFallback } = await parseResumeToProfile(extractedText);
+  const { draft, warnings, usedFallback, missingSections, modelUsed, providerFailures } =
+    await parseResumeToProfile(extractedText);
 
   return sendSuccess(res, {
     message: usedFallback
-      ? "We extracted what we could from your resume. Please review and complete the details."
-      : "Resume parsed. Review the imported details, edit anything, then save.",
+      ? "We couldn't read most of this résumé automatically. Review what we did find, then fill in the rest by hand."
+      : missingSections.length
+        ? "Résumé imported, but some sections came back empty. Review the details, fill the gaps, then save."
+        : "Resume parsed. Review the imported details, edit anything, then save.",
     draft,
     warnings,
-    usedFallback
+    usedFallback,
+    // Which sections came back empty, so the review panel can name them instead of leaving the
+    // candidate to notice the gaps themselves.
+    missingSections,
+    // Diagnostics only - provider names and failure kinds, never candidate data. They let the UI
+    // say WHICH thing is down ("the local model is not running") rather than a generic apology.
+    modelUsed,
+    providerFailures
   });
 });
 
@@ -744,5 +773,12 @@ module.exports = {
   removeBackgroundVideo,
   streamProfileMedia,
   parseResumeForProfile,
-  applyParsedResume
+  applyParsedResume,
+  /* Exported for unit testing. These mappers rebuild each object from a fixed key list, so a field
+     the parser produces but a mapper forgets is dropped with no error anywhere - which is exactly
+     how education grades went missing from every profile in the database. The test asserts each
+     mapper preserves every field its parser counterpart emits. */
+  importEducation,
+  importExperience,
+  importProjects
 };

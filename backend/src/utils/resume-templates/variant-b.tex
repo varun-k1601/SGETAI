@@ -1,13 +1,18 @@
 %===============================================================================================
-% VARIANT B — headline; Skills lead Experience; Certifications last; skills joined with ", ".
+% VARIANT B — Certifications LAST; headline; centred masthead closed by a rule; inline coursework.
 %===============================================================================================
-% Distinguishing axes: carries the headline line, and is the only variant that places
-% Certifications AFTER Projects. That trailing position is what keeps it distinct from variant E,
-% which shares its headline and its Summary/Skills/Experience/Education opening.
+% The only variant that places Certifications after Projects. That trailing position is what keeps
+% its section order distinct from C, D and E, which share B's Summary/Skills/Experience/Education
+% opening but credit certifications before the project work.
 %
-% The headline is optional at RENDER time as well as at layout time: a profile with no tagline,
-% no preferred roles and no skills to build one from emits an empty headline, and the header
-% closes up rather than printing a blank bold line.
+% Its masthead is centred and closed by a rule, it carries the positioning headline, coursework
+% runs as a single inline list rather than three columns, and skills within a category are joined
+% with commas.
+%
+% The headline is optional at RENDER time as well as at layout time: a profile with no tagline and
+% no preferred roles has no target positioning to state, so it emits nothing and the masthead
+% closes up rather than printing a blank bold line. B is still distinct from C and E in that case,
+% because the masthead rule and the section order do not depend on any optional field.
 %===============================================================================================
 
 %%PREAMBLE%%

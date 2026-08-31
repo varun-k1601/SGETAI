@@ -260,16 +260,30 @@ async function generateCareerAgentReply(prompt, model = ANALYSIS_MODEL, options 
   }
 }
 
-// Generic JSON-completion helper. Uses format:"json" so Ollama constrains output to a
-// syntactically valid JSON object, and returns the parsed object (or null on failure).
-// Used for structured extraction tasks like parsing a resume into profile fields.
-async function generateJsonCompletion(prompt, model = ANALYSIS_MODEL) {
+/* Generic JSON-completion helper. Uses format:"json" so Ollama constrains output to a
+   syntactically valid JSON object. Used for structured extraction tasks like parsing a resume
+   into profile fields.
+
+   Returns { json, failure } rather than a bare object-or-null, matching generateCareerAgentReply
+   and the Gemini provider, so a caller running a provider CHAIN can tell "Ollama is not running"
+   (skip straight to the next provider) from "the budget ran out" (stop) from "it answered with
+   nonsense" (worth one more attempt). Swallowing all three into `null` is what made the resume
+   parser retry a dead local model twice and then report a blank draft as a success.
+
+   `options.timeoutMs` lets a caller with a TOTAL budget hand over whatever it has left instead of
+   inheriting the full per-request ceiling. Without it, N attempts cost N x OLLAMA_ANALYSIS_TIMEOUT_MS
+   of wall clock - which is exactly how a two-attempt resume parse reached 280s. */
+async function generateJsonCompletion(prompt, model = ANALYSIS_MODEL, options = {}) {
   if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
-    return null;
+    return { json: null, failure: { kind: "error", retryable: false, message: "Empty prompt." } };
   }
 
+  const timeoutMs = Number(options.timeoutMs) > 0
+    ? Math.min(Number(options.timeoutMs), OLLAMA_ANALYSIS_TIMEOUT_MS)
+    : OLLAMA_ANALYSIS_TIMEOUT_MS;
+
   try {
-    console.log(`[Ollama] JSON completion request to model: ${model}, prompt length: ${prompt.length}`);
+    console.log(`[Ollama] JSON completion request to model: ${model}, prompt length: ${prompt.length}, timeout: ${(timeoutMs / 1000).toFixed(0)}s`);
     const startTime = Date.now();
 
     const response = await ollamaClient.post("/api/generate", {
@@ -281,24 +295,25 @@ async function generateJsonCompletion(prompt, model = ANALYSIS_MODEL) {
         num_predict: 2000,
         temperature: 0.1
       }
-    }, { timeout: OLLAMA_ANALYSIS_TIMEOUT_MS });
+    }, { timeout: timeoutMs });
 
     const elapsed = Date.now() - startTime;
     console.log(`[Ollama] JSON completion finished in ${(elapsed / 1000).toFixed(2)}s`);
 
     if (response.data && typeof response.data.response === "string") {
       try {
-        return JSON.parse(response.data.response);
+        return { json: JSON.parse(response.data.response), failure: null };
       } catch (parseError) {
         console.warn("[Ollama] JSON completion returned invalid JSON:", parseError.message);
-        return null;
+        return { json: null, failure: { kind: "invalid_json", retryable: true, message: "Ollama returned unparseable JSON." } };
       }
     }
 
-    return null;
+    return { json: null, failure: { kind: "empty", retryable: true, message: "Ollama returned no response body." } };
   } catch (error) {
-    console.error("[Ollama] JSON completion failed:", error.message);
-    return null;
+    const failure = classifyOllamaError(error);
+    console.error(`[Ollama] JSON completion failed (${failure.kind}):`, error.message);
+    return { json: null, failure };
   }
 }
 

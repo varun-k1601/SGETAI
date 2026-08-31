@@ -36,7 +36,22 @@ const educationSchema = new mongoose.Schema(
     degree: { type: String, trim: true },
     fieldOfStudy: { type: String, trim: true },
     startDate: Date,
-    endDate: Date
+    endDate: Date,
+    /* PER-DEGREE GRADE. Until this existed the only grade anywhere in the model was the top-level
+       `currentGPA` scalar, which describes ONE degree; a candidate with an M.Tech and a B.Tech
+       could store a grade for the most recent and had nowhere at all to put the other. The
+       generator was behaving correctly by attributing `currentGPA` to the most recent entry only —
+       the B.Tech rendered blank because the data had nowhere to live.
+
+       STRING, NOT NUMBER, and that is the load-bearing decision. Real values carry their scale:
+       "3.68/4", "8.68/10", "78.4%", "First Class with Distinction". A Number field keeps 8.68 and
+       silently destroys the /10, after which 8.68 is indistinguishable from a 4-point GPA that
+       would be impossible. formatGpa passes any value carrying its own scale through untouched.
+
+       `currentGPA` is untouched and still works: it remains the whole-profile scalar the
+       onboarding form and every existing profile write to, and the generator falls back to it for
+       the most recent entry when that entry has no grade of its own. */
+    gpa: { type: String, trim: true }
   },
   { _id: true }
 );

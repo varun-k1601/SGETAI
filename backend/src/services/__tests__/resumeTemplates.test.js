@@ -116,8 +116,8 @@ const ALLOWED_TEMPLATE_WORDS = new Set([
   "fontawesome", "fullpage", "glyphtounicode", "graphicx", "hyperref", "in", "itemize",
   "latexsym", "marvosym", "multicol", "multicols", "pt", "same", "tabular", "tabularx",
   "titlesec", "verbatim",
-  // enumitem keys, from the per-variant density settings in _styles.tex.
-  "itemsep", "parsep", "partopsep", "topsep"
+  // enumitem keys, and the plain-TeX dimension keyword \hrule takes for the masthead rule.
+  "itemsep", "parsep", "partopsep", "topsep", "height"
 ]);
 
 test("every template file contains layout only — no name, contact detail or prose", () => {
@@ -183,6 +183,28 @@ test("all six templates assemble from the shared preamble and section blocks", (
     // The shared preamble really was inlined, rather than the marker being left for LaTeX.
     assert.ok(template.includes("\\newcommand{\\resumeEntry}"), `variant ${variant} is missing the shared preamble`);
     assert.doesNotMatch(template, /%%(PREAMBLE|SECTION)/, `variant ${variant} has an unsubstituted marker`);
+  }
+});
+
+test("no template COMMENT contains a placeholder token", () => {
+  /* The content builder substitutes the uppercase placeholders with a global replace over the
+     assembled document, and it has no idea what a LaTeX comment is. A comment reading
+     "% Experience / project / extracurricular entry" therefore had EXPERIENCE and EXTRACURRICULAR
+     swapped for the candidate's real entries, which then printed as body text above the masthead —
+     seven stray bullets and a duplicated job history on page one, from a document that compiled
+     without a single warning and left no placeholder behind for the existing leak check to catch.
+
+     The rule is simple enough to keep: write about these sections in comments in lower case. */
+  const PLACEHOLDERS = /\b(NAME|HEADLINE|CONTACT_LINE|SUMMARY|SKILLS|EXPERIENCE|EDUCATION|CERTIFICATIONS|PROJECTS|COURSEWORK|EXTRACURRICULAR)\b/;
+
+  for (const file of fs.readdirSync(TEMPLATES_DIR).filter((name) => name.endsWith(".tex"))) {
+    const lines = fs.readFileSync(path.join(TEMPLATES_DIR, file), "utf8").split(/\r?\n/);
+    lines.forEach((line, index) => {
+      if (!line.trim().startsWith("%")) return;
+      const hit = line.match(PLACEHOLDERS);
+      assert.equal(hit, null,
+        `${file}:${index + 1} has the placeholder "${hit && hit[1]}" in a comment; it will be substituted:\n  ${line.trim()}`);
+    });
   }
 });
 

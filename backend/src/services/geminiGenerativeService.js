@@ -409,10 +409,91 @@ async function generateCareerAgentReply(prompt, options = {}) {
   }
 }
 
+/* STRUCTURED-EXTRACTION COUNTERPART to generateCareerAgentReply above. Same provider, same error
+   classification, same { value, failure } contract - but it asks for JSON and hands back a parsed
+   object, so resumeProfileParser can put Gemini in front of Ollama without owning two different
+   call shapes.
+
+   It exists because the resume parser had no second provider at all. The local model is the only
+   thing that ever ran, and on CPU-only hardware a two-page resume is a ~9,700-character prompt
+   asking for ~2,000 tokens of JSON: measured here at OVER 280 SECONDS, against a 140s per-attempt
+   ceiling. Every real resume therefore fell through both attempts to the regex backstop, and the
+   candidate got a draft holding a phone number and nothing else. The same prompt through this
+   function measures 25.7s and comes back complete. */
+const RESUME_PARSER_GEMINI_MODEL = process.env.RESUME_PARSER_GEMINI_MODEL || CAREER_AGENT_GEMINI_MODEL;
+// Longer than the 45s chat ceiling because this asks for far more output: a whole resume as JSON,
+// not a paragraph of prose. 25.7s measured on a dense two-page resume, so 60s absorbs a longer
+// document and a slow network while still leaving the Ollama fallback a usable slice of the
+// parser's total budget. See the ladder in resumeProfileParser.
+const RESUME_PARSER_GEMINI_TIMEOUT_MS = Number(process.env.RESUME_PARSER_GEMINI_TIMEOUT_MS) || 60000;
+
+async function generateJsonCompletion(prompt, options = {}) {
+  if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+    return { json: null, failure: { kind: "error", retryable: false, message: "Empty prompt." } };
+  }
+
+  const ai = getClient();
+  if (!ai) {
+    return { json: null, failure: { kind: "not_configured", retryable: false, message: "No usable Gemini API key." } };
+  }
+
+  const timeoutMs = Number(options.timeoutMs) > 0
+    ? Math.min(Number(options.timeoutMs), RESUME_PARSER_GEMINI_TIMEOUT_MS)
+    : RESUME_PARSER_GEMINI_TIMEOUT_MS;
+
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), timeoutMs);
+  const httpOptions = timeoutMs >= GEMINI_MIN_DEADLINE_MS ? { timeout: timeoutMs } : undefined;
+
+  try {
+    console.log(`[Gemini] JSON completion request to model: ${RESUME_PARSER_GEMINI_MODEL}, prompt length: ${prompt.length}, timeout: ${(timeoutMs / 1000).toFixed(0)}s`);
+    const startTime = Date.now();
+
+    const response = await ai.models.generateContent({
+      model: RESUME_PARSER_GEMINI_MODEL,
+      config: {
+        // Transcription, not composition. Temperature 0 and a fixed seed keep the same document
+        // parsing the same way twice, which is what makes a wrong extraction reproducible instead
+        // of a coin flip - and responseMimeType makes the SDK itself reject non-JSON output.
+        temperature: 0,
+        topP: 1,
+        seed: 42,
+        responseMimeType: "application/json",
+        abortSignal: controller.signal,
+        ...(httpOptions ? { httpOptions } : {})
+      },
+      contents: prompt.trim()
+    });
+
+    console.log(`[Gemini] JSON completion finished in ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
+
+    const text = typeof response?.text === "string" ? response.text.trim() : "";
+    if (!text) {
+      return { json: null, failure: { kind: "empty", retryable: true, message: "Gemini returned no text." } };
+    }
+
+    // parseJsonResponse strips a ```json fence and digs the object out of any surrounding prose,
+    // which responseMimeType should make unnecessary but does not guarantee.
+    const parsed = parseJsonResponse(text, null);
+    if (!parsed || typeof parsed !== "object") {
+      return { json: null, failure: { kind: "invalid_json", retryable: true, message: "Gemini returned unparseable JSON." } };
+    }
+
+    return { json: parsed, failure: null };
+  } catch (error) {
+    const failure = classifyGeminiError(error);
+    console.error(`[Gemini] JSON completion failed (${failure.kind}):`, error.message);
+    return { json: null, failure };
+  } finally {
+    clearTimeout(abortTimer);
+  }
+}
+
 module.exports = {
   evaluatePreApply,
   generateLatexResume,
   generateCareerAgentReply,
+  generateJsonCompletion,
   generateLinkedInPost,
   generateRecruiterDm,
   hasUsableApiKey

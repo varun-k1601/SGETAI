@@ -19,6 +19,7 @@ const {
 } = require("../utils/resumeTextExtractor");
 const {
   buildResumeFileName,
+  withResumeDensityScale,
   getResumeProfileReadiness,
   buildProfileForTailoring
 } = require("../services/resumeGenerationService");
@@ -47,7 +48,7 @@ const {
   saveCareerAgentTurn,
   rememberUploadedDocument
 } = require("../services/careerAgentMemoryService");
-const { compileLatexToPdf } = require("../services/latexCompilerService");
+const { compileLatexToPdf, compileFittedResumePdf } = require("../services/latexCompilerService");
 const { runAutoApplyForSeeker } = require("../workers/autoApplyWorker");
 const {
   getProAutoApplyPolicy,
@@ -324,8 +325,10 @@ const generateResumePdf = asyncHandler(async (req, res) => {
   // all six layouts. A saved resumeTemplateVariant preference still wins and does not rotate.
   const variant = await claimResumeVariant(seeker);
   const latex = await generateLatexResume(seeker.toObject(), job.toObject(), null, { variant });
-  const { pdfBuffer, fileName } = await compileLatexToPdf(
-    latex,
+  // Fitted, not just compiled: a resume that spills a few lines is pulled back onto one page, and
+  // one that genuinely needs two is spread so the second page is not six lines above a blank half.
+  const { pdfBuffer, fileName } = await compileFittedResumePdf(
+    (scale) => withResumeDensityScale(latex, scale),
     buildResumeFileName(seeker, job, "tex")
   );
 
@@ -411,8 +414,8 @@ const tailorResumeFromJdText = asyncHandler(async (req, res) => {
     omitEmptySections: true,
     variant
   });
-  const { pdfBuffer, fileName } = await compileLatexToPdf(
-    latex,
+  const { pdfBuffer, fileName } = await compileFittedResumePdf(
+    (scale) => withResumeDensityScale(latex, scale),
     buildResumeFileName(filteredProfile, ephemeralJob, "tex")
   );
 

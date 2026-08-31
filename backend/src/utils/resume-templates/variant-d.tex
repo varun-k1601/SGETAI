@@ -1,15 +1,18 @@
 %===============================================================================================
-% VARIANT D — variant C's order, with each project's tech stack on its own line.
+% VARIANT D — C's section order, LEFT-ALIGNED masthead with a rule; pipe-separated skills.
 %===============================================================================================
-% Identical section order to C. The single difference is in how the projects section renders: instead of
-% "Title | Tech Stack: ..." on one line, the title stands alone and a bold "Technologies:" line
-% follows beneath it. That is a CONTENT-builder difference (buildProjectItems reads the variant's
-% projectTechLayout), not a template one — the scaffolding is the same shared block, so there is
-% nothing here to keep in sync with C.
+% The only variant whose masthead is not centred: the name, headline slot and contact line all sit
+% flush left, closed by a rule across the text width. That is the difference visible from across
+% the room, and it fires for every profile — which is the point. D's old sole differentiator was
+% the project tech stack on its own line, which vanished for any profile that recorded no tech
+% stack, leaving D byte-identical to C.
 %
-% Worth stating plainly: on a profile with no projects at all, D and C render identically. The
-% variants are layouts, and a profile that exercises none of a layout's distinguishing features
-% cannot be told apart from its neighbour. That is expected, not a selection bug.
+% It keeps that tech-stack treatment as a bonus: where C, E and every other variant put a project's
+% technologies inline after a pipe, D gives them their own bold "Technologies:" line beneath the
+% title. That is a CONTENT-builder difference (buildProjectItems reads the variant's
+% projectTechLayout), not a template one, so there is nothing here to keep in sync with C.
+%
+% Skills within a category are joined with " | "; coursework runs in three columns.
 %===============================================================================================
 
 %%PREAMBLE%%

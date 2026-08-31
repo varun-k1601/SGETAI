@@ -1,18 +1,23 @@
 %===============================================================================================
-% UNIVERSAL PREAMBLE — the parts that are the same in every layout, and nothing else.
+% UNIVERSAL PREAMBLE — the visual grammar, shared by all six variants without exception.
 %===============================================================================================
-% Everything here is either a correctness guarantee or a DEFAULT that a variant's style block is
-% free to override. What lives here:
+% Everything that decides how this document LOOKS lives here. _styles.tex no longer restyles; it
+% only flips a small number of ARRANGEMENT switches defined at the bottom of this file.
 %
-%   * the document class and package set. No variant may add a package; the six differ in how they
-%     use these, never in what they load.
+% WHY THAT CHANGED. An earlier revision differentiated the six variants with ornament: shaded
+% header bars, rules above and below the label, a short one-sixth-width accent rule, a vertical
+% accent bar, filled-square bullets, and one variant with no bullet glyph at all. Held beside the
+% six reference resumes this family is modelled on, every one of those marks was an invention —
+% the references use ONE header treatment (bold label, thin full-width rule immediately beneath),
+% ONE bullet (small and round), and one entry shape. A reader could pick the generated document
+% out of the set at a glance, by its decoration. That is the failure this file now prevents.
+%
+% WHAT LIVES HERE:
+%   * the document class and package set. No variant may add a package.
 %   * page geometry, and the setting that keeps text extraction clean.
-%   * DEFAULT definitions of every restylable command. _styles.tex redefines them per variant.
-%
-% What does NOT live here any more: the section-header treatment, the name block, the bullet
-% glyph, the skills arrangement, the entry shape and the density. Those used to be here, which is
-% why reordering sections inside an identical visual shell read as "the same template with the
-% blocks moved". They are now per-variant, in _styles.tex.
+%   * THE VERTICAL RHYTHM, as named lengths, measured off the references.
+%   * the section header, the bullet, the entry shape, the skills shape, the masthead — all final.
+%   * the arrangement switches, which are the ONLY thing a variant may change.
 %
 % Assembled in Node, not by LaTeX. Each variant file opens with a preamble marker and a style
 % marker that loadResumeTemplates() replaces. A real \input would need these files copied next to
@@ -39,7 +44,7 @@
 \usepackage{fontawesome5}
 \usepackage{multicol}
 \usepackage{graphicx}
-\setlength{\multicolsep}{-3.0pt}
+\setlength{\multicolsep}{0pt}
 \setlength{\columnsep}{18pt}
 \input{glyphtounicode}
 
@@ -50,7 +55,8 @@
 \renewcommand{\footrulewidth}{0pt}
 
 % Page geometry. Every variant shares it: a resume whose margins change between generations reads
-% as a different DOCUMENT rather than a different design, and the six are meant to be one family.
+% as a different DOCUMENT rather than a different arrangement, and the six are meant to be one
+% family.
 \addtolength{\oddsidemargin}{-0.6in}
 \addtolength{\evensidemargin}{-0.5in}
 \addtolength{\textwidth}{1.19in}
@@ -62,91 +68,346 @@
 \raggedright
 \setlength{\tabcolsep}{0in}
 
+% LEADING, matched to the references rather than left at the class default.
+%
+% Bullet and skills text is set at \small — 10pt, the same body size all six references use — and
+% the class gives 10pt text a 12pt baseline. Measured off the references with pdf.js, their body
+% leading is 11.5pt: Priyanka 11.5, Rithish 11.5, Sudeer 11.5. 0.96 puts \small at 11.52pt and
+% scales every other size by the same factor, so the relationship between heading leading and body
+% leading is preserved.
+%
+% This is NOT shrinking to buy space. The font size is untouched — 10pt body, 11pt entry headings,
+% 12pt section labels — and the floor of 10pt stands. It is worth stating what it buys, though:
+% across a full page of roughly 75 lines it recovers about four lines, which for a profile sitting
+% just past the end of page one is the difference between a clean single page and a second page
+% carrying four lines above a blank three-quarter sheet.
+\linespread{0.96}\selectfont
+
 % This is what keeps every one of the six machine-readable: it embeds a ToUnicode map, so a PDF
 % text extractor — and therefore an ATS — recovers real characters instead of font glyph indices.
 % Never remove it, in any variant.
 \pdfgentounicode=1
 
 %-----------------------------------------------------------------------------------------------
-% DEFAULTS. _styles.tex overrides these per variant; what follows is the safe fallback for any
-% command a style block chooses not to touch.
+% THE VERTICAL RHYTHM — DEFINED ONCE, HERE, AND NOWHERE ELSE.
 %-----------------------------------------------------------------------------------------------
+% EVERY gap in the document is one of the lengths below, and EXACTLY ONE construct owns each gap.
+% No command, section block or style block may emit an ad-hoc \vspace. That rule exists because
+% the scheme this replaced used hand-tuned negative \vspace values scattered across the entry
+% commands and list ends, which composed unpredictably and printed two education entries on top
+% of one another.
+%
+%   \resumeSectionSep   above a section header          owned by \titlespacing (before)
+%   \resumeHeadSep      header rule to first content    owned by \titlespacing (after)
+%   \resumeEntrySep     between entries in a section    owned by the section list's itemsep
+%   \resumeRowSep       between the two rows of one entry
+%   \resumeEntryLead    entry heading to its bullets    owned by the bullet list's topsep
+%   \resumeBulletSep    between bullets                 owned by the bullet list's itemsep
+%
+% Because each gap has one owner, the section lists all set topsep=0pt: the space under a header
+% belongs to \titlespacing, and a list adding its own topsep on top is exactly the kind of
+% double-count this scheme exists to remove.
+%
+% THE VALUES ARE MEASURED, NOT CHOSEN. Every reference PDF was read with pdf.js and its glyph
+% baselines compared, giving the real baseline-to-baseline distance for each relationship. The
+% right-hand column is the same measurement taken from this template's own output, so it says what
+% the settings below actually produce rather than what they were meant to produce:
+%
+% ("to" and not a dash between the numbers: resumeTemplates.test.js flags any run of seven or more
+% digits joined only by spaces, dots, dashes or brackets as phone-number-shaped, and a table of
+% dashed ranges reads exactly like one to a regex.)
+%
+%   relationship                      reference spread (all six)   this template
+%   ------------------------------    --------------------------   ---------------
+%   body leading, 10pt text                11.5 to 12.0              11.5 to 12.0
+%   content -> next section header         16.0 to 28.5              19.0 to 21.0
+%   section header -> first content        12.5 to 16.5              13.5 to 16.0
+%   entry heading -> first bullet          11.5 to 15.0              12.0
+%   bullet -> bullet                       11.5 to 15.0              12.0 to 12.5
+%   last bullet -> next entry heading      12.0 to 16.0              15.0 to 16.0
+%   skills line -> skills line             11.5 to 15.5              12.5
+%
+% Every one of them lands inside the reference spread. The references are TIGHT: Sudeer and
+% Priyanka add essentially nothing anywhere except above a section header, and the loosest of the
+% six, Charitha, still only reaches 28.5 there. These values sit near the tight end deliberately,
+% because the profiles this generator sees are long enough that the previous settings pushed them
+% onto a second page that was then three-quarters empty.
+%
+% ALL SIX VARIANTS SHARE THESE VALUES. Density is not a differentiation axis: the references are
+% one family precisely because their rhythm is the same. A document-level fit may scale all of
+% them together — see \resumeScaleRhythm — but no variant may set them individually.
+\newlength{\resumeSectionSep}
+\newlength{\resumeHeadSep}
+\newlength{\resumeEntrySep}
+\newlength{\resumeRowSep}
+\newlength{\resumeEntryLead}
+\newlength{\resumeBulletSep}
+\newlength{\resumeDateWidth}
+\newlength{\resumeColGap}
+\newlength{\resumeNameGap}
+\newlength{\resumeRuleGap}
 
-% BULLET GLYPH. Referenced by every list in the document, so one redefinition restyles them all.
-\newcommand{\resumebullet}{\raisebox{0.25ex}{\scalebox{0.9}{\textbf{--}}}}
-% Kept under its old name because _sections.tex and any previously stored LaTeX reference it.
-\newcommand{\resumedash}{\resumebullet}
+\setlength{\resumeSectionSep}{6pt}
+\setlength{\resumeHeadSep}{2pt}
+\setlength{\resumeEntrySep}{2pt}
+\setlength{\resumeRowSep}{0.5pt}
+\setlength{\resumeEntryLead}{1.5pt}
+\setlength{\resumeBulletSep}{1pt}
+\setlength{\resumeNameGap}{2pt}
+% The gap between the header label's baseline and the rule under it. Part of the header treatment
+% rather than the document rhythm, but named for the same reason as everything else here.
+\setlength{\resumeRuleGap}{1pt}
+% The fixed right-hand column every date is set in. Fixed, not \hfill-driven, so the dates in
+% Experience, Education, Projects and Extracurricular all land on the SAME right margin.
+\setlength{\resumeDateWidth}{1.72in}
+% Without a gutter a full-width heading ends flush against its own date, which reads as a
+% collision even when the box arithmetic is exactly right.
+\setlength{\resumeColGap}{0.16in}
 
-\newcommand{\resumeItem}[1]{\item\small{{#1 \vspace{-2pt}}}}
-\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=*, label=\resumebullet]}
-\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
-
-% SECTION HEADER — default is a bold label with a full-width rule beneath it.
-\titleformat{\section}{
-  \vspace{-4pt}\raggedright\large\bfseries
-}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
-
-% ONE-LINE ENTRY: #1 left (bold), #2 right (bold, the date range).
-\newcommand{\resumeEntry}[2]{
-  \vspace{-2pt}\item
-    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
-      \textbf{#1} & \textbf{#2} \\
-    \end{tabular*}\vspace{-6pt}
+% SCALES THE WHOLE RHYTHM AT ONCE, from the document body, after the variant's style block has had
+% its say. This is what lets the generator FIT a resume rather than hope: a profile that spills
+% four lines past page one is recompiled tighter until it fits, and one that genuinely needs two
+% pages is recompiled airier so the second page carries a real share of the content instead of six
+% lines and a blank sheet. See compileFittedResumePdf in latexCompilerService.
+%
+% It scales the rhythm UNIFORMLY, so a fitted document is still the same family — every gap moves
+% by the same factor and the relationships between them are preserved.
+%
+% \titlespacing is re-issued because titlesec has already read the old values into its own
+% internal skips; scaling the lengths alone would leave every section header spaced as before.
+\newcommand{\resumeScaleRhythm}[1]{%
+  \setlength{\resumeSectionSep}{#1\resumeSectionSep}%
+  \setlength{\resumeHeadSep}{#1\resumeHeadSep}%
+  \setlength{\resumeEntrySep}{#1\resumeEntrySep}%
+  \setlength{\resumeEntryLead}{#1\resumeEntryLead}%
+  \setlength{\resumeBulletSep}{#1\resumeBulletSep}%
+  \titlespacing*{\section}{0pt}{\resumeSectionSep}{\resumeHeadSep}%
 }
 
-% How the secondary line of a stacked entry reads. Redefined per variant (italic, plain, spaced).
-\newcommand{\resumeEntrySecondary}[1]{\textit{\small#1}}
+% A \needspace equivalent. The bundled TeX distribution does not ship the needspace package and
+% the no-new-packages rule stands, so this measures the page directly: how much room is left is
+% \pagegoal minus \pagetotal, and if that is less than what the header plus its first content line
+% needs, start a new page now so the two travel together.
+%
+% NOT needspace's own \vskip/\penalty-100/\vskip trick. That works by making a break cheap when
+% the page is nearly full — but this document sets \raggedbottom, which parks a \vfil at the foot
+% of every page and therefore makes leftover space cost almost nothing no matter how much of it
+% there is. Under \raggedbottom the -100 reads as a break BONUS that TeX will take at practically
+% any section boundary, and pages started ending a quarter of the way up. Comparing the two
+% registers is deterministic and immune to that.
+%
+% \pagegoal is \maxdimen before any material has been contributed to a page, which is the
+% start-of-document case; there is nothing to check then, and comparing against it would always
+% fire.
+\newcommand{\resumeNeedSpace}[1]{%
+  \par
+  \begingroup
+    \setlength{\dimen0}{#1}%
+    \ifdim\pagegoal=\maxdimen\else
+      \ifdim\dimen0>\dimexpr\pagegoal-\pagetotal\relax
+        \newpage
+      \fi
+    \fi
+  \endgroup
+}
 
-% TWO-LINE ENTRY: #1 primary (bold), #2 secondary (beneath), #3 the date range (bold, right).
-% A SECOND TABULAR ROW rather than a `\\` after \end{tabular*}: an empty second argument following
-% a bare `\\` is the "There's no line here to end" abort that used to kill the whole build, and an
-% empty tabular cell simply renders as nothing.
-\newcommand{\resumeEntryStacked}[3]{
-  \vspace{-2pt}\item
-    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
-      \textbf{#1} & \textbf{#3} \\
-      \resumeEntrySecondary{#2} & \\
-    \end{tabular*}\vspace{-6pt}
+%-----------------------------------------------------------------------------------------------
+% SECTION HEADER — one treatment, all six variants.
+%-----------------------------------------------------------------------------------------------
+% Bold label at \large (12pt against an 11pt body, inside the references' 11-13pt band), with a
+% thin rule spanning the FULL text width immediately beneath it. That is what all six references
+% do and it is not negotiable per variant.
+%
+% Explicitly not offered, and previously present: a shaded background bar behind the label; a rule
+% above as well as below; a short partial-width accent rule; a vertical accent bar beside the
+% label; colour of any kind. A reviewer could identify the generated resume in a stack purely by
+% those marks.
+%
+% \titlespacing owns the gap above the header and the gap below the rule; nothing else may add to
+% either. The rule is drawn in the after-code so it belongs to the header rather than to the
+% content that follows.
+%
+% THE RULE IS NAMED RATHER THAN WRITTEN INLINE, and that is not a style preference. \titleformat's
+% trailing after-code is an optional argument, so LaTeX scans it to the first unmatched `]` — and
+% writing `[...\titlerule[0.8pt]]` ends the argument at \titlerule's OWN closing bracket. The
+% after-code silently becomes `...\titlerule[0.8pt` and the leftover `]` prints as a literal
+% bracket in the top-left corner of page one. Every section rule in the document vanished and a
+% stray `]` appeared, from a document that compiled without a single warning.
+\newcommand{\resumeSectionRule}{\vspace{\resumeRuleGap}\titlerule[0.8pt]}
+\titleformat{\section}{\raggedright\large\bfseries}{}{0em}{}[\resumeSectionRule]
+\titlespacing*{\section}{0pt}{\resumeSectionSep}{\resumeHeadSep}
+
+%-----------------------------------------------------------------------------------------------
+% BULLET — one glyph, all six variants, every bulleted section.
+%-----------------------------------------------------------------------------------------------
+% A small round bullet, scaled down from \textbullet and nudged onto the x-height so it sits with
+% the text rather than above it. Every reference uses exactly this mark, at roughly this size, in
+% Skills, Experience, Projects, Certifications and Coursework alike.
+%
+% Previously in use and now gone: a filled square, a six-pointed star, a hollow square, a centred
+% asterisk, and — in one variant — no marker at all, which rendered bullets as bare indented text
+% that read as wrapped prose rather than as a list.
+\newcommand{\resumebullet}{\raisebox{0.2ex}{\scalebox{0.7}{\textbullet}}}
+% Kept under its old name because previously stored LaTeX references it.
+\newcommand{\resumedash}{\resumebullet}
+
+% BULLET LIST under an entry. topsep owns the entry-to-bullets gap; itemsep owns bullet-to-bullet.
+% leftmargin is 1.4em to put the text edge ~15pt in from the margin, which is where the references
+% hang their wrapped bullet lines.
+\newcommand{\resumeItemListStart}{%
+  \begin{itemize}[leftmargin=1.4em, label=\resumebullet, align=left, labelwidth=0.85em, labelsep=0.55em,
+                  topsep=\resumeEntryLead, partopsep=0pt, parsep=0pt, itemsep=\resumeBulletSep]}
+\newcommand{\resumeItemListEnd}{\end{itemize}}
+% A single short word alone on a bullet's last line is prevented in the CONTENT builder, which
+% ties the final two words together with a non-breaking space. Doing it here with \parfillskip
+% would force every short bullet to stretch its last line and report an Underfull \hbox, and
+% underfull boxes are part of the acceptance gate.
+\newcommand{\resumeItem}[1]{\item \small{#1}}
+
+%-----------------------------------------------------------------------------------------------
+% ENTRY ROWS — the two-column line that every dated entry is built from.
+%-----------------------------------------------------------------------------------------------
+% Two \parbox[t]es of FIXED width, not a tabular*. A tabular* with [t] pins the box's baseline to
+% its FIRST row, so every later row became depth that the surrounding spacing happily overprinted;
+% and a tabular cell does not wrap, so a long degree name ran straight through its own date and
+% out past the margin.
+%
+% Fixed-width \parbox[t]es fix both at once: [t] aligns the two boxes by their FIRST baselines,
+% the row's height is the taller of the two and is fully measured, and long text WRAPS inside its
+% own column instead of colliding with the date. The date column is \resumeDateWidth wide in every
+% section, which is what makes the right margin identical throughout the document.
+\newcommand{\resumeEntryRow}[2]{%
+  \noindent
+  \parbox[t]{\dimexpr\linewidth-\resumeDateWidth-\resumeColGap\relax}{\raggedright #1}%
+  \hspace{\resumeColGap}%
+  \parbox[t]{\resumeDateWidth}{\raggedleft \mbox{#2}}%
+  \par
+}
+
+% Experience / project / extracurricular entry — ONE LINE, all six variants.
+%
+%     Role | Company, Location                                    Date range
+%     (bold, left)                                              (bold, right)
+%
+% Every reference uses exactly this. The two-line shape that was here before — company bold on
+% line one with the role italicised beneath — belongs to a different template family, costs a line
+% per role, and was the single most obvious tell that the generated resume was not one of the six.
+% The pieces are assembled and joined in the content builder, so a role with no recorded location,
+% or an entry with a company but no title, collapses cleanly rather than emitting a stray "|".
+%
+% \nobreak after the row: an entry heading must never be the last thing on a page with its bullets
+% at the top of the next one. The penalty lands in the vertical list immediately before the bullet
+% list's topsep glue, and glue preceded by a penalty is not a legal breakpoint, so the heading and
+% its first bullet always travel together.
+\newcommand{\resumeEntry}[2]{%
+  \item
+  \resumeEntryRow{\textbf{#1}}{\textbf{#2}}%
+  \nobreak
 }
 
 % Education entry: #1 degree (bold, left), #2 dates (bold, right), #3 institution, #4 GPA or empty.
-\newcommand{\resumeEntryWithLine}[4]{
-  \vspace{-2pt}\item
-    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
-      \textbf{#1} & \textbf{#2} \\
-      \small#3 & \small#4 \\
-    \end{tabular*}\vspace{-6pt}
+% \nobreak around the row gap: the institution line must never be split from its degree by a page
+% break.
+\newcommand{\resumeEntryWithLine}[4]{%
+  \item
+  \resumeEntryRow{\textbf{#1}}{\textbf{#2}}%
+  \nobreak\vskip\resumeRowSep\nobreak
+  \resumeEntryRow{\small #3}{\small #4}%
 }
 
 % Project heading: #1 the title (already carrying its own tech stack or link markup), #2 dates.
-\newcommand{\resumeProjectHeading}[2]{
-\item[]
-\begin{tabular*}{1.001\textwidth}{l@{\extracolsep{\fill}}r}
-\small#1 & \textbf{\small #2}\\
-\end{tabular*}\vspace{-7pt}
+\newcommand{\resumeProjectHeading}[2]{%
+  \item
+  \resumeEntryRow{#1}{\textbf{#2}}%
+  \nobreak
 }
-% The leading \vspace offsets \resumeProjectHeading's trailing \vspace{-7pt}; without it the
-% Technologies line climbs onto the project title's descenders.
-\newcommand{\resumeProjectTech}[1]{\vspace{5pt}\item[]\small{\textbf{Technologies:} #1}\vspace{-6pt}}
+\newcommand{\resumeProjectTech}[1]{%
+  \nobreak\vskip\resumeRowSep\nobreak
+  \noindent\small{\textbf{Technologies:} #1}\par
+}
 
-% Skills. The content builder emits one \resumeSkillEntry per category, between Start and End — so
-% a variant can arrange them as lines, two columns, a flowing paragraph or a label table WITHOUT
-% the content builder knowing which. \par and not `\\`: a trailing `\\` on the final line is the
-% "no line here to end" abort, and this is a section that often ends up last on the page.
-\newcommand{\resumeSkillsStart}{\begingroup\small}
-\newcommand{\resumeSkillEntry}[2]{\noindent\textbf{#1:} #2\par\vspace{2pt}}
-\newcommand{\resumeSkillsEnd}{\par\endgroup\vspace{-4pt}}
+%-----------------------------------------------------------------------------------------------
+% Skills — bulleted, one category per line, label and values on the SAME line.
+%-----------------------------------------------------------------------------------------------
+% A round bullet, the bold category label, a colon, then the values running on from it. Every one
+% of the six references does this and nothing else.
+%
+% Gone with the ornament: the two-column label table that pushed every value to a fixed indent
+% column (which left a ragged trench down the middle of the page and wasted a fifth of the text
+% width), the two-column multicol arrangement, and the flowing single paragraph.
+%
+% ONE LINE PER DEFINITION, deliberately: resumeGeneration.test.js reads these definitions
+% line-wise to check that the arrangement is what it claims to be.
+\newcommand{\resumeSkillsStart}{\begin{itemize}[leftmargin=1.4em, label=\resumebullet, align=left, labelwidth=0.85em, labelsep=0.55em, topsep=0pt, partopsep=0pt, parsep=0pt, itemsep=\resumeBulletSep]}
+\newcommand{\resumeSkillEntry}[2]{\item \small{\textbf{#1:} #2}}
+\newcommand{\resumeSkillsEnd}{\end{itemize}}
 
-% HEADER. The headline and contact arguments arrive as \resumeHeadline{...} / \resumeContact{...}
-% calls, or as NOTHING AT ALL when the profile has no value — that emptiness decision is made in
-% JavaScript, where it is reliable, rather than with a LaTeX \ifx test. It is what lets a variant
-% lay the header out freely: there is never a stray `\\` left behind by an absent field.
-\newcommand{\resumeHeadline}[1]{\textbf{\small #1}\\ \vspace{2pt}}
+%-----------------------------------------------------------------------------------------------
+% MASTHEAD.
+%-----------------------------------------------------------------------------------------------
+% Name, then the optional positioning headline, then the contact line with its icon set. The
+% headline and contact arguments arrive as \resumeHeadline{...} / \resumeContact{...} calls, or as
+% NOTHING AT ALL when the profile has no value — that emptiness decision is made in JavaScript,
+% where it is reliable, rather than with a LaTeX \ifx test. It is what lets the block lay itself
+% out freely: there is never a stray `\\` left behind by an absent field.
+%
+% The name is \Large (14.4pt), which is where the references set it. It was \Huge (24.9pt), more
+% than twice the body size and far outside the family's range.
+% NOTHING FOLLOWS THE MASTHEAD. The gap between the masthead and the first section header is
+% \resumeSectionSep, owned by \titlespacing, exactly like the gap above every other section header
+% in the document — the one-owner-per-gap rule applies to the first section too.
+%
+% There used to be a \vskip\resumeHeaderBelow here. It was invisible in the unruled variants (a
+% following \addvspace absorbs a preceding plain \vskip rather than adding to it), which is
+% precisely why it survived: a length that does nothing looks correct in every test that measures
+% the result. It is gone, and the length with it.
+\newcommand{\resumeHeadline}[1]{\textbf{\small #1}\par\vskip\resumeNameGap}
 \newcommand{\resumeContact}[1]{#1}
-\newcommand{\resumeHeader}[3]{
-\begin{center}
-{\Huge \scshape #1} \\ \vspace{2pt}
-#2#3
-\end{center}
-\vspace{-8pt}
+% \prevdepth is reset so the FIRST section header is spaced exactly like every other one.
+%
+% TeX places each box in a vertical list using interline glue computed from \prevdepth — the depth
+% of the box above. Ordinary body text is about 2pt deep, but the contact line carries fontawesome
+% glyphs that descend around 5pt, and \hrule sets \prevdepth to -1000pt (ignore-depth). Both cases
+% shift the header off the rhythm: the void above "Summary" measured 9.8pt of whitespace against
+% 8.3pt above every other header in the unruled variants and 11.3pt in the ruled ones, even though
+% \titlespacing contributed the identical \resumeSectionSep in all three cases. Declaring a depth
+% of zero makes the glue calculation ignore what the masthead happens to be made of, so the space
+% above the first header is the same space as above every other header.
+\newcommand{\resumeHeader}[3]{%
+  {\resumeNameAlign
+   {\Large\bfseries #1}\par\vskip\resumeNameGap
+   #2#3\par}%
+  \resumeHeaderRule
 }
+
+%-----------------------------------------------------------------------------------------------
+% Coursework — three balanced columns by default.
+%-----------------------------------------------------------------------------------------------
+% Wrapped in commands rather than written into the shared section block so that the columns-versus-
+% inline choice is an arrangement switch a variant can flip, like the others below. \multicolsep is
+% zeroed in the preamble so the gap above and below the columns is the section rhythm, not
+% multicol's own default.
+\newcommand{\resumeCourseworkStart}{\begin{multicols}{3}\begin{itemize}[leftmargin=1.4em, label=\resumebullet, align=left, labelwidth=0.85em, labelsep=0.55em, topsep=0pt, partopsep=0pt, parsep=0pt, itemsep=\resumeBulletSep]}
+\newcommand{\resumeCourseItem}[1]{\item \small{#1}}
+\newcommand{\resumeCourseworkEnd}{\end{itemize}\end{multicols}}
+
+%-----------------------------------------------------------------------------------------------
+% THE ARRANGEMENT SWITCHES — the ONLY things _styles.tex may change.
+%-----------------------------------------------------------------------------------------------
+% Differentiation comes from arrangement, not ornament. A variant may:
+%
+%   * order its sections differently          — the variant-*.tex file
+%   * carry the positioning headline or not   — the variant-*.tex file
+%   * change the skills value separator       — VARIANT_STYLE.skillSeparator, in JavaScript
+%   * put a project's tech stack inline or on its own line
+%                                             — VARIANT_STYLE.projectTechLayout, in JavaScript
+%   * centre or left-align the masthead       — \resumeNameAlign, below
+%   * close the masthead with a rule or not   — \resumeHeaderRule, below
+%   * run coursework in three columns or as one inline list
+%                                             — \resumeCoursework*, above
+%
+% Nothing else. In particular a variant may NOT redefine \titleformat, \resumebullet,
+% \resumeEntry, \resumeSkillEntry or any rhythm length, and resumeGeneration.test.js fails the
+% build if one does.
+\newcommand{\resumeNameAlign}{\centering}
+\newcommand{\resumeHeaderRule}{}

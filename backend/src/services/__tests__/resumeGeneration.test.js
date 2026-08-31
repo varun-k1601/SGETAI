@@ -315,12 +315,16 @@ test("the contact line is built from profile data, with separators collapsing ar
 });
 
 test("an optional section drops out cleanly without leaving a gap or a stray rule", () => {
-  const sparse = build(fixtures.find((f) => f.name === "sparse-minimal").profile);
+  /* Scoped to the BODY. The preamble legitimately mentions \titlerule and \begin{multicols} in
+     the command definitions the coursework arrangement is built from; those are always present
+     and say nothing about whether a stripped section left scaffolding behind. */
+  const sparse = documentBody(build(fixtures.find((f) => f.name === "sparse-minimal").profile));
   assert.doesNotMatch(sparse, /\n{3,}/, "removing a section must not leave a doubled blank line");
   assert.doesNotMatch(sparse, /\\titlerule\s*\n\s*\\section/, "a stray section rule was left behind");
   // Nothing may survive a stripped section: no heading, no scaffolding, no unreplaced placeholder.
   assert.doesNotMatch(sparse, /COURSEWORK|EXTRACURRICULAR|CERTIFICATIONS/, "an unreplaced placeholder leaked");
-  assert.doesNotMatch(sparse, /\\begin\{multicols\}/, "the coursework multicols block outlived its section");
+  assert.doesNotMatch(sparse, /\\resumeCourseworkStart|\\begin\{multicols\}/,
+    "the coursework block outlived its section");
 });
 
 test("relevance orders skills but never deletes them", () => {
@@ -412,6 +416,38 @@ test("the parser harvests technologies from the candidate's own narrative only",
     projects: [{ title: "Untitled", description: "" }]
   });
   assert.deepEqual(blanked.harvested, [], "a blanked description must contribute no skills");
+
+  /* THE UNDER-READ SKILLS SECTION — the case the draft narrative alone cannot recover.
+     When the model reads the "Technical Skills" line badly, the technologies never reach the draft
+     at all: `skills` is short AND there is no description to harvest them from, so harvesting the
+     draft finds nothing. One real profile came through holding nine skills while its source
+     document listed ten more. The uploaded text is the candidate's own document, so recognising a
+     name in it is transcription; the match is literal against a fixed lexicon, so nothing can be
+     recovered that the document does not spell out. */
+  const underRead = { skills: ["Core Java", "Python", "SQL"], experience: [], projects: [] };
+  const sourceText = [
+    "TECHNICAL SKILLS",
+    "Languages: Core Java, Python, SQL",
+    "DevOps: Docker, Kubernetes, Jenkins, Ansible, Linux",
+    "Data: Pandas, NumPy, Scikit-Learn, PySpark, DSPy"
+  ].join("\n");
+
+  assert.deepEqual(
+    harvestSkillsFromNarrative(underRead).harvested, [],
+    "with no narrative there is nothing to harvest from the draft — this is the gap the source text closes"
+  );
+
+  const recovered = harvestSkillsFromNarrative(underRead, sourceText);
+  for (const expected of ["Docker", "Kubernetes", "Jenkins", "Ansible", "Pandas", "NumPy", "Scikit-Learn", "PySpark", "Linux", "DSPy"]) {
+    assert.ok(
+      recovered.harvested.includes(expected),
+      `"${expected}" is printed in the uploaded resume and must be recovered when the model misses it`
+    );
+  }
+  assert.deepEqual(recovered.skills.slice(0, 3), ["Core Java", "Python", "SQL"], "stored skills still lead");
+
+  // And still nothing is invented: a technology absent from the document is absent from the result.
+  assert.ok(!recovered.skills.some((skill) => /terraform/i.test(skill)), "a technology the document never names must not appear");
 });
 
 // pdflatex writes compressed object streams, so the page tree is not greppable in the PDF bytes.
@@ -572,64 +608,269 @@ test("every fix from the previous two passes survives in ALL SIX layouts", () =>
   }
 });
 
-test("each variant carries its own visual identity, not just a section order", () => {
-  /* The complaint this guards against: six documents that differ only in the order of their
-     blocks, inside an identical visual shell. Every axis below fires for EVERY profile — none is
-     contingent on optional data, which is what let D become byte-identical to C whenever a
-     project happened to record no tech stack. */
+/* Splits a stored description the way the generator does, so the EXPECTED bullet count is derived
+   from the profile rather than hard-coded. Mirrors splitDescriptionBullets: explicit line breaks
+   first, then sentence boundaries within a line. */
+function expectedBulletCount(description) {
+  const lines = String(description || "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[•*\-–—]|\d+[.)])\s*/, "").trim())
+    .filter(Boolean);
+  if (!lines.length) return 1;
+  return lines.reduce(
+    (total, line) => total + Math.max(1, line.split(/(?<=[.!?])\s+(?=[A-Z0-9])/).filter((part) => part.trim()).length),
+    0
+  );
+}
+
+// The bullets belonging to one \resumeEntry / \resumeProjectHeading — everything between that
+// heading's \resumeItemListStart and its matching \resumeItemListEnd.
+function bulletBlocks(latex) {
+  const body = documentBody(latex);
+  const blocks = [];
+  const pattern = /\\(?:resumeEntry|resumeProjectHeading)\{([\s\S]*?)\}\{[^}]*\}([\s\S]*?)\\resumeItemListEnd/g;
+  for (const match of body.matchAll(pattern)) {
+    blocks.push({
+      heading: match[1].replace(/\\[a-zA-Z]+|[{}]/g, "").replace(/\$\|\$/g, "|").trim(),
+      bullets: (match[2].match(/\\resumeItem\{/g) || []).length
+    });
+  }
+  return blocks;
+}
+
+test("every bullet the candidate wrote reaches the resume — none is capped away", () => {
+  /* THE REGRESSION GUARD FOR THE CONTENT CAPS.
+     MAX_BULLETS_PER_ENTRY was 4, so a role or project described in five or six sentences shipped
+     four of them and silently discarded the rest. The entry-count caps did the same at the level
+     of whole jobs: four experience entries and three projects, so a candidate with five roles lost
+     one entirely — a hole in the timeline a recruiter reads as concealment.
+
+     The generator does not get to decide which of someone's accomplishments an employer sees. This
+     asserts the counts MATCH, not that they are "close enough". */
+  const profile = {
+    firstName: "Test", lastName: "Candidate", email: "t@example.com",
+    skills: ["Java", "Docker"], skillGroups: [], education: [], achievements: [], licensesAndCertifications: [],
+    experience: [
+      { companyName: "Six Bullets Ltd", jobTitle: "Engineer", startDate: "2024-01-01", isCurrent: true,
+        description: "Shipped the alpha.\n- Shipped the beta.\n- Shipped the gamma.\n- Shipped the delta.\n- Shipped the epsilon.\n- Shipped the zeta." },
+      { companyName: "Second", jobTitle: "Engineer", startDate: "2023-01-01", endDate: "2023-12-01", description: "Ran the pipeline. Fixed the flake. Cut the runtime." },
+      { companyName: "Third", jobTitle: "Analyst", startDate: "2022-01-01", endDate: "2022-12-01", description: "Wrote the report." },
+      { companyName: "Fourth", jobTitle: "Intern", startDate: "2021-01-01", endDate: "2021-12-01", description: "Learned the stack." },
+      { companyName: "Fifth", jobTitle: "Trainee", startDate: "2020-01-01", endDate: "2020-12-01", description: "Sat the induction." },
+      { companyName: "Sixth", jobTitle: "Volunteer", startDate: "2019-01-01", endDate: "2019-12-01", description: "Helped out." }
+    ],
+    projects: [
+      { title: "Alpha", description: "One.\n- Two.\n- Three.\n- Four.\n- Five." },
+      { title: "Beta", description: "Only one thing." },
+      { title: "Gamma", description: "First thing. Second thing." },
+      { title: "Delta", description: "A single line." },
+      { title: "Epsilon", description: "Another single line." }
+    ]
+  };
+
+  for (const variant of RESUME_VARIANTS) {
+    const blocks = bulletBlocks(build(profile, variant));
+
+    // Every entry and every project is present — no whole entry dropped.
+    for (const item of [...profile.experience, ...profile.projects]) {
+      const name = item.companyName || item.title;
+      assert.ok(
+        blocks.some((block) => block.heading.includes(name)),
+        `[${variant}] "${name}" was dropped entirely; ${blocks.length} of ${profile.experience.length + profile.projects.length} entries rendered`
+      );
+    }
+
+    // And every bullet within each of them.
+    for (const item of [...profile.experience, ...profile.projects]) {
+      const name = item.companyName || item.title;
+      const block = blocks.find((entry) => entry.heading.includes(name));
+      const expected = expectedBulletCount(item.description);
+      assert.equal(
+        block.bullets, expected,
+        `[${variant}] "${name}" rendered ${block.bullets} bullets, profile holds ${expected}`
+      );
+    }
+  }
+});
+
+test("bullets, achievements and education are the candidate's text VERBATIM", () => {
+  /* Only the Summary is AI-authored. Everything else is transcription, and the permitted
+     transformations are exactly three: LaTeX escaping, splitting a multi-sentence description into
+     separate bullets, and bolding a metric or technology ALREADY PRESENT in the text. Rewording,
+     summarising, shortening, merging or synthesising is not permitted, and this asserts it by
+     stripping the permitted markup back off and requiring what remains to be a literal substring
+     of the stored field. */
+  const strip = (latex) =>
+    String(latex)
+      .replace(/\\textbf\{([^{}]*)\}/g, "$1")   // emphasis
+      .replace(/\\emph\{([^{}]*)\}/g, "$1")
+      .replace(/\\&/g, "&").replace(/\\%/g, "%").replace(/\\\$/g, "$").replace(/\\#/g, "#")
+      .replace(/\\_/g, "_").replace(/\\\{/g, "{").replace(/\\\}/g, "}")
+      .replace(/\\textasciicircum\{\}/g, "^")
+      .replace(/\\textbackslash\{\}/g, "\\")
+      /* ORDER MATTERS HERE. A bare ~ is the non-breaking tie the builder inserts between the last
+         two words; a tilde the CANDIDATE typed is escaped to \textasciitilde{} and contains no
+         bare ~. Unescaping first would turn "used by ~40 teams" into a tie and then into a space,
+         and the test would report the generator as having reworded text it copied exactly. */
+      .replace(/~/g, " ")
+      .replace(/\\textasciitilde\{\}/g, "~")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const normalise = (value) => String(value || "").replace(/\s+/g, " ").trim();
+
+  for (const fixture of fixtures) {
+    const profile = fixture.profile;
+    const sourceText = normalise([
+      ...(profile.experience || []).map((item) => item.description),
+      ...(profile.projects || []).map((item) => item.description),
+      ...(profile.achievements || []).map((item) => `${item.title || ""} ${item.description || ""}`),
+      ...(profile.licensesAndCertifications || []).map((item) => `${item.title || ""} ${item.description || ""}`),
+      ...(profile.education || []).map((item) => `${item.degree || ""} ${item.fieldOfStudy || ""} ${item.institution || ""}`),
+      ...(profile.customSections || []).flatMap((section) =>
+        (section.entries || []).map((entry) => `${entry.title || ""} ${entry.organization || ""} ${entry.description || ""}`))
+    ].join("  "));
+
+    for (const variant of RESUME_VARIANTS) {
+      const body = documentBody(build(profile, variant));
+
+      for (const match of body.matchAll(/\\resumeItem\{([\s\S]*?)\}\n/g)) {
+        const rendered = strip(match[1]);
+        // Generated placeholders for an entry with no description at all are the one exception,
+        // and they are only reachable when the candidate wrote nothing to transcribe.
+        if (/^(Applied relevant skills|Built a project aligned|Project details can be)/.test(rendered)) continue;
+        assert.ok(
+          sourceText.includes(rendered),
+          `[${fixture.name}/${variant}] a bullet is not the candidate's own text:\n  rendered: ${rendered}`
+        );
+      }
+    }
+  }
+});
+
+test("all six variants share ONE visual grammar, and differ only by arrangement", () => {
+  /* THIS TEST WAS INVERTED, DELIBERATELY.
+
+     It used to demand six DIFFERENT section-header treatments, four different bullet glyphs
+     including one variant with none at all, and four different skills arrangements — an earlier
+     instruction that offered shaded background bars and rules-above-and-below as ways to tell the
+     variants apart. Measured against the six reference resumes this family is modelled on, all of
+     that was invention: the references share one header treatment (bold label, thin full-width
+     rule beneath), one round bullet, one entry shape and one rhythm, and differ only in which
+     sections they carry and in what order. The old assertions were therefore actively enforcing
+     the defect. They now enforce the opposite. */
   const preambleOf = (variant) => {
     const template = getResumeTemplate(variant);
     return template.slice(0, template.indexOf("\\begin{document}"));
   };
 
-  // 1. Section header treatment: six different \titleformat outcomes.
-  const headerTreatments = RESUME_VARIANTS.map((variant) => {
-    const preamble = preambleOf(variant);
-    const formats = [...preamble.matchAll(/\\titleformat\{\\section\}[\s\S]*?\n/g)].map((m) => m[0]);
-    return formats[formats.length - 1];
-  });
-  assert.equal(
-    new Set(headerTreatments).size,
-    RESUME_VARIANTS.length,
-    "two variants share a section-header treatment"
-  );
+  // 1. ONE section-header treatment, byte-identical in all six.
+  const headerFormats = RESUME_VARIANTS.map((variant) =>
+    (preambleOf(variant).match(/\\titleformat\{\\section\}[^\n]*/g) || []).join("\n"));
+  assert.equal(new Set(headerFormats).size, 1,
+    `variants no longer share a section-header treatment:\n${[...new Set(headerFormats)].join("\n")}`);
+  assert.match(headerFormats[0], /\\large\\bfseries/, "the section label must be bold at the family's size");
+  assert.match(headerFormats[0], /\[\\resumeSectionRule\]/, "the label must be followed by the shared rule");
+  assert.match(preambleOf("a"), /\\newcommand\{\\resumeSectionRule\}\{\\vspace\{\\resumeRuleGap\}\\titlerule\[0\.8pt\]\}/,
+    "the section rule must be a thin FULL-WIDTH \\titlerule");
 
-  // 2. Bullet glyph: at least four distinct, including one with none at all.
-  const bullets = RESUME_VARIANTS.map((variant) => {
-    const matches = [...preambleOf(variant).matchAll(/\{\\resumebullet\}\{([^\n]*)\}\n/g)];
-    return matches.length ? matches[matches.length - 1][1] : "(default)";
-  });
-  assert.ok(new Set(bullets).size >= 4, `bullet glyphs are too alike: ${JSON.stringify(bullets)}`);
-  assert.ok(bullets.includes(""), "no variant drops the bullet glyph entirely");
+  /* 2. The specific ornament that made the generated resume identifiable at a glance. Each of
+        these shipped at least once and none appears in any reference. */
+  const banned = [
+    [/\\colorbox/, "a shaded bar behind a section header"],
+    [/\\rule\{0?\.\d+\\(?:text|line)width\}/, "a partial-width accent rule under a header"],
+    [/\\titleline/, "a rule on its own line above the section label"],
+    [/\\rule\[[^\]]*\]\{[\d.]+pt\}/, "a vertical accent bar beside the section label"],
+    [/\\resumesquare|\\ding\{|\\textasteriskcentered/, "a square, star or asterisk bullet"]
+  ];
+  for (const variant of RESUME_VARIANTS) {
+    for (const [pattern, what] of banned) {
+      assert.doesNotMatch(preambleOf(variant), pattern, `[${variant}] reintroduced ${what}`);
+    }
+  }
 
-  // 3. Name block: every variant defines its own header, and they are not all the same.
-  const headers = RESUME_VARIANTS.map((variant) => {
-    const matches = [...preambleOf(variant).matchAll(/\{\\resumeHeader\}\[3\]\{([\s\S]*?)\n\}/g)];
+  // 3. ONE bullet glyph, defined once and never overridden.
+  const bulletDefs = RESUME_VARIANTS.map((variant) =>
+    (preambleOf(variant).match(/\\(?:re)?newcommand\{\\resumebullet\}\{[^\n]*/g) || []).join("\n"));
+  assert.equal(new Set(bulletDefs).size, 1, "a variant redefined the bullet glyph");
+  assert.match(bulletDefs[0], /\\textbullet/, "the bullet must be the round \\textbullet, scaled down");
+  assert.doesNotMatch(bulletDefs[0], /\\renewcommand/, "the bullet is defined once, in the shared preamble");
+
+  /* 4. Every list is either bulleted with THAT glyph or is an entry list carrying no marker.
+        A variant with no marker at all rendered its bullets as bare indented text that read as
+        wrapped prose; there is no third option. */
+  for (const variant of RESUME_VARIANTS) {
+    const labels = [...getResumeTemplate(variant).matchAll(/label=([^,\]]+)/g)].map((m) => m[1].trim());
+    assert.ok(labels.length, `[${variant}] declares no list labels at all`);
+    for (const label of labels) {
+      assert.ok(label === "{}" || label === "\\resumebullet",
+        `[${variant}] uses an unapproved list marker: ${label}`);
+    }
+  }
+
+  /* 5. IDENTICAL RHYTHM. Density used to be a per-variant axis — A normal, B and E airy, C and F
+        tight. It is not one any more: the references are recognisably one family precisely
+        because their spacing matches. A document may still be scaled as a whole to fit its page
+        count (\resumeScaleRhythm), which moves every gap by the same factor. */
+  const rhythm = (variant, length) => {
+    const matches = [...preambleOf(variant).matchAll(
+      new RegExp("\\\\setlength\\{\\\\" + length + "\\}\\{(\\d+(?:\\.\\d+)?)pt\\}", "g")
+    )];
+    assert.ok(matches.length, `[${variant}] never sets ${length}; the rhythm is no longer declared`);
     return matches[matches.length - 1][1];
-  });
-  assert.ok(new Set(headers).size >= 5, `name blocks are too alike: ${new Set(headers).size} distinct`);
+  };
+  for (const length of ["resumeSectionSep", "resumeHeadSep", "resumeEntrySep", "resumeEntryLead", "resumeBulletSep"]) {
+    const values = RESUME_VARIANTS.map((variant) => rhythm(variant, length));
+    assert.equal(new Set(values).size, 1,
+      `${length} differs by variant (${values.join("/")}); density is not an arrangement axis`);
+  }
 
-  // 4. Density: the airy variants really are looser than the tight ones.
-  // `{topsep=` and not a bare `topsep=`: "partopsep=0pt" contains "topsep=0pt" as a substring, so
-  // a loose match reads every variant's density as zero and the comparisons below all pass
-  // vacuously.
-  const topsep = (variant) => Number(preambleOf(variant).match(/\{topsep=(\d+)pt/)[1]);
-  assert.ok(topsep("b") > topsep("a"), "B must be airier than A");
-  assert.ok(topsep("e") > topsep("a"), "E must be airier than A");
-  assert.ok(topsep("c") < topsep("a"), "C must be tighter than A");
-  assert.ok(topsep("f") < topsep("a"), "F must be tighter than A");
+  // 6. ONE skills arrangement: bulleted, bold label, colon, values on the same line.
+  const skillEntries = RESUME_VARIANTS.map((variant) =>
+    (preambleOf(variant).match(/\\(?:re)?newcommand\{\\resumeSkillEntry\}\[2\]\{[^\n]*/g) || []).join("\n"));
+  assert.equal(new Set(skillEntries).size, 1, "a variant redefined the skills arrangement");
+  assert.match(skillEntries[0], /\\item \\small\{\\textbf\{#1:\} #2\}/,
+    "skills must be one bulleted line per category, label and values together");
 
-  // 5. Skills arrangement: at least four distinct treatments.
-  const skillLayouts = RESUME_VARIANTS.map((variant) => {
-    const matches = [...preambleOf(variant).matchAll(/\{\\resumeSkillEntry\}\[2\]\{([^\n]*)\}\n/g)];
-    return matches[matches.length - 1][1];
-  });
-  assert.ok(new Set(skillLayouts).size >= 4, `skills blocks are too alike: ${new Set(skillLayouts).size} distinct`);
+  // 7. ONE entry shape, on one line, in every variant.
+  for (const variant of RESUME_VARIANTS) {
+    assert.doesNotMatch(preambleOf(variant), /\\resumeEntryStacked/,
+      `[${variant}] still defines the two-line company-over-role entry`);
+  }
 
-  // 6. Base font size is never shrunk to buy density.
+  /* 8. No ad-hoc vertical space anywhere outside the rhythm. A single stray negative \vspace is
+        how two education entries ended up printed on top of each other, so this is a hard rule
+        and not a style preference. */
+  for (const variant of RESUME_VARIANTS) {
+    const offenders = preambleOf(variant)
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("%"))
+      .filter((line) => /\\vspace\{-|\\vskip\s*-/.test(line));
+    assert.deepEqual(offenders, [], `[${variant}] reintroduced negative vertical space:\n  ${offenders.join("\n  ")}`);
+  }
+
+  // 9. Base font size is never shrunk to buy density.
   for (const variant of RESUME_VARIANTS) {
     assert.match(getResumeTemplate(variant), /\\documentclass\[letterpaper,11pt\]/, `[${variant}] changed the base size`);
   }
+
+  /* 10. The arrangement switches that replaced the ornament are actually USED. Without this the
+         six could satisfy every assertion above by being identical, which is the opposite failure
+         and just as wrong. */
+  // The optional \[n\] matters: \resumeCourseItem takes an argument, and a pattern that assumed
+  // none matched nothing at all and reported every variant as identical.
+  const switchValue = (variant, command) => {
+    const matches = [...preambleOf(variant).matchAll(
+      new RegExp("\\\\(?:re)?newcommand\\{\\\\" + command + "\\}(?:\\[\\d\\])?\\{([^\\n]*)\\}", "g")
+    )];
+    return matches.length ? matches[matches.length - 1][1] : "(default)";
+  };
+  assert.ok(new Set(RESUME_VARIANTS.map((v) => switchValue(v, "resumeNameAlign"))).size >= 2,
+    "every variant centres its masthead; the alignment switch is unused");
+  assert.ok(new Set(RESUME_VARIANTS.map((v) => switchValue(v, "resumeHeaderRule"))).size >= 2,
+    "no variant closes its masthead with a rule; the rule switch is unused");
+  assert.ok(new Set(RESUME_VARIANTS.map((v) => switchValue(v, "resumeCourseItem"))).size >= 2,
+    "every variant runs coursework the same way; the coursework switch is unused");
 });
 
 test("no two variants render the same document, even for a profile with no optional data", () => {
@@ -675,33 +916,37 @@ test("the headline is built from the candidate's own claimed role, never the tar
   assert.match(headlineOf(withRoles), /Backend Engineer/, "the candidate's own preferred role is missing");
   assert.doesNotMatch(headlineOf(withRoles), /Software Engineer/, "the TARGET JOB's title leaked into the headline");
 
-  /* A profile with NO preferred roles and no tagline still gets a headline, from the job title of
-     its most recent role — a title the candidate has actually held. This is the case that used to
-     render nothing at all, silently collapsing B, E and F toward C. */
-  const fromExperience = build({
+  // Separated by math-mode pipes: a literal | renders as an em dash in this font encoding.
+  assert.match(headlineOf(withRoles), /\$\|\$/, "the headline separator must be $|$, not a literal pipe");
+
+  /* A PROFILE WITH NO STATED TARGET GETS NO HEADLINE, even when it has a rich work history.
+     This used to fall back to the job title of the most recent role, which produced "Summer Intern
+     | Spring Boot | Core Java | SQL | Machine Learning" under a masters candidate's name: a line
+     that leads with the least senior thing about them and positions them for the job they already
+     have. Every reference headline is a TARGET — "Salesforce Developer | Salesforce Administrator
+     | Apex | LWC", "AI/ML Engineer | Generative AI | LLMs | RAG | MLOps" — and the only stored
+     source for that is the candidate's own tagline or preferredRoles. */
+  const noStatedTarget = build({
     firstName: "Test", lastName: "Candidate", email: "t@example.com",
     skills: ["Java", "Spring Boot", "PostgreSQL", "Docker"], skillGroups: [],
     education: [], projects: [], achievements: [], licensesAndCertifications: [],
     experience: [
-      { companyName: "Newer", jobTitle: "Platform Engineer", startDate: "2024-01-01", isCurrent: true, description: "Ran things." },
+      { companyName: "Newer", jobTitle: "Summer Intern", startDate: "2024-01-01", isCurrent: true, description: "Ran things." },
       { companyName: "Older", jobTitle: "Intern", startDate: "2021-01-01", endDate: "2021-06-01", description: "Learned things." }
     ]
   }, "e");
-  const derived = headlineOf(fromExperience);
-  assert.ok(derived, "a profile with experience but no preferred role rendered no headline");
-  assert.match(derived, /Platform Engineer/, "the MOST RECENT job title should lead");
-  assert.doesNotMatch(derived, /Intern/, "an older job title must not be used");
+  assert.equal(headlineOf(noStatedTarget), "",
+    "a job title was used as a target positioning; omit the line rather than emit a weak one");
 
-  // Separated by math-mode pipes: a literal | renders as an em dash in this font encoding.
-  assert.match(derived, /\$\|\$/, "the headline separator must be $|$, not a literal pipe");
-
-  // Genuinely nothing to say: no tagline, no roles, no experience, one skill. The line is omitted
-  // and the header closes up rather than printing an empty bold line.
-  const nothing = build({
+  /* Nor do skills alone make a headline. "Java | Spring Boot | PostgreSQL | Docker" under a name
+     is the first row of the Skills section moved to the top and says less than nothing. */
+  const skillsOnly = build({
     firstName: "Test", lastName: "Candidate", email: "t@example.com",
-    skills: ["Python"], skillGroups: [], education: [], experience: [], projects: [],
-    achievements: [], licensesAndCertifications: []
+    skills: ["Java", "Spring Boot", "PostgreSQL", "Docker", "Kubernetes"], skillGroups: [],
+    education: [], experience: [], projects: [], achievements: [], licensesAndCertifications: []
   }, "e");
-  assert.equal(headlineOf(nothing), "", "a profile with nothing to say still emitted a headline");
-  assert.doesNotMatch(documentBody(nothing), /\\resumeHeadline/, "an empty headline command was emitted");
+  assert.equal(headlineOf(skillsOnly), "", "a bare skills list was emitted as a positioning line");
+
+  // And the header closes up rather than printing an empty bold line.
+  assert.doesNotMatch(documentBody(skillsOnly), /\\resumeHeadline/, "an empty headline command was emitted");
 });

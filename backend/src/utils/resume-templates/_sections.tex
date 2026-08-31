@@ -8,34 +8,60 @@
 % Each block is introduced by a section marker line. loadResumeTemplates() splits on those
 % markers and substitutes the block wherever a variant file names it.
 %
+% THREE RULES HOLD THROUGHOUT:
+%
+%   1. Every list sets topsep=0pt. The gap under a section header belongs to \titlespacing and to
+%      nothing else; a list that adds its own topsep double-counts it, which is how the rhythm
+%      drifted section by section before. Entry separation is itemsep=\resumeEntrySep, and that
+%      is the only place it is set. No block emits a bare \vspace.
+%
+%   2. Every \section is preceded by \resumeNeedSpace. A header that cannot fit its own first
+%      content line moves to the next page WITH that content, instead of stranding itself as the
+%      last line of the page — which is exactly how "Relevant Coursework" ended up alone at the
+%      foot of page 1 with all nine of its courses on page 2.
+%
+%   3. Every bulleted list uses label=\resumebullet, which is the one round bullet defined in
+%      _preamble.tex. No block picks its own marker and no block omits one.
+%
+% The literal \begin{itemize}[...] spelling matters: sortLatexEducationSection matches it to
+% reorder education entries, and findLatexSectionBounds matches \section{Label} to drop a section
+% with no data. Do not replace either with a custom environment without updating those.
+%
 % CONTAINS NO CANDIDATE DATA. The only non-LaTeX tokens are the uppercase placeholders, which the
 % content builder replaces in a single pass.
 %===============================================================================================
 
 %%SECTION summary%%
+% Plain prose, no bullet — as in all six references. leftmargin=0pt keeps it flush with the
+% section rule above it.
+\resumeNeedSpace{3\baselineskip}
 \section{Summary}
-\begin{itemize}[leftmargin=0.0in, label={}]
+\begin{itemize}[leftmargin=0pt, label={}, topsep=0pt, partopsep=0pt, parsep=0pt, itemsep=0pt]
 \item\small{SUMMARY}
 \end{itemize}
 
 %%SECTION skills%%
-% The content builder emits one \resumeSkillEntry per category between Start and End. Whether
-% those become lines, two columns, a flowing paragraph or a label table is the VARIANT's choice,
-% made in _styles.tex — the builder never knows which.
+% The content builder emits one \resumeSkillEntry per category between Start and End: a round
+% bullet, the bold category label, a colon, and the values running on from it on the same line.
+% The only per-variant difference is what joins the values, which is a content-builder choice.
+\resumeNeedSpace{4\baselineskip}
 \section{Skills}
 \resumeSkillsStart
 SKILLS
 \resumeSkillsEnd
 
 %%SECTION experience%%
+% Entries are single-line: "Role | Company, Location" bold-left, dates bold-right, bullets beneath.
+\resumeNeedSpace{5\baselineskip}
 \section{Experience}
-\begin{itemize}[leftmargin=0.0in, label={}]
+\begin{itemize}[leftmargin=0pt, label={}, topsep=0pt, partopsep=0pt, parsep=0pt, itemsep=\resumeEntrySep]
 EXPERIENCE
 \end{itemize}
 
 %%SECTION education%%
+\resumeNeedSpace{5\baselineskip}
 \section{Education}
-\begin{itemize}[leftmargin=0.0in, label={}]
+\begin{itemize}[leftmargin=0pt, label={}, topsep=0pt, partopsep=0pt, parsep=0pt, itemsep=\resumeEntrySep]
 EDUCATION
 \end{itemize}
 
@@ -45,29 +71,32 @@ EDUCATION
 % AND achievements — the two stored arrays routinely hold the same entry, and merging them is what
 % stopped a HackerRank badge rendering twice. Calling that merged list "Certifications" would
 % misdescribe every achievement in it, so the label says what the section actually contains.
+\resumeNeedSpace{4\baselineskip}
 \section{Certifications and Achievements}
-\begin{itemize}[leftmargin=0.15in, itemsep=-2pt, label=\resumebullet]
+\begin{itemize}[leftmargin=1.4em, label=\resumebullet, align=left, labelwidth=0.85em, labelsep=0.55em, topsep=0pt, partopsep=0pt, parsep=0pt, itemsep=\resumeBulletSep]
 CERTIFICATIONS
 \end{itemize}
-\vspace{-4pt}
 
 %%SECTION projects%%
+\resumeNeedSpace{5\baselineskip}
 \section{Projects}
-\begin{itemize}[leftmargin=0pt, itemsep=2pt, topsep=2pt, label={}]
+\begin{itemize}[leftmargin=0pt, label={}, topsep=0pt, partopsep=0pt, parsep=0pt, itemsep=\resumeEntrySep]
 PROJECTS
 \end{itemize}
 
 %%SECTION coursework%%
+% Three balanced columns by default; variants B, C and F run it as a single inline list instead.
+% Both arrangements are defined in _preamble.tex and selected in _styles.tex, so this block never
+% needs to know which is in force.
+\resumeNeedSpace{4\baselineskip}
 \section{Relevant Coursework}
-\begin{multicols}{3}
-\begin{itemize}[itemsep=-2pt, leftmargin=0.15in, label=\resumebullet]
+\resumeCourseworkStart
 COURSEWORK
-\end{itemize}
-\end{multicols}
-\vspace{-6pt}
+\resumeCourseworkEnd
 
 %%SECTION extracurricular%%
+\resumeNeedSpace{4\baselineskip}
 \section{Extracurricular}
-\begin{itemize}[leftmargin=0.0in, label={}]
+\begin{itemize}[leftmargin=0pt, label={}, topsep=0pt, partopsep=0pt, parsep=0pt, itemsep=\resumeEntrySep]
 EXTRACURRICULAR
 \end{itemize}

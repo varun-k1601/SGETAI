@@ -272,6 +272,103 @@ const fixtures = [
         { title: "Certified Kubernetes Application Developer", description: "" }
       ]
     }
+  },
+  {
+    /* THE SHAPE THAT SHIPPED BROKEN. Four education entries, nine courses, two extracurricular
+       entries, six skill categories, four roles and four projects.
+
+       No fixture had more than ONE education entry before this, which is exactly why the layout
+       bugs reached a real candidate: sortEducationSectionBody returns early when there is nothing
+       to sort, so with one entry the whole reordering path — and the \begin{itemize} it was
+       dropping — never ran. Two entries is the smallest input that exercises it. The coursework
+       and extracurricular blocks had no fixture at all, so neither had ever been rendered by the
+       suite. */
+    name: "multi-education-and-coursework",
+    expect: { minPages: 2, maxPages: 2, hasExperience: true },
+    profile: {
+      firstName: "Bhavya", lastName: "Rishitha",
+      email: "bhavya.rishitha@example.com", phone: "+91 90000 00000",
+      location: "Bengaluru, India",
+      linkedinUrl: "https://linkedin.com/in/bhavya-rishitha",
+      githubUrl: "https://github.com/bhavya-rishitha",
+      preferredRoles: ["Backend Engineer"],
+      skills: ["Java", "Python", "C++", "Spring Boot", "Docker", "Kubernetes", "Jenkins", "PostgreSQL", "Selenium", "SQL"],
+      skillGroups: [
+        { category: "Languages", skills: ["Java", "Python", "C++", "SQL"] },
+        { category: "Frameworks", skills: ["Spring Boot"] },
+        { category: "Cloud and DevOps", skills: ["Docker", "Kubernetes", "Jenkins"] },
+        { category: "Databases", skills: ["PostgreSQL"] },
+        { category: "Testing", skills: ["Selenium"] },
+        { category: "Other", skills: ["Data Structures", "Object Oriented Programming", "C++"] }
+      ],
+      education: [
+        { institution: "International Institute of Information Technology, Bangalore", degree: "Master of Technology", fieldOfStudy: "Computer Science and Engineering", startDate: "2023-08-01", endDate: "2025-06-01", cgpa: "3.81/4" },
+        { institution: "International Institute of Information Technology, Bangalore", degree: "Bachelor of Technology", fieldOfStudy: "Computer Science and Engineering", startDate: "2019-08-01", endDate: "2023-06-01", cgpa: "3.68/4" },
+        { institution: "Narayana Junior College, Hyderabad", degree: "Higher Secondary Certificate, Mathematics, Physics and Chemistry", fieldOfStudy: "Science", startDate: "2017-06-01", endDate: "2019-05-01", cgpa: "96.4" },
+        { institution: "Bhashyam High School, Guntur", degree: "Secondary School Certificate", fieldOfStudy: "General", startDate: "2016-06-01", endDate: "2017-04-01", cgpa: "10/10" }
+      ],
+      experience: [
+        { companyName: "Morgan Stanley", jobTitle: "Software Engineering Intern", location: "Bengaluru, India", startDate: "2025-05-01", endDate: "2025-07-01", description: "Built an internal reconciliation dashboard used by three desks.\n- Cut a nightly batch from 40 minutes to 8 minutes by rewriting the join strategy.\n- Added contract tests covering 90% of the settlement path." },
+        { companyName: "Zscaler", jobTitle: "Backend Engineering Intern", location: "Bengaluru, India", startDate: "2024-05-01", endDate: "2024-08-01", description: "Implemented a policy-evaluation cache that removed 35% of upstream calls.\n- Instrumented the hot path with OpenTelemetry spans." },
+        { companyName: "Indian Institute of Science", jobTitle: "Research Assistant", location: "Bengaluru, India", startDate: "2023-01-01", endDate: "2023-12-01", description: "Studied gesture-recognition accuracy under low-light capture.\n- Built the annotation tooling the lab still uses." },
+        { companyName: "Freelance", jobTitle: "Full Stack Developer", location: "Remote", startDate: "2022-01-01", endDate: "2022-12-01", description: "Delivered four client projects end to end.\n- Standardised deployment on a single Docker Compose stack." }
+      ],
+      projects: [
+        { title: "Sign Language Recognition Integrated with DevOps", technologies: ["Python", "TensorFlow", "Docker", "Jenkins"], description: "Trained a CNN on 26 static gestures and shipped it behind a CI/CD pipeline.\n- Reached 94% top-1 accuracy on a held-out signer." },
+        { title: "Distributed Key-Value Store", technologies: ["Go", "Raft", "gRPC"], description: "Implemented leader election and log replication from the Raft paper." },
+        { title: "Resume Ranking Service", technologies: ["Python", "FastAPI", "PostgreSQL"], description: "Embedded resumes and ranked them against a job description." },
+        { title: "Campus Event Portal", technologies: ["React.js", "Node.js", "MongoDB"], description: "Booking portal used for 40 campus events." }
+      ],
+      achievements: [{ title: "Winner, Smart India Hackathon 2023", description: "" }],
+      licensesAndCertifications: [
+        { title: "AWS Certified Solutions Architect - Associate", description: "" },
+        { title: "Oracle Certified Professional, Java SE 11", description: "" }
+      ],
+      coursework: [
+        "Data Structures and Algorithms", "Operating Systems", "Database Management Systems",
+        "Computer Networks", "Distributed Systems", "Machine Learning",
+        "Compiler Design", "Software Engineering", "Cloud Computing"
+      ],
+      customSections: [
+        {
+          title: "Extracurricular",
+          entries: [
+            { title: "Technical Lead, Coding Club 2021 - 2023", organization: "IIIT Bangalore", description: "Ran weekly competitive programming sessions for 120 members." },
+            { title: "Volunteer, National Service Scheme 2019 - 2022", organization: "NSS", description: "Coordinated rural digital-literacy drives across four villages." }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    /* NON-ASCII THROUGHOUT: name, employers, institutions and bullet text. Accented Latin only —
+       pdflatex with the default font encoding composes these; CJK would need a package the
+       no-new-packages rule forbids, and is a separate decision from layout. */
+    name: "non-ascii-throughout",
+    expect: { minPages: 1, maxPages: 1, hasExperience: true },
+    profile: {
+      firstName: "Zoë", lastName: "Muñoz-Lindqvist",
+      email: "zoe.munoz@example.com", phone: "+33 6 00 00 00 00",
+      location: "Grenoble, France",
+      preferredRoles: ["Ingénieur Logiciel"],
+      skills: ["Java", "Python", "SQL", "Docker", "Kubernetes"],
+      skillGroups: [
+        { category: "Langages", skills: ["Java", "Python", "SQL"] },
+        { category: "Infrastructure", skills: ["Docker", "Kubernetes"] }
+      ],
+      education: [
+        { institution: "École Normale Supérieure de Lyon", degree: "Master", fieldOfStudy: "Informatique", startDate: "2020-09-01", endDate: "2022-06-01", cgpa: "17/20" },
+        { institution: "Universidad Politécnica de Madrid", degree: "Grado en Ingeniería Informática", fieldOfStudy: "Informática", startDate: "2017-09-01", endDate: "2020-06-01", cgpa: "8.6/10" }
+      ],
+      experience: [
+        { companyName: "Société Générale", jobTitle: "Développeuse Backend", location: "Paris, France", startDate: "2022-09-01", isCurrent: true, description: "Refonte du service de règlement pour 12 équipes.\n- Réduction de la latence p99 de 45%." }
+      ],
+      projects: [
+        { title: "Générateur de Résumés", technologies: ["Python", "spaCy"], description: "Résume des articles en français et en español." }
+      ],
+      achievements: [],
+      licensesAndCertifications: []
+    }
   }
 ];
 

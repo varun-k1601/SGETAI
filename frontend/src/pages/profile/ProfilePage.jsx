@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { apiBlobRequest, apiFormRequest, apiRequest } from "../../services/api";
+import { apiBlobRequest, apiFormRequest, apiRequest, apiUploadRequest } from "../../services/api";
 import { ProfilePortfolioManager } from "./ProfilePortfolioManager";
 import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
 import { categorizeSkills, skillsFromCsv } from "../../utils/skillCategorizer";
@@ -141,6 +141,7 @@ function normalizeEducationItems(items = []) {
     institution: toInputValue(item.institution),
     degree: toInputValue(item.degree),
     fieldOfStudy: toInputValue(item.fieldOfStudy),
+    gpa: toInputValue(item.gpa),
     startDate: toDateInputValue(item.startDate),
     endDate: toDateInputValue(item.endDate),
   }));
@@ -151,6 +152,7 @@ function createEmptyEducation() {
     institution: "",
     degree: "",
     fieldOfStudy: "",
+    gpa: "",
     startDate: "",
     endDate: "",
   };
@@ -579,6 +581,9 @@ export function ProfilePage() {
   const [feedback, setFeedback] = useState({ type: "", message: "" });
   const [editingSection, setEditingSection] = useState("");
   const [autofillReview, setAutofillReview] = useState(null);
+  // Live state for the résumé parse, which legitimately runs 20-40 seconds. `phase` comes from
+  // real XHR events; `elapsedSeconds` ticks so a long parse never looks frozen.
+  const [autofillProgress, setAutofillProgress] = useState(null);
   const [profilePictureUrl, setProfilePictureUrl] = useState("");
   const [backgroundVideoUrl, setBackgroundVideoUrl] = useState("");
   const [mediaModal, setMediaModal] = useState("");
@@ -986,15 +991,34 @@ export function ProfilePage() {
     return next;
   }
 
+  /* The three ways this can fail need three different remedies, so they must not collapse into one
+     message. api.js already tags every rejection with a `kind`, and the 422 is the one HTTP status
+     that means something specific here: the file carried no readable text at all, which is a
+     different problem from the model failing to understand text it could read. */
+  function describeAutofillFailure(error) {
+    if (error?.status === 422) {
+      return error.message; // The server's own wording already explains scanned/image PDFs.
+    }
+    if (error?.kind === "unreachable") {
+      return "Couldn't reach the server, so your résumé was never uploaded. Check your connection and try again — nothing on your profile has changed.";
+    }
+    if (error?.kind === "timeout") {
+      return "Reading your résumé took too long and we stopped waiting. Try again, or fill the sections in by hand — nothing on your profile has changed.";
+    }
+    return error?.message || "We couldn't read this résumé. Please try another file, or fill the sections in by hand.";
+  }
+
   const resumeAutofillMutation = useMutation({
     mutationFn: async (file) => {
       const formData = new FormData();
       formData.append("file", file);
 
-      return apiFormRequest("/profile/parse-resume", {
+      return apiUploadRequest("/profile/parse-resume", {
         method: "POST",
         token: session.accessToken,
         formData,
+        onPhase: ({ phase, progress }) =>
+          setAutofillProgress((current) => ({ ...(current || {}), phase, progress })),
       });
     },
     onSuccess: (response) => {
@@ -1004,6 +1028,7 @@ export function ProfilePage() {
         draft,
         warnings: response.warnings || [],
         usedFallback: Boolean(response.usedFallback),
+        missingSections: response.missingSections || [],
         projectsCount: (draft.projects || []).length,
         certificationsCount: (draft.certifications || []).length,
         achievementsCount: (draft.achievements || []).length,
@@ -1018,8 +1043,9 @@ export function ProfilePage() {
       });
     },
     onError: (error) => {
-      setFeedback({ type: "error", message: error.message });
+      setFeedback({ type: "error", message: describeAutofillFailure(error) });
     },
+    onSettled: () => setAutofillProgress(null),
   });
 
   function handleResumeAutofill(file) {
@@ -1027,12 +1053,25 @@ export function ProfilePage() {
       return;
     }
     setAutofillReview(null);
-    setFeedback({
-      type: "info",
-      message: "Reading your résumé… this can take up to a minute.",
-    });
+    setAutofillProgress({ phase: "uploading", progress: 0, startedAt: Date.now(), elapsedSeconds: 0 });
+    setFeedback({ type: "", message: "" });
     resumeAutofillMutation.mutate(file);
   }
+
+  // Ticks the elapsed counter once a second while a parse is in flight. This is the whole
+  // anti-"is it frozen?" mechanism: the server cannot stream its progress back, so a moving number
+  // is the honest signal that the request is still alive, and it costs one interval to provide.
+  useEffect(() => {
+    if (!resumeAutofillMutation.isPending) {
+      return undefined;
+    }
+    const timer = setInterval(() => {
+      setAutofillProgress((current) =>
+        current ? { ...current, elapsedSeconds: Math.round((Date.now() - current.startedAt) / 1000) } : current
+      );
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resumeAutofillMutation.isPending]);
 
   const applyResumeMutation = useMutation({
     mutationFn: async (body) =>
@@ -1191,10 +1230,11 @@ export function ProfilePage() {
             institution: item.institution,
             degree: item.degree,
             fieldOfStudy: item.fieldOfStudy,
+            gpa: item.gpa,
             startDate: item.startDate || undefined,
             endDate: item.endDate || undefined,
           }))
-          .filter((item) => item.institution || item.degree || item.fieldOfStudy || item.startDate || item.endDate);
+          .filter((item) => item.institution || item.degree || item.fieldOfStudy || item.gpa || item.startDate || item.endDate);
         return body;
       }
 
@@ -1608,12 +1648,20 @@ export function ProfilePage() {
                     <span className="resume-upload-copy">
                       <strong>
                         {resumeAutofillMutation.isPending
-                          ? "Reading your résumé…"
+                          ? autofillProgress?.phase === "uploading"
+                            ? `Uploading… ${Math.round((autofillProgress.progress || 0) * 100)}%`
+                            : "Reading your résumé…"
                           : "Upload résumé to autofill"}
                       </strong>
                       <small>
                         {resumeAutofillMutation.isPending
-                          ? "This runs on-device and can take up to a minute. Please keep this tab open."
+                          ? autofillProgress?.phase === "uploading"
+                            ? "Sending the file to the server."
+                            : `Extracting the text and parsing it — usually 20–40 seconds${
+                                autofillProgress?.elapsedSeconds
+                                  ? ` (${autofillProgress.elapsedSeconds}s so far)`
+                                  : ""
+                              }. Please keep this tab open.`
                           : "PDF, DOCX, or TXT. Nothing is saved until you review and click Save."}
                       </small>
                     </span>
@@ -1633,7 +1681,11 @@ export function ProfilePage() {
                 </div>
 
                 {resumeAutofillMutation.isPending ? (
-                  <p className="resume-autofill-status">Parsing résumé, please wait…</p>
+                  <p className="resume-autofill-status">
+                    {autofillProgress?.phase === "uploading"
+                      ? "Uploading your résumé…"
+                      : `Parsing résumé, please wait… ${autofillProgress?.elapsedSeconds || 0}s`}
+                  </p>
                 ) : null}
 
                 {autofillReview ? (
@@ -1646,8 +1698,20 @@ export function ProfilePage() {
                     <strong>
                       {autofillReview.usedFallback
                         ? "We filled in what we could."
-                        : "Imported from your résumé — review and save."}
+                        : autofillReview.missingSections.length
+                          ? "Imported — but some sections came back empty."
+                          : "Imported from your résumé — review and save."}
                     </strong>
+                    {/* Name the gaps. A draft holding a name and nothing else is technically a
+                        success and reads as a broken feature; saying WHICH sections are empty
+                        turns it into a short list of things to type. */}
+                    {autofillReview.missingSections.length ? (
+                      <p className="resume-autofill-missing">
+                        Nothing was found for <strong>{autofillReview.missingSections.join(", ")}</strong>.
+                        Please fill {autofillReview.missingSections.length === 1 ? "it" : "them"} in
+                        below before saving.
+                      </p>
+                    ) : null}
                     <p>
                       Check the pre-filled sections below and edit anything, then click
                       <strong> Save all imported details</strong> to store everything at once.
@@ -1793,7 +1857,13 @@ export function ProfilePage() {
                               <label className="form-field"><span>Field of study</span><input type="text" disabled={!isEditing} value={item.fieldOfStudy} onChange={(event) => updateEducation(index, "fieldOfStudy", event.target.value)} placeholder="MPC, Computer Science, Data Science" /></label>
                               <label className="form-field"><span>Start date</span><input type="date" disabled={!isEditing} value={item.startDate} onChange={(event) => updateEducation(index, "startDate", event.target.value)} /></label>
                             </div>
-                            <label className="form-field"><span>End date</span><input type="date" disabled={!isEditing} value={item.endDate} onChange={(event) => updateEducation(index, "endDate", event.target.value)} /></label>
+                            <div className="form-grid">
+                              <label className="form-field"><span>End date</span><input type="date" disabled={!isEditing} value={item.endDate} onChange={(event) => updateEducation(index, "endDate", event.target.value)} /></label>
+                              {/* Free text, not a number input: the scale is half the fact. "8.68" without its "/10"
+                                  is unreadable, and a number field would drop it. Whatever is typed here is what
+                                  prints on the resume. */}
+                              <label className="form-field"><span>GPA / Grade</span><input type="text" disabled={!isEditing} value={item.gpa} onChange={(event) => updateEducation(index, "gpa", event.target.value)} placeholder="8.68/10, 3.68/4, 78.4%, First Class" /></label>
+                            </div>
                           </article>
                         ))}
                         {!form.education?.length ? (
