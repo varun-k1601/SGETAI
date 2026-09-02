@@ -876,7 +876,7 @@ export function ProToolsPage() {
               </div>
 
               <div className="text-center mt-4">
-                <a href="/pro/learn" className="inline-flex items-center gap-2 text-xs font-semibold text-blue-500 hover:text-blue-600 transition">
+                <a href="/learn" className="inline-flex items-center gap-2 text-xs font-semibold text-blue-500 hover:text-blue-600 transition">
                   View all courses →
                 </a>
               </div>

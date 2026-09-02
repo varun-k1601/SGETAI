@@ -290,7 +290,9 @@ function ProfileEditSection({
   children,
 }) {
   return (
-    <form className="info-card profile-edit-section" onSubmit={onSubmit}>
+    // The id is the deep-link target for /profile?section=<id>, which the free home page's
+    // "Profile strength" checklist links to so each missing item lands on the section that fixes it.
+    <form id={`profile-section-${section.id}`} className="info-card profile-edit-section" onSubmit={onSubmit}>
       <div className="section-head">
         <div>
           {/* One eyebrow rendered here covers every section on BOTH role branches, since seeker
@@ -350,15 +352,39 @@ function ApplicantProfileCover({
         type="button"
         className="profile-cover-card__media"
         onClick={onOpenBackgroundVideoManager}
-        aria-label="Manage background video"
+        // The busy state is announced here, on the control that owns the accessible name, rather
+        // than by swapping visible text inside the icon.
+        aria-label={isUploadingBackground ? "Uploading background video" : "Manage background video"}
+        aria-busy={isUploadingBackground || undefined}
       >
         {backgroundVideoUrl ? (
           <video src={backgroundVideoUrl} autoPlay muted loop playsInline />
         ) : (
           <div className="profile-cover-card__pattern" aria-hidden="true" />
         )}
-        <span className="profile-cover-card__camera">
-          {isUploadingBackground ? "Uploading..." : "Camera"}
+        {/* The cover's camera affordance. It renders an ICON, not the literal word "Camera" — the
+            old content was the string itself, which overflowed the pill the CSS shapes it into.
+
+            A <span>, not a <button>: it sits inside .profile-cover-card__media, which is already a
+            button carrying the accessible name ("Manage background video"). Nesting a button in a
+            button is invalid HTML and would give the same control two names, so this stays
+            decorative and the parent owns the semantics. Hover and focus styling is driven off the
+            parent in styles.css for the same reason.
+
+            While uploading it becomes a spinner rather than a longer word — the reason the original
+            broke was text in a fixed-size shape, and "Uploading..." is more text, not less. */}
+        <span
+          className={`profile-cover-card__camera${isUploadingBackground ? " is-busy" : ""}`}
+          aria-hidden="true"
+        >
+          {isUploadingBackground ? (
+            <span className="profile-cover-card__spinner" />
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" focusable="false">
+              <path d="M14.5 4h-5L8 6H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3z" />
+              <circle cx="12" cy="12.5" r="3.2" />
+            </svg>
+          )}
         </span>
       </button>
 
@@ -714,6 +740,31 @@ export function ProfilePage() {
   }, [session?.role]);
 
   const [form, setForm] = useState(initialForm);
+
+  /* DEEP LINK: /profile?section=<id> opens that section for editing and scrolls to it.
+     The free home page's "Profile strength" checklist links here, so "Add your skills" lands on
+     the Skills section already in edit mode rather than at the top of a long page. Runs once the
+     profile has loaded, because the target element does not exist before the sections render.
+     `portfolio` is a scroll-only target — the portfolio manager owns its own editing state. */
+  useEffect(() => {
+    const target = searchParams.get("section");
+    if (!target || profileQuery.isLoading) {
+      return undefined;
+    }
+
+    if (target !== "portfolio") {
+      setEditingSection(target);
+    }
+
+    // rAF, not a bare call: the section it scrolls to may have just been mounted in edit mode by
+    // the line above, and its height changes when it does.
+    const frame = requestAnimationFrame(() => {
+      document
+        .getElementById(`profile-section-${target}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [searchParams, profileQuery.isLoading]);
 
   useEffect(() => {
     if (session?.role === "organization") {
@@ -2172,7 +2223,11 @@ export function ProfilePage() {
         </aside>
       </section>
 
-      <ProfilePortfolioManager session={session} />
+      {/* Projects, certifications and achievements all live in the portfolio manager, so the three
+          checklist items that point at them share one deep-link target. */}
+      <div id="profile-section-portfolio">
+        <ProfilePortfolioManager session={session} />
+      </div>
     </section>
   );
 }

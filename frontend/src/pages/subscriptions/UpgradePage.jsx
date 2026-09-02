@@ -382,7 +382,7 @@ export function UpgradePage() {
         {/* For an already-Pro seeker the useful action is getting to what they paid for — not
             buying again. Checkout stays available below, demoted. */}
         {isPro ? (
-          <Link className="up-btn up-btn--primary" to="/pro/tools">
+          <Link className="up-btn up-btn--primary" to="/tools">
             Open Pro tools
           </Link>
         ) : null}
@@ -491,7 +491,7 @@ export function UpgradePage() {
               {checkoutMutation.isPending ? "Creating checkout…" : "Create checkout"}
             </button>
             {isPro ? null : (
-              <Link className="up-link" to="/pro/tools">
+              <Link className="up-link" to="/tools">
                 View Pro tools
               </Link>
             )}

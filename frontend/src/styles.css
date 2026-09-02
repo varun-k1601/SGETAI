@@ -21576,17 +21576,77 @@ body.career-agent-resizing {
   background: var(--ph-hero-soft);
 }
 
+/* The cover's camera affordance — a circular ICON button, not a text pill.
+
+   It used to render the literal word "Camera" inside a shape sized for a short label, and the
+   base .profile-cover-card__camera rule higher in this file sets `top: 1.2rem` while this
+   override set `bottom: 12px`. An absolutely positioned box with BOTH vertical anchors stretches
+   to span the gap, which is why it rendered as a tall white capsule down the side of the cover.
+   `top: auto` releases that anchor explicitly so the fixed size below is the only thing sizing it. */
 :root .profile-page .profile-cover-card__camera {
   position: absolute;
+  top: auto;
   right: 12px;
   bottom: 12px;
-  padding: 4px 10px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--ph-border);
   border-radius: 999px;
   background: var(--ph-surface);
   color: var(--ph-ink);
-  font-size: 11px;
-  font-weight: 600;
   box-shadow: var(--ph-shadow);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+:root .profile-page .profile-cover-card__camera svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* Hover and focus are driven off the PARENT, because the parent is the real button — this span is
+   aria-hidden and never receives focus itself. */
+:root .profile-page .profile-cover-card__media:hover .profile-cover-card__camera {
+  background: var(--ph-surface-sunk);
+  transform: translateY(-1px);
+}
+
+:root .profile-page .profile-cover-card__media:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: -2px;
+}
+
+:root .profile-page .profile-cover-card__media:focus-visible .profile-cover-card__camera {
+  background: var(--ph-surface-sunk);
+}
+
+:root .profile-page .profile-cover-card__camera.is-busy {
+  cursor: progress;
+}
+
+:root .profile-page .profile-cover-card__spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--ph-border);
+  border-top-color: var(--ph-accent);
+  border-radius: 50%;
+  animation: profile-cover-spin 0.7s linear infinite;
+}
+
+@keyframes profile-cover-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root .profile-page .profile-cover-card__spinner {
+    animation-duration: 2.4s;
+  }
+
+  :root .profile-page .profile-cover-card__media:hover .profile-cover-card__camera {
+    transform: none;
+  }
 }
 
 :root .profile-page .profile-cover-card__body {
@@ -29204,5 +29264,1131 @@ body.career-agent-resizing {
 
   .recruiter-applications .ra-row__chevron {
     display: none;
+  }
+}
+
+/* =============================================================================================
+   Free seeker home (/home when the session is a seeker WITHOUT isPro)
+   — pages/dashboard/NormalSeekerDashboard.jsx
+   =============================================================================================
+   Sibling of the .pro-home block above, and deliberately built from the SAME shared --ph-*
+   palette and the same primitives (card, eyebrow, tile, pill). The free and Pro home pages must
+   read as one product at two tiers, so nothing here introduces a colour of its own: every value
+   is a token that already flips for dark mode, which is why there is no second dark layout.
+
+   The one deliberate divergence is the hero. .pro-home paints the saturated --ph-hero-gradient;
+   this page uses --ph-hero-soft (the pale wash .ai-gen and .jobs-page already share) with
+   --ph-ink on top, matching the reference and keeping the saturated treatment as a Pro signal.
+
+   Why scoped CSS and not Tailwind: index.css wires FONTS ONLY into Tailwind v4's @theme, so every
+   semantic colour utility (bg-card, text-muted-foreground, border-border...) generates no CSS at
+   all in this app — and opacity modifiers on var()-backed colours (bg-card/70) generate nothing
+   either, which is why this page previously rendered borderless. On top of that, styles.css's
+   unlayered `button { ... }` rule outranks any utility class placed on a <button>. Every rule
+   below is at least two selectors deep (.free-home .nh-btn = 0,2,0), so it wins that fight
+   without !important, and nothing here is a bare element selector, so no other page is reachable.
+   ============================================================================================= */
+
+.free-home {
+  /* A LAYOUT CONTAINER, NOT A SURFACE. No background, no padding, no radius — .main-panel already
+     pads and scrolls this region. Painting a background here is what made .pro-home read as one
+     giant card in dark mode, and the fix is not to repeat the mistake. */
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  /* Belt and braces against a sideways page; children below also carry min-width: 0 so a long
+     unbroken word in a post or a job title cannot widen the grid. */
+  overflow-x: hidden;
+  color: var(--ph-ink);
+}
+
+/* --- Shared primitives ---------------------------------------------------------------------- */
+
+.free-home .nh-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.free-home .nh-icon--lg {
+  width: 22px;
+  height: 22px;
+}
+
+.free-home .nh-eyebrow {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ph-muted);
+}
+
+.free-home .nh-card {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+}
+
+.free-home .nh-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--ph-border);
+}
+
+.free-home .nh-card__title {
+  margin: 4px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.free-home .nh-empty {
+  margin: 0;
+  padding: 18px 4px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+.free-home .nh-empty--tight {
+  padding: 10px 0 0;
+  text-align: left;
+}
+
+.free-home .nh-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Inline text button that must not inherit the global `button { }` chrome. */
+.free-home .nh-linkbtn {
+  border: none;
+  background: none;
+  box-shadow: none;
+  transform: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ph-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.free-home .nh-seeall {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.free-home .nh-seeall:hover,
+.free-home .nh-linkbtn:hover {
+  text-decoration: underline;
+}
+
+.free-home .nh-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.free-home .nh-avatar--sm {
+  width: 40px;
+  height: 40px;
+  font-size: 13px;
+}
+
+.free-home .nh-avatar--lg {
+  width: 68px;
+  height: 68px;
+  font-size: 22px;
+  border: 3px solid var(--ph-surface);
+}
+
+/* Status / meta pill. The word carries the meaning; the tint only reinforces it. */
+.free-home .nh-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.free-home .nh-pill--good {
+  background: var(--ph-success-soft);
+  color: var(--ph-success);
+}
+
+.free-home .nh-pill--muted {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-muted);
+}
+
+.free-home .nh-pill--req {
+  margin-left: auto;
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+  font-size: 10px;
+}
+
+/* --- Buttons -------------------------------------------------------------------------------- */
+
+.free-home .nh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface);
+  box-shadow: none;
+  transform: none;
+  color: var(--ph-ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.free-home .nh-btn:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 2px;
+}
+
+.free-home .nh-btn--primary,
+.free-home .nh-btn--primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+}
+
+.free-home .nh-btn--primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.free-home .nh-btn--ghost {
+  background: var(--ph-surface-sunk);
+}
+
+.free-home .nh-btn--upgrade,
+.free-home .nh-btn--upgrade:hover {
+  flex-shrink: 0;
+  border-color: transparent;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.24);
+}
+
+/* --- Hero ----------------------------------------------------------------------------------- */
+
+.free-home .nh-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 26px 28px;
+  border: 1px solid var(--ph-hero-soft-border);
+  border-radius: var(--ph-radius-card);
+  /* Light wash with dark ink, exactly like .ai-gen and .jobs-page. --ph-ink and the wash both
+     flip per theme, so this needs no second colour rule for dark. */
+  background: var(--ph-hero-soft);
+  color: var(--ph-ink);
+}
+
+.free-home .nh-hero__body {
+  min-width: 0;
+}
+
+.free-home .nh-hero__eyebrow {
+  color: var(--ph-accent);
+}
+
+.free-home .nh-hero__title {
+  margin: 8px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ph-ink);
+}
+
+.free-home .nh-hero__sub {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* --- Three-column layout -------------------------------------------------------------------- */
+
+/* Source order is centre -> activity rail -> profile rail, which is the stacked reading order.
+   The wide layout re-places them by EXPLICIT grid assignment so the profile rail sits first
+   visually, without an `order` property that would desync assistive technology from the page.
+   minmax(0, ...) on the centre track is what stops a long post widening the grid. */
+.free-home .nh-split {
+  display: grid;
+  grid-template-columns: clamp(240px, 23%, 290px) minmax(0, 1fr) clamp(290px, 27%, 370px);
+  align-items: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+.free-home .nh-centre {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.free-home .nh-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.free-home .nh-rail--profile {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.free-home .nh-rail--activity {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+/* --- Profile card --------------------------------------------------------------------------- */
+
+.free-home .nh-profile {
+  position: relative;
+  padding-top: 0;
+  overflow: hidden;
+  text-align: center;
+}
+
+.free-home .nh-profile__banner {
+  height: 62px;
+  margin: 0 -20px 0;
+  background: var(--ph-tile-gradient);
+}
+
+.free-home .nh-profile .nh-avatar--lg {
+  margin: -34px auto 0;
+}
+
+.free-home .nh-profile__name {
+  margin: 10px 0 0;
+  font-family: var(--font-display, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.free-home .nh-profile__headline {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ph-muted);
+}
+
+.free-home .nh-profile__cta {
+  margin-top: 14px;
+  width: 100%;
+}
+
+/* --- Profile strength ----------------------------------------------------------------------- */
+
+.free-home .nh-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ph-track-off);
+  overflow: hidden;
+}
+
+.free-home .nh-bar__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ph-tile-gradient);
+}
+
+/* The bar's text equivalent — the percentage is never carried by the fill alone. */
+.free-home .nh-bar__text {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ph-muted);
+}
+
+.free-home .nh-todo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.free-home .nh-todo__link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ph-ink);
+  text-decoration: none;
+}
+
+.free-home .nh-todo__link:hover {
+  background: var(--ph-surface-sunk);
+}
+
+.free-home .nh-todo__dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--ph-accent);
+}
+
+.free-home .nh-todo__label {
+  min-width: 0;
+}
+
+/* --- Composer ------------------------------------------------------------------------------- */
+
+.free-home .nh-composer__top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.free-home .nh-composer__trigger {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ph-muted);
+  cursor: pointer;
+}
+
+.free-home .nh-composer__input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 10px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.free-home .nh-composer__input:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 1px;
+}
+
+.free-home .nh-composer__files {
+  margin: 8px 0 0 52px;
+  font-size: 12px;
+  color: var(--ph-muted);
+  overflow-wrap: anywhere;
+}
+
+.free-home .nh-composer__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.free-home .nh-composer__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-muted);
+  cursor: pointer;
+}
+
+.free-home .nh-composer__action:hover {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+}
+
+.free-home .nh-composer__submit {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 14px;
+}
+
+/* --- Metric tiles --------------------------------------------------------------------------- */
+
+/* Figures, not headings: no heading level anywhere in here, so the rail's landmark and its one
+   <h2> stay the only structure a screen reader announces. */
+.free-home .nh-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.free-home .nh-metric {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 96px;
+  padding: 12px;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+.free-home .nh-metric__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+.free-home .nh-metric__label .nh-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.free-home .nh-metric__value {
+  margin: auto 0 0;
+  padding-top: 6px;
+  font-family: var(--font-display, inherit);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ph-ink);
+}
+
+.free-home .nh-metric__pending {
+  color: var(--ph-muted);
+}
+
+.free-home .nh-metric__hint {
+  margin: 2px 0 0;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--ph-muted);
+}
+
+/* --- Rows (top matches, applications) ------------------------------------------------------- */
+
+.free-home .nh-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.free-home .nh-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: var(--ph-radius-tile);
+  color: var(--ph-ink);
+  text-decoration: none;
+}
+
+.free-home a.nh-row:hover {
+  background: var(--ph-surface-sunk);
+}
+
+.free-home .nh-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.free-home .nh-row__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ph-ink);
+  /* A long job title truncates rather than wrapping the row to three lines or widening the rail. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.free-home .nh-row__meta {
+  font-size: 11px;
+  color: var(--ph-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.free-home .nh-score {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ph-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.free-home .nh-score__unit {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* --- Empty feed ----------------------------------------------------------------------------- */
+
+/* An empty feed and zero applications are the NORMAL state for a new account, so this is a
+   composed state rather than a bare sentence that reads like something failed. */
+.free-home .nh-blank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 34px 20px;
+  text-align: center;
+}
+
+.free-home .nh-blank__mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 6px;
+  border-radius: 999px;
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+}
+
+.free-home .nh-blank__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.free-home .nh-blank__sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ph-muted);
+}
+
+/* --- Responsive ----------------------------------------------------------------------------- */
+
+@media (max-width: 1180px) {
+  /* Two columns: the feed keeps the width it needs, and the profile rail drops to a full-width
+     row beneath. Released from column 1, it becomes two cards side by side rather than a tall
+     column of two near-empty ones. */
+  .free-home .nh-split {
+    grid-template-columns: minmax(0, 1fr) clamp(290px, 34%, 370px);
+  }
+
+  .free-home .nh-centre {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .free-home .nh-rail--activity {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .free-home .nh-rail--profile {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+@media (max-width: 860px) {
+  /* Single column. Every explicit placement is released so the children fall back to SOURCE
+     order — feed, then matches and applications, then profile. The feed is the reason someone
+     opens this page and must never sit below two sidebars. */
+  .free-home .nh-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .free-home .nh-centre,
+  .free-home .nh-rail--activity,
+  .free-home .nh-rail--profile {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .free-home .nh-rail--profile {
+    display: flex;
+    /* align-items: start comes from the two-column block above, where it is correct for a grid.
+       Left in place here it stops the flex column's children from stretching, so the profile
+       cards rendered narrower than every other card on the stacked page. */
+    align-items: stretch;
+  }
+
+  .free-home .nh-hero {
+    padding: 22px;
+  }
+
+  .free-home .nh-hero__title {
+    font-size: 24px;
+  }
+
+  .free-home .nh-btn--upgrade {
+    width: 100%;
+  }
+}
+
+@media (max-width: 620px) {
+  /* No padding override — .main-panel already drops to 1rem at its own breakpoint. */
+  .free-home {
+    gap: 16px;
+  }
+
+  .free-home .nh-hero__title {
+    font-size: 22px;
+  }
+}
+
+/* =============================================================================================
+   Shared feed post card (.fp-*) — components/feedPostKit.jsx, variant "default"
+   =============================================================================================
+   ONE card, three surfaces: the free seeker home, the Pro seeker home, and any other page that
+   mounts PostCard without variant="recruiter". Fixing it here lands on all of them at once, which
+   is the whole reason the component was extracted out of ProSeekerDashboard in the first place.
+
+   The recruiter variant keeps its own .cop-* classes (scoped under .company-posts) and is not
+   touched by anything below.
+
+   Why scoped CSS: the default variant was written in Tailwind utilities — bg-card/80,
+   border-border/60, text-muted-foreground — and this app wires FONTS ONLY into Tailwind v4's
+   @theme, so none of those colour utilities generate any CSS at all. Opacity modifiers on
+   var()-backed colours (bg-card/80) generate nothing either. That is why the card rendered
+   borderless with a bare glyph-and-number action row. Tokens are the shared --ph-* palette, so
+   light and dark both come from one set of rules.
+   ============================================================================================= */
+
+.fp-post {
+  min-width: 0;
+  border: 1px solid var(--ph-border);
+  border-radius: var(--ph-radius-card);
+  background: var(--ph-surface);
+  box-shadow: var(--ph-shadow);
+  /* A pasted URL with no spaces in it is the classic feed overflow. Belt and braces with the
+     overflow-wrap on .fp-post__content below. */
+  overflow: hidden;
+}
+
+/* --- Header ---------------------------------------------------------------------------------- */
+
+.fp-post__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px 16px 0;
+}
+
+.fp-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--ph-tile-gradient);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.fp-avatar--image {
+  object-fit: cover;
+  background: var(--ph-surface-sunk);
+}
+
+/* Two lines, not three: name on one, "headline · timestamp" muted on the next. */
+.fp-post__ident {
+  flex: 1;
+  min-width: 0;
+}
+
+.fp-post__namerow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fp-post__name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ph-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fp-post__meta {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ph-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fp-post__menu {
+  position: relative;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.fp-iconbtn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  color: var(--ph-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fp-iconbtn:hover {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+}
+
+.fp-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 10;
+  margin-top: 4px;
+  min-width: 150px;
+  border: 1px solid var(--ph-border);
+  border-radius: 10px;
+  background: var(--ph-surface);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  overflow: hidden;
+}
+
+.fp-menu__item {
+  text-align: left;
+  font-size: 13px;
+  color: var(--ph-danger);
+  cursor: pointer;
+}
+
+.fp-menu__item:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+}
+
+/* --- Body ------------------------------------------------------------------------------------ */
+
+.fp-post__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 16px 14px;
+}
+
+.fp-post__content {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ph-ink);
+  /* Authors paste raw links. `anywhere` breaks inside an unbroken token rather than letting it
+     push the card wider than its column. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fp-post__media {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fp-media-link {
+  display: block;
+  min-width: 0;
+  line-height: 0;
+}
+
+/* THE CAP. An attachment used to render at its natural height and dominate the card; the
+   Tailwind max-h-96 that was meant to stop that generated nothing. 60vh keeps a portrait photo
+   inside one screen, and the aspect-ratio floor stops a very wide banner collapsing to a sliver. */
+.fp-media {
+  display: block;
+  width: 100%;
+  max-height: 60vh;
+  min-height: 0;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: var(--ph-radius-tile);
+  background: var(--ph-surface-sunk);
+}
+
+/* A video keeps its real aspect ratio — cropping a video to a fixed box hides content the author
+   framed deliberately, and the browser's own controls need the full frame. */
+video.fp-media {
+  aspect-ratio: auto;
+  object-fit: contain;
+}
+
+.fp-attachment {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ph-accent);
+  overflow-wrap: anywhere;
+}
+
+.fp-post__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fp-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-accent);
+  font-size: 11px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.fp-pill--accent {
+  border-color: transparent;
+  background: var(--ph-accent-soft);
+}
+
+/* --- Action row ------------------------------------------------------------------------------ */
+
+.fp-post__actions {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px;
+  border-top: 1px solid var(--ph-border);
+}
+
+/* Real buttons: a 40px-tall hit area with an icon, a word and a count — not a 12px glyph with a
+   loose number beside it. */
+.fp-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--ph-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fp-action:hover:not(:disabled) {
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+}
+
+.fp-action:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: -2px;
+}
+
+.fp-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* The liked state is carried by colour AND by the filled icon AND by the word changing to
+   "Liked" AND by aria-pressed — never by colour alone. */
+.fp-action--on,
+.fp-action--on:hover:not(:disabled) {
+  background: var(--ph-accent-soft);
+  color: var(--ph-accent);
+}
+
+.fp-icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.fp-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A zero is real information but not a headline — muted so a new post does not shout "0" twice. */
+.fp-count--zero {
+  opacity: 0.55;
+  font-weight: 500;
+}
+
+/* --- Comments -------------------------------------------------------------------------------- */
+
+.fp-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--ph-border);
+}
+
+.fp-comments__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fp-comment {
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.fp-comment__who {
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.fp-comment__what {
+  color: var(--ph-muted);
+}
+
+.fp-comments__empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ph-muted);
+}
+
+.fp-comments__form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fp-comments__input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  background: var(--ph-surface-sunk);
+  color: var(--ph-ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.fp-comments__input:focus-visible {
+  outline: 2px solid var(--ph-accent);
+  outline-offset: 1px;
+}
+
+.fp-comments__submit {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--ph-tile-gradient);
+  box-shadow: none;
+  transform: none;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fp-comments__submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 620px) {
+  .fp-post__head {
+    padding: 14px 12px 0;
+  }
+
+  .fp-post__body,
+  .fp-comments {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  /* The count still reads; only the verb is dropped, so three items never crowd a narrow row. */
+  .fp-action {
+    gap: 6px;
   }
 }

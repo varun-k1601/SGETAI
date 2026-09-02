@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest, apiFormRequest } from "../../services/api";
@@ -90,7 +90,6 @@ function JobDetailState({ backTo, children }) {
 
 export function JobDetailPage() {
   const { jobId } = useParams();
-  const { pathname } = useLocation();
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const [resumeFile, setResumeFile] = useState(null);
@@ -98,9 +97,10 @@ export function JobDetailPage() {
   const [applyError, setApplyError] = useState("");
   const [successResult, setSuccessResult] = useState(null);
 
-  // Routed at both /jobs/:jobId and /pro/jobs/:jobId. Returning a Pro seeker to /jobs would drop
-  // them out of the Pro section they came from.
-  const backTo = pathname.startsWith("/pro/") ? "/pro/jobs" : "/jobs";
+  // /jobs is now the only path this page renders at. /pro/jobs/:jobId still resolves, but as a
+  // redirect to /jobs/:jobId, so `pathname` can no longer start with /pro/ here and the old
+  // two-way branch would have picked the same answer every time.
+  const backTo = "/jobs";
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],

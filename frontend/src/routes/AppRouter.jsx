@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { ProtectedRoute, ProRoute, RoleRoute } from "./ProtectedRoute";
 import { AppShell } from "../layouts/AppShell";
 import { useAuth } from "../context/AuthContext";
@@ -60,6 +60,29 @@ function RoleHomeRedirect() {
   return <Navigate to={getHomePathForRole(session?.role)} replace />;
 }
 
+/* ===============================================================================================
+   LEGACY PATH REDIRECT — the /pro/* prefix was a NAMING ARTIFACT, never a gate.
+   ===============================================================================================
+   /pro/tools, /pro/ai, /pro/jobs, /pro/applied, /pro/learn, /pro/help, /pro/settings and
+   /pro/profile all sat in plain seeker (or seeker+organization) groups with NO ProRoute, so every
+   seeker — free or paid — browsed URLs that claimed otherwise. Each now has a clean canonical path
+   and the old one redirects to it.
+
+   The old paths are KEPT, not renamed. They are in bookmarks, in sent email and in links already
+   in the wild, and a 404 on an old URL would be a worse bug than the one being fixed.
+
+   Genuinely Pro-gated routes keep the prefix, because there it is accurate: /pro/automations,
+   /pro/notifications and /pro/linkedin/callback.
+
+   `to` may contain :params — /pro/jobs/:jobId has to carry its id across — and the query string
+   and hash are preserved so /pro/profile?section=skills still lands on the right section. */
+function LegacyRedirect({ to }) {
+  const params = useParams();
+  const { search, hash } = useLocation();
+  const target = to.replace(/:([A-Za-z0-9_]+)/g, (whole, name) => params[name] ?? whole);
+  return <Navigate to={`${target}${search}${hash}`} replace />;
+}
+
 // /notifications is the SHARED path and stays exactly as reachable as it was. This only
 // canonicalises the URL for organizations, which now have /recruiter/notifications alongside
 // every other /recruiter/* page.
@@ -90,39 +113,59 @@ export function AppRouter() {
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/verification" element={<VerificationSubmitPage />} />
 
-      {/* Seeker-only routes */}
+      {/* LEGACY /pro/* PATHS. Guarded by ProtectedRoute alone — deliberately NOT by the role
+          allowlist of their destination. A redirect that also role-checked would decide twice and
+          could bounce a user off a rule the canonical route would have applied differently; here
+          the redirect only rewrites the URL and the canonical route is the single authority on who
+          may see it. No AppShell either: nothing renders, so there is no shell flash.
+
+          These cannot loop. Every arrow points from a /pro path to a canonical one and no
+          canonical path ever redirects back, so the chain is one hop and terminates. A role that
+          may not see the destination is then bounced once more to its own home by RoleRoute —
+          still terminating, because every role's home is a route that role is allowed. */}
+      <Route element={<ProtectedRoute />}>
+        <Route path="/pro" element={<LegacyRedirect to="/tools" />} />
+        <Route path="/pro/tools" element={<LegacyRedirect to="/tools" />} />
+        <Route path="/pro/profile" element={<LegacyRedirect to="/profile" />} />
+        <Route path="/pro/ai" element={<LegacyRedirect to="/ai" />} />
+        <Route path="/pro/jobs" element={<LegacyRedirect to="/jobs" />} />
+        <Route path="/pro/jobs/:jobId" element={<LegacyRedirect to="/jobs/:jobId" />} />
+        <Route path="/pro/applied" element={<LegacyRedirect to="/applied" />} />
+        <Route path="/pro/learn" element={<LegacyRedirect to="/learn" />} />
+        <Route path="/pro/help" element={<LegacyRedirect to="/help" />} />
+        <Route path="/pro/settings" element={<LegacyRedirect to="/settings" />} />
+        {/* Pre-dates the /pro group; /applied is canonical because it is the label the nav uses
+            ("Applied Jobs") and the path the brief names. */}
+        <Route path="/applications" element={<LegacyRedirect to="/applied" />} />
+      </Route>
+
+      {/* Seeker-only routes, on canonical paths. Nothing in this group is Pro-gated — that is the
+          whole point: a free seeker reaches every one of them, so none may claim "pro" in its URL.
+          Pro-only routes live in their own group at the bottom of this file. */}
       <Route element={<RoleRoute allowedRoles={["seeker"]} />}>
         <Route element={<AppShell />}>
-          {/* Pro Features */}
-          <Route path="/pro" element={<Navigate to="/pro/tools" replace />} />
-          <Route path="/pro/tools" element={<ProToolsPage />} />
-          <Route path="/pro/ai" element={<AIGeneratorPage />} />
-          <Route path="/pro/jobs" element={<JobsPage />} />
-          <Route path="/pro/jobs/:jobId" element={<JobDetailPage />} />
-          <Route path="/pro/applied" element={<ApplicationsPage />} />
-          <Route path="/pro/learn" element={<LearnPage />} />
-          <Route path="/pro/help" element={<HelpPage />} />
-          <Route path="/pro/settings" element={<SettingsPage />} />
+          <Route path="/tools" element={<ProToolsPage />} />
+          <Route path="/ai" element={<AIGeneratorPage />} />
+          <Route path="/applied" element={<ApplicationsPage />} />
+          <Route path="/learn" element={<LearnPage />} />
+          <Route path="/help" element={<HelpPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
 
           <Route path="/upgrade" element={<UpgradePage />} />
           <Route path="/resume-builder" element={<ResumeBuilderPage />} />
           <Route path="/ats-checker" element={<ResumeAtsCheckerPage />} />
           <Route path="/following" element={<FollowsPage />} />
-
-          {/* Legacy Routes (for backward compatibility) */}
-          <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/applications" element={<ApplicationsPage />} />
-          <Route path="/learn" element={<LearnPage />} />
-          <Route path="/help" element={<HelpPage />} />
         </Route>
       </Route>
 
       {/* ProfilePage is shared — it already branches internally on session.role to render either a
-          seeker or an organization profile (companyName/industry/companySize fields), so it isn't
-          seeker-only like the rest of the /pro group above. */}
+          seeker or an organization profile (companyName/industry/companySize fields), so it is not
+          seeker-only. /profile MOVED here from the seeker-only group above when it became the
+          canonical path: it is now the recruiter's own profile page too, which /pro/profile used
+          to be, so narrowing it to seekers would have broken that. */}
       <Route element={<RoleRoute allowedRoles={["seeker", "organization"]} />}>
         <Route element={<AppShell />}>
-          <Route path="/pro/profile" element={<ProfilePage />} />
+          <Route path="/profile" element={<ProfilePage />} />
         </Route>
       </Route>
 

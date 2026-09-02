@@ -35,7 +35,26 @@ export function RoleRoute({ allowedRoles }) {
   }
 
   if (!allowedRoles.includes(session?.role)) {
-    return <Navigate to={getHomePathForRole(session?.role)} replace />;
+    const home = getHomePathForRole(session?.role);
+
+    /* LOOP GUARD. getHomePathForRole falls through to "/home" for any role it does not recognise,
+       including undefined — and "/home" is itself inside a RoleRoute allowlist. A session with a
+       missing or unexpected role would therefore be denied at /home, redirected to /home, denied
+       again, and so on until the browser gave up: a blank page, not a redirect to safety.
+
+       Redirecting somewhere is only ever right when the destination differs from where we already
+       are. When it does not, render a plain explanation instead — the user is authenticated but
+       their session has no role we can route, and the honest response is to say so and let them
+       sign in again, not to spin. */
+    if (location.pathname === home) {
+      return (
+        <section className="loading-state">
+          Your session does not have a role we can route. Please <a href="/login">sign in again</a>.
+        </section>
+      );
+    }
+
+    return <Navigate to={home} replace />;
   }
 
   return <Outlet />;

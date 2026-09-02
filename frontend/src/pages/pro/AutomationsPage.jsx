@@ -614,7 +614,7 @@ export function AutomationsPage() {
               Today every intro is drafted per-recruiter by the AI when it is sent, and you can read
               exactly what went out in Chat. To write one yourself, use the Recruiter DM tool.
             </p>
-            <Link to="/pro/ai" className="au-btn au-btn--sm">
+            <Link to="/ai" className="au-btn au-btn--sm">
               <Icon name="bot" className="au-icon au-icon--sm" />
               Open the AI Generator
             </Link>

@@ -114,8 +114,9 @@ export function formatRelativeTime(dateValue) {
   return `${diffDays}d ago`;
 }
 
-// Recruiter-variant icons — only rendered when variant === "recruiter", so the seeker feed's
-// emoji hearts/speech-bubble are untouched.
+// Used by BOTH variants now. The seeker feed previously drew a 🤍/❤️ emoji here, which renders at
+// a different size and colour on every platform and cannot inherit the button's liked state — the
+// stroked/filled SVG can, via `fill`, so the pressed state is visible rather than implied.
 function IconHeart(props) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
@@ -132,6 +133,14 @@ function IconMessageCircle(props) {
   );
 }
 
+/* `max-h-96 w-full object-cover` never applied: this app wires FONTS ONLY into Tailwind v4's
+   @theme, and these size utilities are generated, but the surrounding colour utilities are not —
+   so an attachment rendered at its natural height and dominated the card. The cap and aspect are
+   now in .fp-media (styles.css), which also gives it the card's radius.
+
+   An image is wrapped in a link to the full file so clicking it opens the original rather than a
+   cover-cropped version; a video keeps its own controls and is not wrapped, since a click there
+   means play. */
 function PostMedia({ media }) {
   const [hasFailed, setHasFailed] = useState(false);
   const mediaUrl = getMediaUrl(media);
@@ -142,23 +151,18 @@ function PostMedia({ media }) {
 
   if (media.fileType === "image") {
     return (
-      <img
-        src={mediaUrl}
-        alt="Post attachment"
-        className="max-h-96 w-full rounded-xl object-cover"
-        onError={() => setHasFailed(true)}
-      />
+      <a className="fp-media-link" href={mediaUrl} target="_blank" rel="noreferrer" aria-label="Open full image in a new tab">
+        <img className="fp-media" src={mediaUrl} alt="Post attachment" loading="lazy" onError={() => setHasFailed(true)} />
+      </a>
     );
   }
 
   if (media.fileType === "video") {
-    return (
-      <video src={mediaUrl} controls className="max-h-96 w-full rounded-xl" onError={() => setHasFailed(true)} />
-    );
+    return <video className="fp-media" src={mediaUrl} controls onError={() => setHasFailed(true)} />;
   }
 
   return (
-    <a href={mediaUrl} target="_blank" rel="noreferrer" className="text-sm font-medium text-primary underline">
+    <a className="fp-attachment" href={mediaUrl} target="_blank" rel="noreferrer">
       Open attachment
     </a>
   );
@@ -184,74 +188,53 @@ export function PostCard({ post, session, commentValue, onCommentChange, isMutat
   // organization viewing its own post needs the same delete option.
   const isOwnPost = String(post.authorId) === String(session?.userId);
   const authorName = post.author?.name || "Platform user";
-  const likeLabel = `${post.likedByMe ? "Unlike" : "Like"} this post, ${post.likesCount || 0} likes`;
-  const commentLabel = `${post.commentsCount || 0} comments`;
+  const likeCount = post.likesCount || 0;
+  const commentCount = post.commentsCount || 0;
+  const likeLabel = `${post.likedByMe ? "Unlike" : "Like"} this post, ${likeCount} likes`;
+  const commentLabel = `${showComments ? "Hide" : "Show"} comments, ${commentCount} comments`;
+  // "headline · timestamp" on ONE muted line. These used to be two separate paragraphs, which
+  // stacked the header into three loose lines and pushed the post content down the card.
+  const metaLine = [post.author?.subtitle, formatRelativeTime(post.createdAt)].filter(Boolean).join(" · ");
 
   return (
-    <article
-      className={
-        isRecruiter
-          ? "cop-post"
-          : "rounded-2xl border border-border/60 bg-card/80 backdrop-blur-xl shadow-elegant hover:shadow-xl transition"
-      }
-    >
-      <div className={isRecruiter ? "cop-post__head" : "flex items-start gap-3 p-5"}>
+    <article className={isRecruiter ? "cop-post" : "fp-post"}>
+      <div className={isRecruiter ? "cop-post__head" : "fp-post__head"}>
         {avatarUrl ? (
           <img
             src={avatarUrl}
-            alt={authorName}
-            className={isRecruiter ? "cop-avatar cop-avatar--image" : "h-11 w-11 shrink-0 rounded-full object-cover"}
+            alt=""
+            className={isRecruiter ? "cop-avatar cop-avatar--image" : "fp-avatar fp-avatar--image"}
           />
         ) : (
-          <div
-            className={
-              isRecruiter
-                ? "cop-avatar"
-                : "grid h-11 w-11 shrink-0 place-items-center rounded-full bg-linear-to-r from-purple-500 to-blue-500 text-sm font-semibold text-white"
-            }
-          >
+          <div className={isRecruiter ? "cop-avatar" : "fp-avatar"} aria-hidden="true">
             {getInitials(post.author?.name)}
           </div>
         )}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className={isRecruiter ? "cop-post__name" : "font-semibold leading-tight"}>{authorName}</h3>
+        <div className={isRecruiter ? "min-w-0 flex-1" : "fp-post__ident"}>
+          <div className={isRecruiter ? "flex items-center gap-2" : "fp-post__namerow"}>
+            <h3 className={isRecruiter ? "cop-post__name" : "fp-post__name"}>{authorName}</h3>
             {isOrganization && (
-              <span
-                className={
-                  isRecruiter
-                    ? "cop-pill cop-pill--accent"
-                    : "inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary"
-                }
-              >
+              <span className={isRecruiter ? "cop-pill cop-pill--accent" : "fp-pill fp-pill--accent"}>
                 {postTypeLabel}
               </span>
             )}
           </div>
-          <p className={isRecruiter ? "cop-post__meta" : "text-xs text-muted-foreground"}>{post.author?.subtitle}</p>
-          <p className={isRecruiter ? "cop-post__meta" : "text-xs text-muted-foreground"}>
-            {formatRelativeTime(post.createdAt)}
-          </p>
+          <p className={isRecruiter ? "cop-post__meta" : "fp-post__meta"}>{metaLine}</p>
         </div>
         {isOwnPost && (
-          <div className="relative shrink-0">
+          <div className={isRecruiter ? "relative shrink-0" : "fp-post__menu"}>
             <button
               type="button"
               onClick={() => setShowMenu((current) => !current)}
               style={actionButtonStyle}
-              className="rounded-full p-1.5 text-muted-foreground"
-              aria-label={`Options for ${authorName}'s post`}
+              className={isRecruiter ? "rounded-full p-1.5 text-muted-foreground" : "fp-iconbtn"}
+              aria-label={"Options for " + authorName + "\u2019s post"}
+              aria-expanded={showMenu}
             >
-              ⋯
+              <span aria-hidden="true">⋯</span>
             </button>
             {showMenu && (
-              <div
-                className={
-                  isRecruiter
-                    ? "cop-menu"
-                    : "absolute right-0 top-full z-10 mt-1 min-w-36 rounded-lg border border-border/60 bg-card shadow-elegant overflow-hidden"
-                }
-              >
+              <div className={isRecruiter ? "cop-menu" : "fp-menu"}>
                 <button
                   type="button"
                   disabled={isDeleting}
@@ -260,8 +243,8 @@ export function PostCard({ post, session, commentValue, onCommentChange, isMutat
                     onDelete(post._id);
                   }}
                   style={{ ...ghostButtonStyle, padding: "0.5rem 0.75rem", width: "100%" }}
-                  className="text-left text-sm text-red-500 hover:bg-surface"
-                  aria-label={isDeleting ? "Deleting post…" : `Delete this post`}
+                  className={isRecruiter ? "text-left text-sm text-red-500 hover:bg-surface" : "fp-menu__item"}
+                  aria-label={isDeleting ? "Deleting post" : "Delete this post"}
                 >
                   {isDeleting ? "Deleting…" : "Delete post"}
                 </button>
@@ -271,13 +254,11 @@ export function PostCard({ post, session, commentValue, onCommentChange, isMutat
         )}
       </div>
 
-      <div className={isRecruiter ? "cop-post__body" : "px-5 pb-4 space-y-3"}>
-        <p className={isRecruiter ? "cop-post__content" : "text-[15px] leading-relaxed whitespace-pre-wrap"}>
-          {post.content}
-        </p>
+      <div className={isRecruiter ? "cop-post__body" : "fp-post__body"}>
+        <p className={isRecruiter ? "cop-post__content" : "fp-post__content"}>{post.content}</p>
 
         {post.media?.length ? (
-          <div className="grid gap-2">
+          <div className={isRecruiter ? "grid gap-2" : "fp-post__media"}>
             {post.media.map((media) => (
               <PostMedia key={media.filePath || media.url} media={media} />
             ))}
@@ -285,16 +266,9 @@ export function PostCard({ post, session, commentValue, onCommentChange, isMutat
         ) : null}
 
         {hashtags.length ? (
-          <div className="flex flex-wrap gap-1.5">
+          <div className={isRecruiter ? "flex flex-wrap gap-1.5" : "fp-post__tags"}>
             {hashtags.map((tag) => (
-              <span
-                key={tag}
-                className={
-                  isRecruiter
-                    ? "cop-pill"
-                    : "inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium text-primary"
-                }
-              >
+              <span key={tag} className={isRecruiter ? "cop-pill" : "fp-pill"}>
                 {tag}
               </span>
             ))}
@@ -302,60 +276,57 @@ export function PostCard({ post, session, commentValue, onCommentChange, isMutat
         ) : null}
       </div>
 
-      <div className={isRecruiter ? "cop-post__actions" : "flex items-center justify-between border-t border-border/60 px-3 py-2 text-sm text-muted-foreground"}>
+      {/* ACTION ROW. Both controls are real labelled buttons with a word beside the icon and a
+          full-height hit area, not a bare glyph with a loose "0" next to it. A zero count is muted
+          (.fp-count--zero) so "no likes yet" does not read as a headline figure. */}
+      <div className={isRecruiter ? "cop-post__actions" : "fp-post__actions"}>
         <button
           type="button"
           onClick={() => onLike(post._id)}
           disabled={isMutating}
-          style={
-            isRecruiter
-              ? undefined
-              : { ...actionButtonStyle, color: post.likedByMe ? "var(--brand)" : "inherit" }
-          }
+          style={isRecruiter ? undefined : actionButtonStyle}
           className={
             isRecruiter
               ? `cop-action${post.likedByMe ? " cop-action--liked" : ""}`
-              : "flex flex-1 items-center justify-center gap-2 text-xs"
+              : `fp-action${post.likedByMe ? " fp-action--on" : ""}`
           }
           aria-pressed={post.likedByMe}
           aria-label={likeLabel}
         >
-          {isRecruiter ? (
-            <IconHeart className="cop-icon" fill={post.likedByMe ? "currentColor" : "none"} />
-          ) : (
-            <span aria-hidden="true">{post.likedByMe ? "❤️" : "🤍"}</span>
-          )}
-          <span aria-hidden="true">{post.likesCount || 0}</span>
+          <IconHeart className={isRecruiter ? "cop-icon" : "fp-icon"} fill={post.likedByMe ? "currentColor" : "none"} />
+          <span aria-hidden="true">{post.likedByMe ? "Liked" : "Like"}</span>
+          <span aria-hidden="true" className={likeCount ? "fp-count" : "fp-count fp-count--zero"}>{likeCount}</span>
         </button>
         <button
           type="button"
           onClick={() => setShowComments((current) => !current)}
           style={isRecruiter ? undefined : actionButtonStyle}
-          className={isRecruiter ? "cop-action" : "flex flex-1 items-center justify-center gap-2 text-xs"}
+          className={isRecruiter ? "cop-action" : "fp-action"}
           aria-expanded={showComments}
           aria-label={commentLabel}
         >
-          {isRecruiter ? <IconMessageCircle className="cop-icon" /> : <span aria-hidden="true">💬</span>}
-          <span aria-hidden="true">{post.commentsCount || 0}</span>
+          <IconMessageCircle className={isRecruiter ? "cop-icon" : "fp-icon"} />
+          <span aria-hidden="true">Comment</span>
+          <span aria-hidden="true" className={commentCount ? "fp-count" : "fp-count fp-count--zero"}>{commentCount}</span>
         </button>
       </div>
 
       {showComments && (
-        <div className={isRecruiter ? "cop-comments" : "border-t border-border/60 px-5 py-3 space-y-3"}>
+        <div className={isRecruiter ? "cop-comments" : "fp-comments"}>
           {post.recentComments?.length ? (
-            <div className="space-y-2">
+            <div className={isRecruiter ? "space-y-2" : "fp-comments__list"}>
               {post.recentComments.map((comment) => (
-                <div key={comment._id} className={isRecruiter ? "cop-comment" : "text-sm"}>
-                  <span className="font-semibold">{comment.userName || "User"}</span>{" "}
-                  <span className="text-muted-foreground">{comment.content}</span>
+                <div key={comment._id} className={isRecruiter ? "cop-comment" : "fp-comment"}>
+                  <span className="fp-comment__who">{comment.userName || "User"}</span>{" "}
+                  <span className="fp-comment__what">{comment.content}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">No comments yet.</p>
+            <p className={isRecruiter ? "text-xs text-muted-foreground" : "fp-comments__empty"}>No comments yet.</p>
           )}
           <form
-            className="flex items-center gap-2"
+            className={isRecruiter ? "flex items-center gap-2" : "fp-comments__form"}
             onSubmit={(event) => {
               event.preventDefault();
               onComment(post._id);
@@ -373,16 +344,12 @@ export function PostCard({ post, session, commentValue, onCommentChange, isMutat
               value={commentValue || ""}
               onChange={(event) => onCommentChange(post._id, event.target.value)}
               placeholder="Write a comment..."
-              className={
-                isRecruiter
-                  ? "cop-comment-input"
-                  : "flex-1 rounded-full border border-border bg-surface/60 px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-              }
+              className={isRecruiter ? "cop-comment-input" : "fp-comments__input"}
             />
             <button
               type="submit"
               disabled={isMutating || !String(commentValue || "").trim()}
-              className={isRecruiter ? "cop-btn cop-btn--primary" : undefined}
+              className={isRecruiter ? "cop-btn cop-btn--primary" : "fp-comments__submit"}
             >
               Comment
             </button>

@@ -189,20 +189,44 @@ function NavIcon({ name }) {
 
 const seekerNavItems = [
   { to: "/home", label: "Home", icon: "home" },
-  { to: "/pro/profile", label: "Profile", icon: "user" },
-  { to: "/pro/ai", label: "AI Generator", icon: "bot" },
-  { to: "/pro/jobs", label: "Jobs", icon: "briefcase" },
-  { to: "/pro/applied", label: "Applied Jobs", icon: "clipboard" },
-  { to: "/pro/learn", label: "Learn", icon: "book" },
-  { to: "/pro/help", label: "Help & Feedback", icon: "help" },
-  { to: "/pro/settings", label: "Settings", icon: "settings" },
+  { to: "/profile", label: "Profile", icon: "user" },
+  { to: "/ai", label: "AI Generator", icon: "bot" },
+  { to: "/jobs", label: "Jobs", icon: "briefcase" },
+  { to: "/applied", label: "Applied Jobs", icon: "clipboard" },
+  // Messages is a SHARED seeker surface, not a Pro perk. /chat sits in the plain ProtectedRoute
+  // group (isAuthenticated only, no ProRoute) and every endpoint in routes/chat.js is requireAuth
+  // only, so a free seeker could always open it by typing the URL — it was simply unlinked for
+  // them. Listing it here links the access they already had; it adds no permission.
+  { to: "/chat", label: "Messages", icon: "message-square" },
+  { to: "/learn", label: "Learn", icon: "book" },
+  { to: "/help", label: "Help & Feedback", icon: "help" },
+  { to: "/settings", label: "Settings", icon: "settings" },
 ];
 
 const proOnlyNavItems = [
   { to: "/pro/automations", label: "Automations", icon: "zap" },
-  { to: "/chat", label: "Messages", icon: "message-square" },
   { to: "/pro/notifications", label: "Notifications", icon: "bell" },
 ];
+
+// Where the Pro-only rows splice into the seeker nav. Anchored to a PATH rather than a numeric
+// offset: the previous `slice(0, 5)` was a bare literal that silently meant something different
+// the moment seekerNavItems changed length — which is exactly what adding Messages to that array
+// just did. Anchoring after /chat keeps the Pro block contiguous and still immediately before the
+// Learn / Help / Settings tail, where it has always sat.
+const PRO_NAV_ANCHOR = "/chat";
+
+function buildNavItems(baseItems, isProSeeker) {
+  if (!isProSeeker) {
+    return baseItems;
+  }
+
+  const anchorIndex = baseItems.findIndex((item) => item.to === PRO_NAV_ANCHOR);
+  // If the anchor ever disappears, append rather than drop: a Pro seeker losing Automations and
+  // Notifications outright would be a far worse failure than them rendering at the bottom.
+  const insertAt = anchorIndex === -1 ? baseItems.length : anchorIndex + 1;
+
+  return [...baseItems.slice(0, insertAt), ...proOnlyNavItems, ...baseItems.slice(insertAt)];
+}
 
 const recruiterNavItems = [
   { to: "/recruiter/overview", label: "Overview", icon: "layout-grid" },
@@ -267,10 +291,8 @@ export function AppShell() {
     : session?.role === "organization"
       ? recruiterNavItems
       : seekerNavItems;
-  const navItems = session?.role === "seeker" && session?.isPro
-    ? [...baseNavItems.slice(0, 5), ...proOnlyNavItems, ...baseNavItems.slice(5)]
-    : baseNavItems;
-  const profilePath = isAdmin ? "/dashboard/overview" : "/pro/profile";
+  const navItems = buildNavItems(baseNavItems, session?.role === "seeker" && session?.isPro);
+  const profilePath = isAdmin ? "/dashboard/overview" : "/profile";
   // Where the header bell goes, per role. One expression rather than three buttons.
   //   organization → /recruiter/notifications, its own route inside the recruiter group
   //   seeker       → /notifications, unchanged (the shared ProRoute path it already used)

@@ -1029,7 +1029,7 @@ export function SettingsPage() {
               Removing a seeker touches applications recruiters have already received, sent
               introductions, chat history, posts and connections, so it needs a deliberate
               retention decision rather than a button. Ask through{" "}
-              <Link className="st-link" to="/pro/help">
+              <Link className="st-link" to="/help">
                 Help &amp; feedback
               </Link>{" "}
               and it is handled as a support request.
