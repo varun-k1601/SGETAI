@@ -71,8 +71,9 @@ function RoleHomeRedirect() {
    The old paths are KEPT, not renamed. They are in bookmarks, in sent email and in links already
    in the wild, and a 404 on an old URL would be a worse bug than the one being fixed.
 
-   Genuinely Pro-gated routes keep the prefix, because there it is accurate: /pro/automations,
-   /pro/notifications and /pro/linkedin/callback.
+   Genuinely Pro-gated routes keep the prefix, because there it is accurate: /pro/automations and
+   /pro/linkedin/callback. /pro/notifications was in that list until the page turned out not to be
+   Pro-gated on the server at all; it now redirects to /notifications like the rest.
 
    `to` may contain :params — /pro/jobs/:jobId has to carry its id across — and the query string
    and hash are preserved so /pro/profile?section=skills still lands on the right section. */
@@ -134,6 +135,11 @@ export function AppRouter() {
         <Route path="/pro/learn" element={<LegacyRedirect to="/learn" />} />
         <Route path="/pro/help" element={<LegacyRedirect to="/help" />} />
         <Route path="/pro/settings" element={<LegacyRedirect to="/settings" />} />
+        {/* Notifications are NOT Pro-gated — see the /notifications block below. This path used to
+            mount NotificationsPage a second time behind RoleRoute + ProRoute, which meant one page
+            reachable at two URLs under different rules; that split is how the paywalled-bell bug
+            survived. One page, one canonical URL, and this redirect keeps existing links alive. */}
+        <Route path="/pro/notifications" element={<LegacyRedirect to="/notifications" />} />
         {/* Pre-dates the /pro group; /applied is canonical because it is the label the nav uses
             ("Applied Jobs") and the path the brief names. */}
         <Route path="/applications" element={<LegacyRedirect to="/applied" />} />
@@ -246,19 +252,26 @@ export function AppRouter() {
           <Route element={<AppShell />}>
             <Route path="/pro/automations" element={<AutomationsPage />} />
             <Route path="/pro/linkedin/callback" element={<LinkedInConnectCallbackPage />} />
-            <Route path="/pro/notifications" element={<NotificationsPage />} />
           </Route>
         </Route>
       </Route>
 
-      {/* /notifications is intentionally shared across roles — same ProRoute Pro-tier gate, no
-          role allowlist. The admin nav no longer links here, but the route is unchanged and stays
-          reachable for admins: ProRoute only redirects seekers who are not Pro, so an admin
-          session still passes straight through. This path is LOAD-BEARING for admin sessions and
-          is deliberately not removed now that organizations have their own; the element is
-          wrapped only so an organization is forwarded to /recruiter/notifications (see
-          NotificationsRoute above), which changes nothing for seekers or admins. */}
-      <Route element={<ProRoute />}>
+      {/* /notifications is shared across roles: authenticated, no role allowlist and NO Pro gate.
+          It was behind ProRoute, which redirected `seeker && !isPro` to /upgrade — a gate the API
+          never had. backend/src/routes/notifications.js is `router.use(requireAuth)` and nothing
+          else, so the server already serves every authenticated user their own notifications, and
+          AppShell's bell query runs for non-Pro seekers too: they were shown a real unread count
+          and then bounced to a paywall when they clicked it. Free seekers genuinely receive most
+          of these types (application_status, chat_message, connection_*, post_like, post_comment,
+          support_reply, new_job, verification_complete); only auto_apply_success and
+          recruiter_introduction_sent are Pro-specific. ProtectedRoute makes the frontend gate
+          match the real one.
+
+          This path is LOAD-BEARING for admin sessions and is deliberately not removed now that
+          organizations have their own — ProtectedRoute passes admins exactly as ProRoute did. The
+          element stays wrapped only so an organization is forwarded to /recruiter/notifications
+          (see NotificationsRoute above), which changes nothing for seekers or admins. */}
+      <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
           <Route path="/notifications" element={<NotificationsRoute />} />
         </Route>

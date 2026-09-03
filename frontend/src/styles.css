@@ -42,6 +42,10 @@
      — it has its own --rail-* family. */
   --nav-pill-bg: #ffffff;
   --nav-pill-shadow: 0 1px 2px rgba(31, 39, 55, 0.06), 0 2px 6px rgba(31, 39, 55, 0.07);
+  /* The active row's hairline, split out of --border-soft so dark can lift it to a value that
+     actually reads against a near-black rail without moving every other soft border. This light
+     value is the literal --border-soft light value, so light rendering is unchanged. */
+  --nav-pill-border: #dfe9fa;
 
   /* === DESIGN TOKENS: COLORS === */
   --color-primary: #2f80ff;
@@ -118,21 +122,43 @@
   --job-card-match-orange: #fed7aa;
 }
 
+/* ONE DARK GROUND. This block used to be pure neutral grey (#000000 page, #1e1e1e surface,
+   #383838 borders) while the --ph-* block near the bottom of this file painted every card in the
+   content column blue-navy (#131c2e / #26334a). The two were authored independently and never
+   reconciled, so the sidebar met the content area at a visible hue seam: a grey slab against a
+   blue one.
+
+   Both families now sit on the same ~222deg axis, and the ramp is monotonic across them:
+
+       page   #070b12   L 0.0033   body ground, behind the content column
+       rail   #0f1725   L 0.0085   --surface: sidebar, header, any shell chrome
+       card   #162034   L 0.0145   --ph-surface, set in the --ph-* dark block below
+       sunk   #1e2a42              --ph-surface-sunk, the raised step above a card
+
+   Neutral grey was the losing candidate on purpose: the --ph-accent purple, the hero wash and the
+   --brand blue accent bar all already live on this hue, so flattening the content family to grey
+   would have meant restating three accents, while lifting the shell onto the blue axis restates
+   none. Every value below is a dark-block value; the light block above is untouched. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --page-bg: #000000;
-  --page-gradient: linear-gradient(180deg, rgba(5, 5, 5, 0.99), rgba(0, 0, 0, 0.99));
-  --surface: #1e1e1e;
-  --surface-soft: #2a2a2a;
-  --field-surface: #0c1714;
+  --page-bg: #070b12;
+  --page-gradient: linear-gradient(180deg, #090e17, #060910);
+  --surface: #0f1725;
+  --surface-soft: #1a2437;
+  /* Was #0c1714 — a green-tinted outlier that belonged to neither palette. */
+  --field-surface: #0e1626;
   --field-ink: #ffffff;
-  --surface-muted: #323232;
-  --surface-elevated: #1a1a1a;
-  --border: #3f3f3f;
-  --border-soft: #383838;
+  --surface-muted: #212d44;
+  /* Kept BELOW --surface, as it was (#1a1a1a under #1e1e1e), so anything reading it as a recessed
+     shell panel keeps the same relationship. */
+  --surface-elevated: #0c1320;
+  --border: #33425f;
+  --border-soft: #243147;
   --text-strong: #ffffff;
   --text-heading: #ffffff;
-  --text-muted: #b0b0b0;
+  /* #b0b0b0 was neutral grey on a neutral rail. #9fb0c9 carries the same hue as the ground it
+     sits on and measures 8.2:1 on --surface, so nothing is lost on contrast. */
+  --text-muted: #9fb0c9;
   --text-link: #2f80ff;
   --brand: #2f80ff;
   --brand-deep: #1f6cf1;
@@ -141,9 +167,19 @@
   --pill-text: #c9e4ff;
   --shadow-soft: 0 18px 44px rgba(0, 0, 0, 0.4);
   --shadow-card: 0 22px 48px rgba(0, 0, 0, 0.5);
-  --footer-bg: #0f0f0f;
-  --nav-pill-bg: #2f2f2f;
-  --nav-pill-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --footer-bg: #0a0f19;
+  /* THE ACTIVE NAV ROW. #2f2f2f on a #1e1e1e rail separated by 1.32:1 — near-invisible — and
+     --nav-pill-shadow stacked two BLACK shadows on a near-black rail, which paint nothing at all.
+     The light pill works because it is white-on-white separated by a visible drop shadow; the
+     dark port copied the structure and kept a mechanism that only exists in light.
+
+     Dark gets its own mechanism instead: a lifted fill, a hairline bright enough to read (3.49:1
+     against the rail, so the boundary clears the 3:1 non-text threshold on its own), and a 1px
+     top inner highlight standing in for the drop shadow — light appears to fall from above, which
+     is what elevation means here, and unlike a black shadow it is actually visible. */
+  --nav-pill-bg: #22314c;
+  --nav-pill-border: #5a6d90;
+  --nav-pill-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
 
   /* === DARK MODE: DESIGN TOKENS === */
   --text-primary: #ffffff;
@@ -585,10 +621,18 @@ body {
   gap: 0.75rem;
 }
 
+/* ROW RHYTHM. Measured, before: a 58px row plus a 10.4px gap — 68.4px of pitch, 684px for the ten
+   seeker rows alone, before the header, the footer and the block padding. That fits a 1440x900
+   viewport with almost nothing to spare and puts a scrollbar on the rail on any shorter one.
+   After: a 48px row plus a 4.8px gap — 52.8px of pitch, 528px for the same ten rows, 156px
+   recovered. Verified with all ten rows present and none removed: no scrollbar at 1000, 900, 800
+   or 760px of viewport height; it first appears at 700px.
+   The admin console rail restates both properties (gap 2px, padding 0.7rem 0.75rem) so its
+   geometry is unaffected; the recruiter rail inherits these and is verified visually. */
 .sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.3rem;
   flex: 1;
   padding: 0 0.75rem;
 }
@@ -597,7 +641,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.85rem;
-  padding: 1rem;
+  padding: 0.7rem 0.85rem;
   /* Transparent by default so the active row's hairline costs no layout shift — the row is the
      same height whether or not it is active. The admin rail sets `border: none` to keep its own
      geometry byte for byte. */
@@ -621,7 +665,10 @@ body {
    semibold (see the .sidebar-nav__label rule below). */
 .sidebar-nav__item.active {
   background: var(--nav-pill-bg);
-  border-color: var(--border-soft);
+  /* Was --border-soft, which in dark is #243147 — a hairline darker than the pill it outlines, so
+     it read as nothing. --nav-pill-border is that same value in light (unchanged there) and a
+     lifted steel in dark that clears 3:1 against the rail. */
+  border-color: var(--nav-pill-border);
   box-shadow: var(--nav-pill-shadow);
 }
 
@@ -671,6 +718,25 @@ body {
   flex: 1;
 }
 
+/* INTERNAL STRUCTURE PER ROW (dark only — light is deliberately not touched). Every inactive row
+   painted its icon and its label in the same --text-muted, so the rail read as one flat tone from
+   top to bottom with no way to scan it. Dropping the icon to 62% while the label keeps full
+   --text-muted gives each row a light-to-heavy reading order, and the active row returns its icon
+   to full strength, which is a third signal on top of the pill and the accent bar.
+
+   62% is the floor, not a taste call: --text-muted over --surface at that alpha still measures
+   3.88:1, clearing the 3:1 non-text minimum for an icon. Scoped away from the console rail, which
+   sets its own --rail-ink / --rail-muted pair and already has this structure. */
+:root[data-theme="dark"] .app-sidebar:not(.app-sidebar--console) .sidebar-nav__item .sidebar-nav__icon {
+  opacity: 0.62;
+  transition: opacity 0.2s;
+}
+
+:root[data-theme="dark"] .app-sidebar:not(.app-sidebar--console) .sidebar-nav__item:hover .sidebar-nav__icon,
+:root[data-theme="dark"] .app-sidebar:not(.app-sidebar--console) .sidebar-nav__item.active .sidebar-nav__icon {
+  opacity: 1;
+}
+
 .sidebar-nav__badge {
   background: #ef4444;
   color: white;
@@ -704,6 +770,27 @@ body {
   cursor: pointer;
   transition: all 0.2s;
   box-shadow: none;
+}
+
+/* The rule above declares `background: transparent` at (0,1,0) and is defeated in DARK ONLY by the
+   unlayered `:root[data-theme="dark"] button` rule near the top of this file, which is (0,2,1) —
+   so the collapse control rendered as a full-width solid blue pill at the foot of the rail, the
+   loudest thing in the sidebar, while looking correct in light. Restating at a higher specificity
+   beats (0,2,1) — more classes outrank two classes plus an element — in BOTH themes, so this is
+   one rule rather than a dark-only patch, and it holds if the blanket rule is ever retuned again.
+
+   The :not() is load-bearing, not decoration: the console rail styles this same control through
+   .app-sidebar--console .sidebar-collapse (0,2,0) and .app-sidebar--console .sidebar-collapse:hover
+   (0,2,0). A bare (0,3,0) rule here would outrank both and repaint the admin rail's footer with
+   the seeker treatment. Excluding the modifier keeps that rail byte-identical. */
+.app-sidebar:not(.app-sidebar--console) .sidebar-footer .sidebar-collapse {
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-sidebar:not(.app-sidebar--console) .sidebar-footer .sidebar-collapse:hover {
+  background: var(--surface-soft);
+  color: var(--text-strong);
 }
 
 .sidebar-collapse:hover {
@@ -13238,6 +13325,12 @@ body.career-agent-resizing {
   --ph-page-bg: #f8fafc;
   --ph-surface: #ffffff;
   --ph-surface-sunk: #f4f7fb;
+  /* Light counterpart of the dark recessed step. Deliberately the same value as
+     --ph-surface-sunk: in light, surfaces that switch to this token must not move a pixel. */
+  --ph-surface-low: #f4f7fb;
+  /* And its hover step — the literal old --ph-surface value, so hovering a recessed well in light
+     lands exactly where it did before. */
+  --ph-surface-low-hover: #ffffff;
   --ph-border: #e8edf3;
   --ph-ink: #0f172a;
   --ph-muted: #64748b;
@@ -13284,11 +13377,24 @@ body.career-agent-resizing {
      than by colour-matching, and cannot drift if the app's dark background is ever retuned.
      Light mode keeps its #f8fafc canvas, where the cards genuinely need it. */
   --ph-page-bg: transparent;
-  --ph-surface: #131c2e;
-  --ph-surface-sunk: #1a2436;
-  --ph-border: #26334a;
+  /* Third and fourth steps of the single ramp declared in the shell dark block at the top of this
+     file (page #070b12 -> rail #0f1725 -> card -> sunk). Nudged up from #131c2e / #1a2436 so each
+     step clears the one below it now that the rail sits between them, rather than reading as two
+     unrelated blues. */
+  --ph-surface: #162034;
+  --ph-surface-sunk: #1e2a42;
+  /* NEW, and the only genuinely recessed step: BELOW the card, for wells that sit inside one —
+     the AI Generator's tool cards are the first user. --ph-surface-sunk cannot serve here because
+     it is LIGHTER than --ph-surface (it is the raised step, despite the name) and 171 existing
+     usages depend on that. In light this is the value --ph-surface-sunk already had, so every
+     surface switched onto it renders identically in light. */
+  --ph-surface-low: #0d1523;
+  /* Hovering a recessed well must clear the CARD, not just the well, or the lift is invisible
+     against the surface it is cut into — so dark jumps past --ph-surface to the raised step. */
+  --ph-surface-low-hover: #1e2a42;
+  --ph-border: #2e3c58;
   --ph-ink: #e8eef8;
-  --ph-muted: #94a3b8;
+  --ph-muted: #9fb0c9;
   --ph-accent: #a78bfa;
   --ph-accent-soft: rgba(167, 139, 250, 0.16);
   --ph-track-off: #38455e;
@@ -13296,7 +13402,12 @@ body.career-agent-resizing {
   --ph-success-soft: rgba(74, 222, 128, 0.14);
   --ph-danger: #f87171;
   --ph-danger-soft: rgba(248, 113, 113, 0.14);
-  --ph-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  /* `0 1px 3px rgba(0,0,0,.4)` was a black shadow on a near-black ground: it painted nothing, so
+     cards were separated by their hairline alone and read as flat cutouts. In dark, elevation
+     comes from surface lightness (the ramp above) and is only REINFORCED by shadow — so this is a
+     1px top highlight, which is visible, plus a wide ambient pool that reads at the card's edge
+     against the darker page ground behind it. */
+  --ph-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 28px rgba(0, 0, 0, 0.5);
   --ph-hero-soft: linear-gradient(115deg, #241b4d 0%, #1c2a5e 48%, #123049 100%);
   --ph-hero-soft-border: rgba(167, 139, 250, 0.22);
 
@@ -14292,9 +14403,16 @@ body.career-agent-resizing {
   border: 0;
 }
 
-/* --- Buttons (specificity beats the global unlayered `button` rule) -------------------------- */
+/* --- Buttons ---------------------------------------------------------------------------------
+   The old heading here claimed "specificity beats the global unlayered `button` rule". That was
+   only half true and is the reason this page shipped wrong in dark: (0,2,0) beats the bare
+   `button` rule but loses to `:root[data-theme="dark"] button` at (0,2,1), so every .ai-btn on
+   this page — four suggestion chips and the send control — rendered as a solid blue pill in dark
+   while looking correct in light. Each background-setting rule below is therefore duplicated with
+   a `button.` qualifier to reach (0,2,1) and win on document order. See the .ai-tool block. */
 
-.ai-gen .ai-btn {
+.ai-gen .ai-btn,
+.ai-gen button.ai-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -14314,7 +14432,8 @@ body.career-agent-resizing {
   transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease;
 }
 
-.ai-gen .ai-btn:hover:not(:disabled) {
+.ai-gen .ai-btn:hover:not(:disabled),
+.ai-gen button.ai-btn:hover:not(:disabled) {
   background: var(--ph-surface-sunk);
   box-shadow: none;
   transform: none;
@@ -14335,27 +14454,31 @@ body.career-agent-resizing {
   cursor: not-allowed;
 }
 
-.ai-gen .ai-btn--ghost {
+.ai-gen .ai-btn--ghost,
+.ai-gen button.ai-btn--ghost {
   border-color: transparent;
   background: transparent;
   color: var(--ph-muted);
 }
 
-.ai-gen .ai-btn--chip {
+.ai-gen .ai-btn--chip,
+.ai-gen button.ai-btn--chip {
   padding: 6px 11px;
   font-size: 12px;
   font-weight: 500;
   background: var(--ph-surface-sunk);
 }
 
-.ai-gen .ai-btn--icon {
+.ai-gen .ai-btn--icon,
+.ai-gen button.ai-btn--icon {
   padding: 5px;
   border-color: transparent;
   background: transparent;
   color: var(--ph-muted);
 }
 
-.ai-gen .ai-btn--send {
+.ai-gen .ai-btn--send,
+.ai-gen button.ai-btn--send {
   flex-shrink: 0;
   width: 34px;
   height: 34px;
@@ -14365,7 +14488,8 @@ body.career-agent-resizing {
   color: #ffffff;
 }
 
-.ai-gen .ai-btn--send:hover:not(:disabled) {
+.ai-gen .ai-btn--send:hover:not(:disabled),
+.ai-gen button.ai-btn--send:hover:not(:disabled) {
   background: var(--ph-tile-gradient);
   opacity: 0.9;
 }
@@ -14434,7 +14558,21 @@ body.career-agent-resizing {
   list-style: none;
 }
 
-.ai-gen .ai-tool {
+/* WHY THE `button.` QUALIFIER, ON EVERY RULE THAT SETS A BACKGROUND HERE.
+   `.ai-gen .ai-tool` is (0,2,0). It comfortably beats the bare unlayered `button` rule (0,0,1) at
+   the top of this file — which is why these cards look right in light — but it LOSES to the
+   dark-mode-only `:root[data-theme="dark"] button` rule (0,2,1: :root and [data-theme] are one
+   class-level unit each, plus one element). Measured, not deduced: in dark the computed
+   background of a tool card was `linear-gradient(rgb(47,128,255), rgb(31,108,241))` — exactly
+   --brand/--brand-deep, so the DARK rule specifically, not the light one whose --color-primary
+   pair happens to hold the same two values. All eleven buttons inside .ai-gen were affected, not
+   just these six.
+   Adding the element qualifier makes this (0,2,1) — a tie, resolved by document order, and this
+   block sits far below that rule. Same fix as .job-applicants, .company-posts,
+   .background-verification, .recruiter-settings, .recruiter-integrations and
+   .recruiter-applications; see any of those for the same arithmetic. */
+.ai-gen .ai-tool,
+.ai-gen button.ai-tool {
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -14443,7 +14581,10 @@ body.career-agent-resizing {
   padding: 14px;
   border: 1px solid var(--ph-border);
   border-radius: 12px;
-  background: var(--ph-surface-sunk);
+  /* One step BELOW the .ai-card it sits in, so the grid reads as six wells cut into the card
+     rather than six controls stacked on it. --ph-surface-sunk is the RAISED step and was the
+     wrong direction; --ph-surface-low is the recessed one. Identical value in light. */
+  background: var(--ph-surface-low);
   color: var(--ph-ink);
   font-family: inherit;
   text-align: left;
@@ -14453,9 +14594,18 @@ body.career-agent-resizing {
   transition: border-color 150ms ease, background 150ms ease;
 }
 
-.ai-gen .ai-tool:hover:not(:disabled) {
+/* Hover lifts the surface one step and warms the hairline to the accent — the only colour change,
+   so the 40px tile stays the single saturated element on the card.
+   The lifted value is a token because the two themes need different steps and must not be given
+   the same one: from #f4f7fb, one step up in light is #ffffff (the card itself, which is what this
+   rule always did there — the accent hairline carries the state); from #0d1523, one step up in
+   dark must clear the CARD at #162034 or a hovered tool would dissolve into it, so dark lifts past
+   the card to the raised step. --ph-surface-low-hover is exactly the old --ph-surface value in
+   light, so hover there is unchanged. */
+.ai-gen .ai-tool:hover:not(:disabled),
+.ai-gen button.ai-tool:hover:not(:disabled) {
   border-color: var(--ph-accent);
-  background: var(--ph-surface);
+  background: var(--ph-surface-low-hover);
   box-shadow: none;
   transform: none;
 }
@@ -14468,13 +14618,24 @@ body.career-agent-resizing {
 /* Unavailable tools stay legible rather than being greyed into illegibility — the "Coming soon"
    pill is what communicates the state, not the opacity. */
 .ai-gen .ai-tool--soon,
-.ai-gen .ai-tool--soon:hover {
+.ai-gen .ai-tool--soon:hover,
+.ai-gen button.ai-tool--soon,
+.ai-gen button.ai-tool--soon:hover {
   border-style: dashed;
+  /* Transparent, so an inert card shows the CARD's surface rather than the recessed well the live
+     ones are cut into. That inverts the figure/ground relationship against its four neighbours,
+     which is what makes "not clickable" legible at a glance instead of only on reading the pill. */
   background: transparent;
   cursor: not-allowed;
   opacity: 1;
 }
 
+/* The tile is the one saturated element on a live card, so dropping its gradient for a flat muted
+   chip is the strongest available signal that this one is not live — stronger than the dashed
+   border, and it survives being read in greyscale. Deliberately still --ph-surface-sunk, the
+   RAISED step: on a transparent (inert) card that reads as a muted chip sitting on the card,
+   which is the intent, and switching it to the recessed step would have changed light mode for
+   no gain. Unchanged from the original rule. */
 .ai-gen .ai-tool--soon .ai-tile {
   background: var(--ph-surface-sunk);
   color: var(--ph-muted);
@@ -14665,6 +14826,22 @@ body.career-agent-resizing {
   flex-direction: column;
   gap: 12px;
   padding: 16px;
+}
+
+/* THE VOID. The panel is clamp(520px, 100vh - 13rem, 760px) tall and opens with a two-line
+   greeting pinned to the top, so most of a 700px column was empty navy with the composer stranded
+   at the far bottom — the greeting and the thing you reply with were as far apart as the layout
+   allowed.
+
+   Anchoring the first message to the bottom collapses that gap: the conversation now grows upward
+   out of the composer, the way every chat surface behaves, and the remaining space sits ABOVE the
+   thread where it reads as headroom rather than as a hole. `margin-top: auto` on the first child
+   rather than `justify-content: flex-end` on the container, deliberately — flex-end on a scroll
+   container makes overflowing content unreachable at the top in several browsers, whereas an auto
+   margin collapses to zero as soon as the thread fills the column. No markup change: the greeting
+   is already messages[0]. */
+.ai-gen .ai-chat > :first-child {
+  margin-top: auto;
 }
 
 .ai-gen .ai-msg {

@@ -198,21 +198,25 @@ const seekerNavItems = [
   // only, so a free seeker could always open it by typing the URL — it was simply unlinked for
   // them. Listing it here links the access they already had; it adds no permission.
   { to: "/chat", label: "Messages", icon: "message-square" },
+  // Notifications is shared for the same reason: /api/notifications is requireAuth only, and
+  // /notifications no longer sits behind ProRoute. A free seeker's bell was already fetching this
+  // data and rendering a real unread count, so the sidebar row is the count's destination rather
+  // than a new privilege. It stays out of proOnlyNavItems: leaving it there would have given Pro
+  // users the row twice once it was added here.
+  { to: "/notifications", label: "Notifications", icon: "bell" },
   { to: "/learn", label: "Learn", icon: "book" },
   { to: "/help", label: "Help & Feedback", icon: "help" },
   { to: "/settings", label: "Settings", icon: "settings" },
 ];
 
-const proOnlyNavItems = [
-  { to: "/pro/automations", label: "Automations", icon: "zap" },
-  { to: "/pro/notifications", label: "Notifications", icon: "bell" },
-];
+const proOnlyNavItems = [{ to: "/pro/automations", label: "Automations", icon: "zap" }];
 
 // Where the Pro-only rows splice into the seeker nav. Anchored to a PATH rather than a numeric
 // offset: the previous `slice(0, 5)` was a bare literal that silently meant something different
-// the moment seekerNavItems changed length — which is exactly what adding Messages to that array
-// just did. Anchoring after /chat keeps the Pro block contiguous and still immediately before the
-// Learn / Help / Settings tail, where it has always sat.
+// the moment seekerNavItems changed length — which is exactly what moving Messages and then
+// Notifications into that array did, twice. Anchoring after /chat reproduces the order a Pro
+// seeker has always seen: Messages, Automations, Notifications, then the Learn / Help / Settings
+// tail. Both shared rows keep their absolute position for Pro users.
 const PRO_NAV_ANCHOR = "/chat";
 
 function buildNavItems(baseItems, isProSeeker) {
@@ -420,7 +424,10 @@ export function AppShell() {
                 <NavIcon name={item.icon} />
               </span>
               <span className="sidebar-nav__label">{item.label}</span>
-              {(item.label === "Notifications" || item.to === "/pro/notifications") && unreadNotificationCount > 0 ? (
+              {/* Keyed off notificationsPath, not a hardcoded string: the old test named
+                  "/pro/notifications" literally and went stale the moment that path became a
+                  redirect. This follows whichever path the role's bell already points at. */}
+              {item.to === notificationsPath && unreadNotificationCount > 0 ? (
                 <em className="sidebar-nav__badge">{unreadNotificationLabel}</em>
               ) : null}
             </NavLink>

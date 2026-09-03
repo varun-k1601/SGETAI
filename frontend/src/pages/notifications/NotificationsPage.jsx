@@ -460,9 +460,10 @@ export function NotificationsPage() {
   }
 
   return (
-    // ONE modifier class is the whole of the recruiter treatment. The page is mounted at three
-    // paths (/pro/notifications, /notifications, /recruiter/notifications) and shared by all three
-    // roles, so the accent is keyed off the SESSION, not the route — an organization arriving on
+    // ONE modifier class is the whole of the recruiter treatment. The page is mounted at two
+    // paths (/notifications and /recruiter/notifications; /pro/notifications is now a redirect to
+    // the first) and shared by all three roles, so the accent is keyed off the SESSION, not the
+    // route — an organization arriving on
     // the shared /notifications path still gets its own hero. Everything the modifier changes is
     // written under .notif-page--recruiter in styles.css; the base rules are untouched, so seeker
     // and admin renderings are byte-identical to before.
