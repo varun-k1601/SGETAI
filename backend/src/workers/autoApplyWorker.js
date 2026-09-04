@@ -14,7 +14,8 @@ const {
   computeCandidateMatch,
   computeFinalAutoApplyScore,
   tagFromScore,
-  cosineSimilarity
+  cosineSimilarity,
+  normalizeVectorScore
 } = require("../services/matchService");
 const { evaluateCandidateMatch } = require("../services/geminiService");
 const { buildJobText, buildSeekerText } = require("../utils/textBuilders");
@@ -25,6 +26,10 @@ const EMBEDDING_LENGTH = 768;
 // If a doc was created/updated more recently than this, a missing embedding is more likely a
 // fire-and-forget generation race than a permanent failure — logged distinctly for diagnosis.
 const EMBEDDING_RACE_WINDOW_MS = 5 * 60 * 1000;
+// The Atlas Vector Search index this worker's candidate retrieval expects on
+// jobseekers.embedding. Named once so the definition in docs/atlas-search-indexes.md, the warning
+// text below, and the query all refer to the same thing.
+const SEEKER_VECTOR_INDEX = "vector_index";
 
 function isValidEmbedding(embedding) {
   return Array.isArray(embedding) && embedding.length === EMBEDDING_LENGTH;
@@ -244,7 +249,7 @@ async function findCandidatesForJob(job, warnings, candidateFilter = AUTO_APPLY_
       const rows = await JobSeeker.aggregate([
         {
           $vectorSearch: {
-            index: "vector_index",
+            index: SEEKER_VECTOR_INDEX,
             path: "embedding",
             queryVector: job.embedding,
             numCandidates: 500,
@@ -263,7 +268,19 @@ async function findCandidatesForJob(job, warnings, candidateFilter = AUTO_APPLY_
         }
       ]);
 
-      return rows;
+      if (rows.length) {
+        return rows;
+      }
+
+      // An empty $vectorSearch result is a MISS, not an answer. When the index named above does
+      // not exist, is still building, or has been dropped, Atlas returns zero rows and does NOT
+      // throw — indistinguishable from "nobody is similar enough". Committing to that empty array
+      // is what made every job-triggered run examine nobody while recording success. Fall through
+      // to the keyword query instead, and record the degradation on the run so a missing index is
+      // visible in the AutoApplyRun record rather than silent.
+      warnings.push(
+        `Vector seeker search returned no candidates; used text fallback. Verify the "${SEEKER_VECTOR_INDEX}" Atlas Vector Search index exists on jobseekers.embedding (see docs/atlas-search-indexes.md).`
+      );
     } catch (error) {
       warnings.push(`Vector seeker search failed; used text fallback. ${error.message}`);
     }
@@ -271,9 +288,25 @@ async function findCandidatesForJob(job, warnings, candidateFilter = AUTO_APPLY_
     warnings.push("Job embedding missing; used text-based skill fallback.");
   }
 
-  return JobSeeker.find(buildSkillFallbackQuery(job, candidateFilter))
+  const fallbackCandidates = await JobSeeker.find(buildSkillFallbackQuery(job, candidateFilter))
     .select("+hiddenRoles +embedding")
     .limit(200);
+
+  // A run that evaluates nobody while opted-in seekers exist is a retrieval failure, not a quiet
+  // "no matches" — the two are only distinguishable here, where both numbers are in hand. Without
+  // this the run record is `warnings: [], ready: true, candidatesEvaluated: 0`, which reads as
+  // success. Counted only when the fallback came back empty, so the normal path pays nothing.
+  if (!fallbackCandidates.length) {
+    const eligibleCount = await JobSeeker.countDocuments(candidateFilter).catch(() => null);
+
+    if (eligibleCount) {
+      warnings.push(
+        `No candidates retrieved for job ${job._id} even though ${eligibleCount} opted-in seeker(s) exist — neither vector search nor the skill/role keyword fallback matched anyone.`
+      );
+    }
+  }
+
+  return fallbackCandidates;
 }
 
 async function getExistingApplicationIds(jobId, seekerIds) {
@@ -509,17 +542,36 @@ async function runAutoApplyForJob(jobId, options = {}) {
         continue;
       }
 
+      /* atsScore is the PROFILE-vs-job score and nothing else — the same computeCandidateMatch
+         call the /jobs page makes, so /applied and /jobs show one number for a given pair. It is
+         no longer overwritten further down: the pre-filter composite and the post-resume blend
+         are gating signals, and gating signals now live in autoApplyDecision where they can be
+         audited. The gate arithmetic below is unchanged; only where each value is STORED moved. */
+      const profileMatch = computeCandidateMatch(seeker, job);
+
       const applicationPayload = {
         jobId: job._id,
         jobSeekerId: seeker._id,
         organizationId: job.organizationId,
-        // Pre-resume composite score — only a cost-control pre-filter signal. Overwritten below
-        // with the blended post-resume score (the true authoritative ATS score) once a tailored
-        // resume exists; kept as-is only for the rare default-resume fallback, where there's no
-        // resume text to re-score against.
-        atsScore: match.score,
-        atsTag: match.tag,
-        source: "auto"
+        atsScore: profileMatch.score,
+        atsTag: profileMatch.tag,
+        source: "auto",
+        autoApplyDecision: {
+          // Provisional: correct for the default-resume fallback, where this pre-filter really is
+          // the last gate. Replaced below when the post-resume blend runs.
+          gateScore: match.score,
+          gateTag: match.tag,
+          threshold,
+          prefilterScore: match.score,
+          // Normalised to 0-100 like every other score on this document. Null stays null: it
+          // means "no usable embedding on one side", never "similarity of zero".
+          vectorScore: vectorScore === null || vectorScore === undefined ? null : normalizeVectorScore(vectorScore),
+          gateSource:
+            match.reasoning?.scoringSource === "gemini_borderline"
+              ? "gemini_borderline"
+              : "prefilter_composite",
+          decidedAt: new Date()
+        }
       };
 
       const resumeAttachment = await attachResumeForAutoApply({
@@ -547,10 +599,14 @@ async function runAutoApplyForJob(jobId, options = {}) {
         }
 
         applicationPayload.tailoredResume = resumeAttachment.tailoredResume;
-        applicationPayload.atsScore = resumeAttachment.score;
-        applicationPayload.atsTag = resumeAttachment.tag;
+        // atsScore is deliberately NOT touched here. resumeAttachment.score is the blended
+        // resume+vector gate score, which belongs in autoApplyDecision.gateScore — writing it into
+        // atsScore is exactly the overwrite the model's comment forbids.
         applicationPayload.resumeMatchScore = resumeAttachment.resumeKeywordScore ?? null;
         applicationPayload.resumeMatchTag = resumeAttachment.resumeKeywordTag ?? null;
+        applicationPayload.autoApplyDecision.gateScore = resumeAttachment.score;
+        applicationPayload.autoApplyDecision.gateTag = resumeAttachment.tag;
+        applicationPayload.autoApplyDecision.gateSource = "final_resume_blend";
       }
 
       try {
@@ -735,17 +791,28 @@ async function runAutoApplyForSeeker(seekerId) {
       continue;
     }
 
+    // Same split as the batch path above: atsScore is the profile-vs-job score /jobs also shows,
+    // and every gating signal is recorded in autoApplyDecision instead of overwriting it.
+    // candidateMatch is already computed above for the log line.
     const applicationPayload = {
       jobId: job._id,
       jobSeekerId: seeker._id,
       organizationId: job.organizationId,
-      // Pre-resume composite score — only a cost-control pre-filter signal. Overwritten below
-      // with the blended post-resume score (the true authoritative ATS score) once a tailored
-      // resume exists; kept as-is only for the rare default-resume fallback, where there's no
-      // resume text to re-score against.
-      atsScore: match.score,
-      atsTag: match.tag,
-      source: "auto"
+      atsScore: candidateMatch.score,
+      atsTag: candidateMatch.tag,
+      source: "auto",
+      autoApplyDecision: {
+        gateScore: match.score,
+        gateTag: match.tag,
+        threshold,
+        prefilterScore: match.score,
+        vectorScore: vectorScore === null || vectorScore === undefined ? null : normalizeVectorScore(vectorScore),
+        gateSource:
+          match.reasoning?.scoringSource === "gemini_borderline"
+            ? "gemini_borderline"
+            : "prefilter_composite",
+        decidedAt: new Date()
+      }
     };
     const warnings = [];
     let resumeAttachment = await attachResumeForAutoApply({
@@ -798,13 +865,15 @@ async function runAutoApplyForSeeker(seekerId) {
       }
 
       applicationPayload.tailoredResume = resumeAttachment.tailoredResume;
-      applicationPayload.atsScore = resumeAttachment.score;
-      applicationPayload.atsTag = resumeAttachment.tag;
+      // See the batch path: the blended score is the GATE, not the ATS score.
       applicationPayload.resumeMatchScore = resumeAttachment.resumeKeywordScore ?? null;
       applicationPayload.resumeMatchTag = resumeAttachment.resumeKeywordTag ?? null;
+      applicationPayload.autoApplyDecision.gateScore = resumeAttachment.score;
+      applicationPayload.autoApplyDecision.gateTag = resumeAttachment.tag;
+      applicationPayload.autoApplyDecision.gateSource = "final_resume_blend";
     }
 
-    console.log(`[AutoApply] "${job.title}" — candidateScore: ${candidateMatch.score}, compositeScore: ${match.score}, finalScore: ${applicationPayload.atsScore}, threshold: ${threshold}`);
+    console.log(`[AutoApply] "${job.title}" — atsScore (profile): ${applicationPayload.atsScore}, prefilter: ${match.score}, gate: ${applicationPayload.autoApplyDecision.gateScore}, threshold: ${threshold}`);
 
     try {
       const application = await Application.create(applicationPayload);
@@ -869,6 +938,7 @@ module.exports = {
   // behave for the auto-apply paths above.
   AUTO_APPLY_CANDIDATE_FILTER,
   findCandidatesForJob,
+  SEEKER_VECTOR_INDEX,
   computePairVectorScore,
   hasLocationMatch,
   hasSalaryMatch,

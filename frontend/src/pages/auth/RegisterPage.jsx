@@ -86,7 +86,7 @@ export function RegisterPage() {
 
       if (response.accessToken) {
         const nextSession = await completeLogin(response);
-        navigate(getHomePathForRole(nextSession.role));
+        navigate(getHomePathForRole(nextSession.role, nextSession.isPro));
         return;
       }
 

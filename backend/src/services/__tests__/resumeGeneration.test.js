@@ -290,6 +290,36 @@ test("the headline renders only for the variants that declare it, and only when 
   }
 });
 
+/* REGRESSION. buildResumeHeadline returns an array of PARTS on every path except one: when the
+   profile has a tagline it returned the bare STRING, and the caller does
+   `formatResumeHeadline(headline)` -> `parts.map(escapeLatex)`. That threw "parts.map is not a
+   function" and 500'd the whole request, so ANY seeker with a tagline set could not generate a
+   tailored resume — no Pro manual apply, no auto-apply, for them.
+
+   The test above never caught it because both its fixtures reach the headline through
+   preferredRoles; neither carries a tagline. The `headline.length ?` guard at the call site does
+   not catch it either, since a non-empty string has a length too. */
+test("a profile whose headline comes from its TAGLINE renders instead of throwing", () => {
+  const base = fixtures.find((f) => f.name === "headline-and-location").profile;
+  const withTagline = { ...base, tagline: "Platform Engineer | Kubernetes & Go" };
+  const headlineOf = (latex) => (documentBody(latex).match(/\\resumeHeadline\{([^}]*)\}/) || [])[1] || "";
+
+  for (const variant of ["b", "e", "f"]) {
+    let latex;
+    assert.doesNotThrow(() => {
+      latex = build(withTagline, variant);
+    }, `[${variant}] a tagline must not crash headline rendering`);
+
+    const headline = headlineOf(latex);
+    // The tagline is the headline, verbatim — a single-part array joins to exactly itself, so no
+    // separator is introduced and nothing is dropped.
+    assert.match(headline, /Platform Engineer/, `[${variant}] the tagline must reach the headline`);
+    assert.doesNotMatch(headline, /\$\|\$/, `[${variant}] a one-part headline must not gain a separator`);
+    // The tagline wins over preferredRoles, which this fixture also has.
+    assert.doesNotMatch(headline, /Backend Engineer/, `[${variant}] preferredRoles must not override the tagline`);
+  }
+});
+
 test("the contact line is built from profile data, with separators collapsing around gaps", () => {
   const full = documentBody(build(fixtures.find((f) => f.name === "headline-and-location").profile));
   assert.match(full, /Pune, India/, "location must come from the profile");

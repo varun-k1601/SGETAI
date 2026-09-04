@@ -6,6 +6,7 @@ import { useTheme } from "../context/ThemeContext";
 import { BrandLogo } from "../components/BrandLogo";
 import { CareerAgentWidget } from "../components/CareerAgentWidget";
 import { apiBlobRequest, apiRequest } from "../services/api";
+import { isProSeekerSession, seekerPath, stripProPrefix } from "../utils/roleHome";
 
 // Icons that follow the Lucide stroke-based convention (fill: none, stroked paths) — see
 // getIconSvg in frontend/src/pages/pro/AIGeneratorPage.jsx for the same convention. Kept as a
@@ -224,7 +225,11 @@ function buildNavItems(baseItems, isProSeeker) {
     return baseItems;
   }
 
-  const anchorIndex = baseItems.findIndex((item) => item.to === PRO_NAV_ANCHOR);
+  // Compared with the tier prefix stripped: the caller maps seekerPath() over these items before
+  // handing them here, so a Pro seeker's Messages row arrives as "/pro/chat". A bare
+  // `item.to === PRO_NAV_ANCHOR` would silently miss for exactly the users this splice exists for,
+  // fall through to the append fallback, and drop Automations to the bottom of their sidebar.
+  const anchorIndex = baseItems.findIndex((item) => stripProPrefix(item.to) === PRO_NAV_ANCHOR);
   // If the anchor ever disappears, append rather than drop: a Pro seeker losing Automations and
   // Notifications outright would be a far worse failure than them rendering at the bottom.
   const insertAt = anchorIndex === -1 ? baseItems.length : anchorIndex + 1;
@@ -257,7 +262,7 @@ const recruiterNavItems = [
 // (see the comments in routes/AppRouter.jsx). Every entry below has a real route registered in
 // the admin block of AppRouter; nothing here leads to NotFoundPage.
 const adminNavItems = [
-  { to: "/dashboard/overview", label: "Overview", icon: "layout-grid" },
+  { to: "/admin/overview", label: "Overview", icon: "layout-grid" },
   { to: "/admin/candidates", label: "Candidates", icon: "users" },
   { to: "/admin/applications", label: "Applications", icon: "clipboard" },
   { to: "/admin/recruiter-pipeline", label: "Recruiter pipeline", icon: "gauge" },
@@ -290,20 +295,33 @@ export function AppShell() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const isAdmin = session?.role === "SuperAdmin" || session?.role === "Moderator";
   const isRecruiter = session?.role === "organization";
+  /* THE TIER PREFIX IS APPLIED HERE, ONCE. seekerNavItems is written with clean paths and every
+     entry gets seekerPath() mapped over it for a Pro seeker, so the sidebar emits /pro/* links
+     directly and the common case never takes the canonicaliser's redirect — the URL bar is right
+     the instant the page paints.
+
+     Only seekerNavItems is mapped. proOnlyNavItems already carries /pro/automations, a genuinely
+     Pro-gated route whose prefix is real gating rather than tier decoration; seekerPath is
+     idempotent so it would be harmless, but mapping it would blur a distinction worth keeping.
+     The recruiter and admin arrays are never mapped: isProSeeker is false for those roles. */
+  const isProSeeker = isProSeekerSession(session);
   const baseNavItems = isAdmin
     ? adminNavItems
     : session?.role === "organization"
       ? recruiterNavItems
-      : seekerNavItems;
-  const navItems = buildNavItems(baseNavItems, session?.role === "seeker" && session?.isPro);
-  const profilePath = isAdmin ? "/dashboard/overview" : "/profile";
+      : seekerNavItems.map((item) => ({ ...item, to: seekerPath(item.to, isProSeeker) }));
+  const navItems = buildNavItems(baseNavItems, isProSeeker);
+  const profilePath = isAdmin ? "/admin/overview" : seekerPath("/profile", isProSeeker);
   // Where the header bell goes, per role. One expression rather than three buttons.
   //   organization → /recruiter/notifications, its own route inside the recruiter group
-  //   seeker       → /notifications, unchanged (the shared ProRoute path it already used)
+  //   seeker       → /notifications, or /pro/notifications on the Pro tier
   //   admin        → /notifications, unchanged — it is their only path, and /recruiter/* would
-  //                  bounce them off RoleRoute. (The bell itself is hidden for admins today; the
-  //                  branch is kept correct so it stays right if that ever changes.)
-  const notificationsPath = isRecruiter ? "/recruiter/notifications" : "/notifications";
+  //                  bounce them off RoleRoute. seekerPath is a no-op for admins because
+  //                  isProSeeker is false for them. (The bell itself is hidden for admins today;
+  //                  the branch is kept correct so it stays right if that ever changes.)
+  const notificationsPath = isRecruiter
+    ? "/recruiter/notifications"
+    : seekerPath("/notifications", isProSeeker);
   const notificationsQuery = useQuery({
     queryKey: ["notifications", session?.role, "navbar"],
     queryFn: () =>

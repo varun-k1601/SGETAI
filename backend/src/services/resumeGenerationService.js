@@ -1254,7 +1254,15 @@ function buildResumeHeadline(profile = {}, categorizedSkills = []) {
   const tagline = sentence(profile.tagline);
 
   if (tagline) {
-    return tagline;
+    /* Wrapped in an array. Every other return from this function is an array of PARTS, and the
+       caller does `formatResumeHeadline(headline)` -> `parts.map(escapeLatex)`. Returning the bare
+       string threw "parts.map is not a function" and took the whole request down with a 500 — and
+       the `headline.length ?` guard at the call site does not catch it, because a non-empty string
+       has a length too. Any seeker with a tagline set therefore could not generate a tailored
+       resume at all, which meant no Pro manual apply and no auto-apply for them. A single-part
+       array joins to exactly the tagline, so the rendered output is unchanged for everyone whose
+       resume did build. */
+    return [tagline];
   }
 
   /* THE HEADLINE IS A TARGET POSITIONING, NOT A JOB HISTORY.

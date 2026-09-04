@@ -1,8 +1,14 @@
-import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { ProtectedRoute, ProRoute, RoleRoute } from "./ProtectedRoute";
 import { AppShell } from "../layouts/AppShell";
 import { useAuth } from "../context/AuthContext";
-import { getHomePathForRole } from "../utils/roleHome";
+import {
+  getHomePathForRole,
+  hasProPrefix,
+  isProSeekerSession,
+  seekerPath,
+  stripProPrefix
+} from "../utils/roleHome";
 import { LoginPage } from "../pages/auth/LoginPage";
 import { OAuthCallbackPage } from "../pages/auth/OAuthCallbackPage";
 import { OAuthCompleteRecruiterPage } from "../pages/auth/OAuthCompleteRecruiterPage";
@@ -56,12 +62,106 @@ import { RecruiterSettingsPage } from "../pages/recruiter/RecruiterSettingsPage"
 import { NotFoundPage } from "../pages/NotFoundPage";
 
 function RoleHomeRedirect() {
-  const { session } = useAuth();
-  return <Navigate to={getHomePathForRole(session?.role)} replace />;
+  const { session, isBootstrapping } = useAuth();
+
+  /* WAIT FOR THE SESSION BEFORE CHOOSING A DESTINATION. This route is not behind ProtectedRoute,
+     so on a HARD load of "/" it rendered on the very first paint, while AuthContext was still
+     restoring the session from storage. session?.role was therefore undefined, and
+     getHomePathForRole falls through to "/home" for any role it does not recognise — so an admin
+     or a recruiter opening "/" cold was sent to the SEEKER feed and left there.
+
+     It never surfaced as a 404 precisely because /home admits admins by a documented cross-role
+     allowance and simply rendered, and because an in-app click to "/" works fine: by then the
+     session is in memory. Only the cold load was wrong, which is why clicking around never
+     revealed it.
+
+     Redirecting is a decision that cannot be taken back once `replace` has run, so it must not be
+     taken on incomplete information. ProtectedRoute and RoleRoute already hold for exactly this
+     reason; this route was the one that did not. */
+  if (isBootstrapping) {
+    return <section className="loading-state">Loading your workspace...</section>;
+  }
+
+  return <Navigate to={getHomePathForRole(session?.role, session?.isPro)} replace />;
 }
 
 /* ===============================================================================================
-   LEGACY PATH REDIRECT — the /pro/* prefix was a NAMING ARTIFACT, never a gate.
+   THE SEEKER TIER PREFIX — dual registration plus one canonicaliser.
+   ===============================================================================================
+   A Pro seeker's URLs carry /pro; a free seeker's do not. Same page, same component, same guard —
+   the prefix reflects the USER'S TIER, not the route's gating.
+
+   THE SAFETY PROPERTY, restated because this deliberately reintroduces two URLs per page.
+   /pro/notifications was collapsed earlier precisely because one page mounted at two URLs "under
+   different rules" is how the paywalled-bell bug survived. Two URLs are safe here, and only here,
+   because of two invariants that must both hold:
+
+     1. BOTH shapes mount the SAME element under the SAME guard. tierRoutes() below emits the pair
+        from a single entry, inside whatever wrapper the group already has, so the two cannot drift
+        apart or acquire different rules. The failure mode to avoid is putting the /pro/* copies
+        behind <ProRoute /> — that would recreate the old bug exactly. They are not.
+     2. Exactly one of the two is ever DISPLAYED for a given user, because TierCanonical rewrites
+        the other away on sight.
+
+   Access control is untouched: nothing here gates anything. A free seeker who types /pro/jobs is
+   rewritten to /jobs and sees the page — never sent to /upgrade, because /jobs was never gated.
+   =============================================================================================== */
+
+// Emits both shapes of each shared seeker route from one entry. Used INSIDE an existing group so
+// the pair inherits that group's guard and shell — never as a way to introduce a second wrapper.
+function tierRoutes(entries) {
+  return entries.flatMap(([path, element]) => [
+    <Route key={path} path={path} element={element} />,
+    <Route key={`/pro${path}`} path={`/pro${path}`} element={element} />
+  ]);
+}
+
+/* Rewrites the URL to match the viewer's tier, then renders the route underneath. Sits ABOVE
+   <AppShell /> in every group that uses it so a rewrite renders nothing at all — no shell flash
+   on the way through.
+
+   The test is exactly `role === "seeker" && isPro` (isProSeekerSession), never "has a session",
+   "not an admin", or isPro alone. That matters because most of the routes this wraps are NOT
+   seeker-exclusive: /home and /jobs admit admins, /profile admits organizations, /chat and
+   /connections admit anyone authenticated. An admin on /home or a recruiter on /profile is not a
+   Pro seeker, so the first branch never fires for them and they keep their clean URL.
+
+   The second branch is what catches them coming the other way: a recruiter who somehow reaches
+   /pro/profile is not a Pro seeker either, so the prefix is stripped and they land on /profile.
+   That is the branch that also serves free seekers and stale /pro/* bookmarks.
+
+   `replace` on both, so the rewritten-away URL never enters history and Back cannot bounce the
+   user forward into the redirect again. Search and hash are carried across; without them a deep
+   link like /jobs?q=react#top would lose everything after the path. */
+function TierCanonical() {
+  const { session } = useAuth();
+  const { pathname, search, hash } = useLocation();
+  const isProSeeker = isProSeekerSession(session);
+  const prefixed = hasProPrefix(pathname);
+
+  /* `to` is an OBJECT rather than a template string: it states pathname, search and hash as three
+     separate fields, so none of them can be lost to string parsing. Verified end to end —
+     /learn#top rewrites to /pro/learn#top and /jobs?q=react#top to /pro/jobs?q=react#top, query
+     and fragment intact. */
+  if (isProSeeker && !prefixed) {
+    return <Navigate to={{ pathname: `/pro${pathname}`, search, hash }} replace />;
+  }
+  if (!isProSeeker && prefixed) {
+    return <Navigate to={{ pathname: stripProPrefix(pathname), search, hash }} replace />;
+  }
+
+  return <Outlet />;
+}
+
+// One-hop redirect to a tier-correct destination, for a legacy path with no clean-path twin.
+function TierHomeRedirect({ to }) {
+  const { session } = useAuth();
+  const { search, hash } = useLocation();
+  return <Navigate to={{ pathname: seekerPath(to, isProSeekerSession(session)), search, hash }} replace />;
+}
+
+/* ===============================================================================================
+   LEGACY PATH REDIRECT — for paths that were renamed, not re-tiered.
    ===============================================================================================
    /pro/tools, /pro/ai, /pro/jobs, /pro/applied, /pro/learn, /pro/help, /pro/settings and
    /pro/profile all sat in plain seeker (or seeker+organization) groups with NO ProRoute, so every
@@ -125,42 +225,75 @@ export function AppRouter() {
           may not see the destination is then bounced once more to its own home by RoleRoute —
           still terminating, because every role's home is a route that role is allowed. */}
       <Route element={<ProtectedRoute />}>
-        <Route path="/pro" element={<LegacyRedirect to="/tools" />} />
-        <Route path="/pro/tools" element={<LegacyRedirect to="/tools" />} />
-        <Route path="/pro/profile" element={<LegacyRedirect to="/profile" />} />
-        <Route path="/pro/ai" element={<LegacyRedirect to="/ai" />} />
-        <Route path="/pro/jobs" element={<LegacyRedirect to="/jobs" />} />
-        <Route path="/pro/jobs/:jobId" element={<LegacyRedirect to="/jobs/:jobId" />} />
-        <Route path="/pro/applied" element={<LegacyRedirect to="/applied" />} />
-        <Route path="/pro/learn" element={<LegacyRedirect to="/learn" />} />
-        <Route path="/pro/help" element={<LegacyRedirect to="/help" />} />
-        <Route path="/pro/settings" element={<LegacyRedirect to="/settings" />} />
-        {/* Notifications are NOT Pro-gated — see the /notifications block below. This path used to
-            mount NotificationsPage a second time behind RoleRoute + ProRoute, which meant one page
-            reachable at two URLs under different rules; that split is how the paywalled-bell bug
-            survived. One page, one canonical URL, and this redirect keeps existing links alive. */}
-        <Route path="/pro/notifications" element={<LegacyRedirect to="/notifications" />} />
+        {/* The ten /pro/* -> clean-path redirects that used to live here are GONE, deliberately.
+            They pointed the opposite way to the tier canonicaliser and the two together would have
+            looped forever for a Pro seeker:
+
+                /pro/jobs -> (legacy) -> /jobs -> (canonicaliser, user is Pro) -> /pro/jobs -> ...
+
+            The bookmarks they existed to serve are now served better by dual registration: every
+            one of those ten paths is a REGISTERED route again, so a /pro/* bookmark resolves
+            directly instead of bouncing, and the canonicaliser additionally handles the reverse
+            direction, which a one-way redirect never could. A free seeker opening a stale
+            /pro/jobs bookmark now lands on /jobs; a Pro seeker opening a /jobs bookmark lands on
+            /pro/jobs. Neither 404s and neither is paywalled.
+
+            /pro alone has no clean-path twin, so it stays a redirect — repointed to be
+            tier-aware so it still resolves in ONE hop rather than bouncing through /tools. */}
+        <Route path="/pro" element={<TierHomeRedirect to="/tools" />} />
+        {/* THE ADMIN CONSOLE HOME'S TWO FORMER PATHS. /dashboard/overview was the console home and
+            /dashboard/admin was already a legacy alias pointing AT it, so both are certainly
+            bookmarked after a product lifetime of service and neither may 404.
+
+            Both aim directly at /admin/overview. /dashboard/admin is deliberately NOT left aimed
+            at /dashboard/overview: that would make it a redirect to a redirect, two hops for a URL
+            that can just as easily take one.
+
+            They sit in this block rather than in the admin group so they inherit the convention
+            above — the redirect only rewrites the URL and never role-checks, leaving the canonical
+            route as the single authority on who may see it. A seeker who hits /dashboard/overview
+            is therefore rewritten to /admin/overview and THEN bounced to /home by RoleRoute: one
+            extra hop, still terminating, and it cannot loop because /home is a route seekers are
+            allowed. */}
+        <Route path="/dashboard/overview" element={<LegacyRedirect to="/admin/overview" />} />
+        <Route path="/dashboard/admin" element={<LegacyRedirect to="/admin/overview" />} />
         {/* Pre-dates the /pro group; /applied is canonical because it is the label the nav uses
             ("Applied Jobs") and the path the brief names. */}
         <Route path="/applications" element={<LegacyRedirect to="/applied" />} />
+        {/* /upgrade is deliberately never prefixed, which leaves /pro/upgrade unregistered — and a
+            Pro seeker whose every other URL carries /pro can reasonably type it. Redirecting is
+            friendlier than the 404 it would otherwise hit. It cannot loop: /upgrade sits outside
+            the canonicaliser, so nothing sends it back. */}
+        <Route path="/pro/upgrade" element={<LegacyRedirect to="/upgrade" />} />
       </Route>
 
-      {/* Seeker-only routes, on canonical paths. Nothing in this group is Pro-gated — that is the
-          whole point: a free seeker reaches every one of them, so none may claim "pro" in its URL.
-          Pro-only routes live in their own group at the bottom of this file. */}
+      {/* Seeker-only routes. Nothing in this group is Pro-GATED — a free seeker reaches every one
+          of them — so both tier shapes are registered here together and TierCanonical picks which
+          one the viewer sees. Genuinely Pro-only routes live in their own group at the bottom of
+          this file and are NOT dual-registered. */}
       <Route element={<RoleRoute allowedRoles={["seeker"]} />}>
-        <Route element={<AppShell />}>
-          <Route path="/tools" element={<ProToolsPage />} />
-          <Route path="/ai" element={<AIGeneratorPage />} />
-          <Route path="/applied" element={<ApplicationsPage />} />
-          <Route path="/learn" element={<LearnPage />} />
-          <Route path="/help" element={<HelpPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+        <Route element={<TierCanonical />}>
+          <Route element={<AppShell />}>
+            {tierRoutes([
+              ["/tools", <ProToolsPage />],
+              ["/ai", <AIGeneratorPage />],
+              ["/applied", <ApplicationsPage />],
+              ["/learn", <LearnPage />],
+              ["/help", <HelpPage />],
+              ["/settings", <SettingsPage />],
+              ["/resume-builder", <ResumeBuilderPage />],
+              ["/ats-checker", <ResumeAtsCheckerPage />],
+              ["/following", <FollowsPage />]
+            ])}
+          </Route>
+        </Route>
 
+        {/* /upgrade is deliberately OUTSIDE the canonicaliser and single-registered. It is the
+            free tier's own page — the thing a Pro seeker has already done — so /pro/upgrade is a
+            contradiction in terms, and prefixing it would put the paywall pitch behind a URL that
+            announces the user does not need it. */}
+        <Route element={<AppShell />}>
           <Route path="/upgrade" element={<UpgradePage />} />
-          <Route path="/resume-builder" element={<ResumeBuilderPage />} />
-          <Route path="/ats-checker" element={<ResumeAtsCheckerPage />} />
-          <Route path="/following" element={<FollowsPage />} />
         </Route>
       </Route>
 
@@ -170,8 +303,13 @@ export function AppRouter() {
           canonical path: it is now the recruiter's own profile page too, which /pro/profile used
           to be, so narrowing it to seekers would have broken that. */}
       <Route element={<RoleRoute allowedRoles={["seeker", "organization"]} />}>
-        <Route element={<AppShell />}>
-          <Route path="/profile" element={<ProfilePage />} />
+        <Route element={<TierCanonical />}>
+          <Route element={<AppShell />}>
+            {/* An ORGANIZATION reaching either shape keeps /profile: TierCanonical's add branch
+                requires role === "seeker", so it never fires for them, and its strip branch sends
+                a recruiter who lands on /pro/profile back to the clean path. */}
+            {tierRoutes([["/profile", <ProfilePage />]])}
+          </Route>
         </Route>
       </Route>
 
@@ -181,10 +319,18 @@ export function AppRouter() {
           product. Narrowing the allowlist is a separate, riskier change and is deliberately not
           bundled with the nav swap. */}
       <Route element={<RoleRoute allowedRoles={["seeker", "SuperAdmin", "Moderator"]} />}>
-        <Route element={<AppShell />}>
-          <Route path="/home" element={<FeedPage />} />
-          <Route path="/jobs" element={<JobsPage />} />
-          <Route path="/jobs/:jobId" element={<JobDetailPage />} />
+        <Route element={<TierCanonical />}>
+          <Route element={<AppShell />}>
+            {/* ADMINS share these three. They are not Pro seekers, so TierCanonical leaves their
+                URLs clean and would strip the prefix if one ever appeared. FeedPage's own isPro
+                branch (ProSeekerDashboard vs NormalSeekerDashboard) is untouched by any of this —
+                which dashboard renders is a page concern, not a routing one. */}
+            {tierRoutes([
+              ["/home", <FeedPage />],
+              ["/jobs", <JobsPage />],
+              ["/jobs/:jobId", <JobDetailPage />]
+            ])}
+          </Route>
         </Route>
       </Route>
 
@@ -213,16 +359,17 @@ export function AppRouter() {
       </Route>
 
       {/* Admin-only routes. Every entry in AppShell's adminNavItems resolves here, so no console
-          nav link can fall through to NotFoundPage. The console home is /dashboard/overview, so
-          the URL matches the nav label; the old /dashboard/admin path is kept as a redirect so
-          existing bookmarks and any links already in the wild still land on a real page rather
-          than NotFoundPage. Everything added since uses the /admin/* prefix. */}
+          nav link can fall through to NotFoundPage. The console home is /admin/overview, which
+          puts it on the same prefix as the other nine console routes and mirrors how the recruiter
+          console already names its own home (/recruiter/overview). It was the last page in here
+          whose URL did not say which console it belonged to.
+
+          Its two former paths, /dashboard/overview and /dashboard/admin, are both registered as
+          redirects in the legacy block far above — not here — because a redirect must not sit
+          behind this group's role allowlist. See the comment there. */}
       <Route element={<RoleRoute allowedRoles={["SuperAdmin", "Moderator"]} />}>
         <Route element={<AppShell />}>
-          <Route path="/dashboard/overview" element={<AdminDashboardPage />} />
-          {/* Legacy path, superseded by /dashboard/overview above. Kept indefinitely: it was the
-              admin home for the whole life of the product so far. */}
-          <Route path="/dashboard/admin" element={<Navigate to="/dashboard/overview" replace />} />
+          <Route path="/admin/overview" element={<AdminDashboardPage />} />
           <Route path="/admin/candidates" element={<AdminCandidatesPage />} />
           <Route path="/admin/applications" element={<AdminApplicationsPage />} />
           <Route path="/admin/recruiter-pipeline" element={<AdminRecruiterPipelinePage />} />
@@ -238,10 +385,23 @@ export function AppRouter() {
       {/* Shared/role-agnostic routes — genuinely meant for more than one role, so they keep the
           plain isAuthenticated-only guard rather than an allowlist. */}
       <Route element={<ProtectedRoute />}>
+        <Route element={<TierCanonical />}>
+          <Route element={<AppShell />}>
+            {/* Any authenticated role reaches these three, which is exactly why the canonicaliser
+                tests the role rather than merely "is logged in": only a Pro SEEKER gets /pro here.
+                An admin on /connections keeps /connections. */}
+            {tierRoutes([
+              ["/posts/create", <CreatePostPage />],
+              ["/chat", <ChatPage />],
+              ["/connections", <ConnectionsPage />]
+            ])}
+          </Route>
+        </Route>
+
+        {/* An organization's public page, not the seeker's own workspace — so it is not tiered and
+            stays outside the canonicaliser. /pro/organizations/:id would claim the org belongs to
+            the viewer's subscription. */}
         <Route element={<AppShell />}>
-          <Route path="/posts/create" element={<CreatePostPage />} />
-          <Route path="/chat" element={<ChatPage />} />
-          <Route path="/connections" element={<ConnectionsPage />} />
           <Route path="/organizations/:id" element={<OrganizationPage />} />
         </Route>
       </Route>
@@ -272,8 +432,16 @@ export function AppRouter() {
           element stays wrapped only so an organization is forwarded to /recruiter/notifications
           (see NotificationsRoute above), which changes nothing for seekers or admins. */}
       <Route element={<ProtectedRoute />}>
-        <Route element={<AppShell />}>
-          <Route path="/notifications" element={<NotificationsRoute />} />
+        <Route element={<TierCanonical />}>
+          <Route element={<AppShell />}>
+            {/* /pro/notifications is BACK as a registered path — but note what changed since it
+                was collapsed. It is no longer a second mounting under a different rule: both
+                shapes are the same NotificationsRoute under this same ProtectedRoute, with no
+                ProRoute anywhere near them. The old bug was two URLs with two gates; this is two
+                URLs with one gate and a canonicaliser that shows exactly one of them. Admins keep
+                the clean path. */}
+            {tierRoutes([["/notifications", <NotificationsRoute />]])}
+          </Route>
         </Route>
       </Route>
 

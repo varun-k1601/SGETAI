@@ -321,9 +321,22 @@ export function ApplicationsPage() {
       >
         <div className="ap-card__top">
           <CompanyLogo organization={app.organizationId} size="sm" />
-          <div className="ap-match" aria-hidden="true">
+          {/* SNAPSHOT, AND LABELLED AS ONE. atsScore is the profile-vs-job score as it stood when
+              the seeker applied — the same computeCandidateMatch value /jobs shows live. The two
+              agree for an unchanged profile, and once the seeker improves theirs an older
+              application legitimately reads lower than /jobs does today. That is only honest if
+              the label says so, otherwise it is the same confusion with better numbers. */}
+          <div
+            className="ap-match"
+            aria-hidden="true"
+            title={
+              score === null
+                ? "No match score was recorded for this application"
+                : `${score}% match at the time of applying`
+            }
+          >
             <p className="ap-match__value">{score === null ? "—" : `${score}%`}</p>
-            <p className="ap-match__label">Match</p>
+            <p className="ap-match__label">Match when applied</p>
           </div>
         </div>
 
@@ -333,7 +346,9 @@ export function ApplicationsPage() {
             className="ap-card__title"
             onClick={(event) => event.stopPropagation()}
             aria-label={`${jobTitle} at ${companyName}, ${columnLabel}, ${
-              score === null ? "match score not available" : `${score} percent match`
+              score === null
+                ? "match score not available"
+                : `${score} percent match at the time of applying`
             }`}
           >
             {jobTitle}

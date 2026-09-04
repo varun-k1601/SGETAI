@@ -84,7 +84,8 @@ export function JobsPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [searchParams, setSearchParams] = useSearchParams();
+  // Read-only now: the write side goes through navigate() below so the fragment survives.
+  const [searchParams] = useSearchParams();
   const urlQuery = searchParams.get("q") || "";
   const [searchQuery, setSearchQuery] = useState(urlQuery);
   const [activeCompanyId, setActiveCompanyId] = useState("");
@@ -114,7 +115,20 @@ export function JobsPage() {
     } else {
       next.delete("q");
     }
-    setSearchParams(next, { replace: true });
+    /* navigate() with an explicit location object, not setSearchParams(). setSearchParams rewrites
+       the URL as pathname + search ONLY and silently drops any fragment, so this effect erased the
+       #hash of every deep link into this page the moment it first ran — /jobs#top settled on /jobs
+       for free seekers, Pro seekers and admins alike. Naming search and hash separately keeps both.
+
+       window.location.hash rather than useLocation().hash deliberately: this effect intentionally
+       depends on trimmedQuery alone (adding more deps re-runs it on every URL write, which is a
+       loop), so a hash captured in the closure would go stale. Read at call time it is always the
+       live one. */
+    const nextSearch = next.toString();
+    navigate(
+      { search: nextSearch ? `?${nextSearch}` : "", hash: window.location.hash },
+      { replace: true }
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trimmedQuery]);
 

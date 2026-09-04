@@ -35,7 +35,7 @@ export function RoleRoute({ allowedRoles }) {
   }
 
   if (!allowedRoles.includes(session?.role)) {
-    const home = getHomePathForRole(session?.role);
+    const home = getHomePathForRole(session?.role, session?.isPro);
 
     /* LOOP GUARD. getHomePathForRole falls through to "/home" for any role it does not recognise,
        including undefined — and "/home" is itself inside a RoleRoute allowlist. A session with a

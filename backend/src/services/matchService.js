@@ -1190,5 +1190,10 @@ module.exports = {
   computeResumeTextMatch,
   getTopKeywords: extractImportantTerms,
   tagFromScore,
-  cosineSimilarity
+  cosineSimilarity,
+  // Exported unchanged so autoApplyWorker can persist the vector term on the same 0-100 scale the
+  // blend itself uses. computePairVectorScore hands back a RAW cosine (-1..1); storing that
+  // straight into Application.autoApplyDecision.vectorScore would either fail the 0-100 validator
+  // on a negative similarity or silently record 0.87 as "0.87% similar".
+  normalizeVectorScore
 };

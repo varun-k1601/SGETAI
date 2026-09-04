@@ -5,61 +5,29 @@ import { apiRequest } from "../../services/api";
 import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
 import { getMediaUrl } from "../../components/CompanyLogo";
 
+/* STYLING APPROACH — scoped global CSS (`.connections-page ...` in styles.css) on the shared
+   --ph-* tokens, matching .applied-page / .notif-page / .ai-gen.
+
+   This page used to be written in Tailwind utilities, which paint almost nothing here: index.css
+   wires FONTS ONLY into Tailwind v4's @theme, so every semantic colour utility (bg-card,
+   border-border, text-muted-foreground, bg-surface, text-foreground, shadow-elegant) generates no
+   CSS at all, and opacity modifiers on var()-backed colours (/70, /60, /40) generate nothing
+   either. Measured on the old markup: bg-card/70 computed to rgba(0,0,0,0) and shadow-elegant to
+   none, while `border-border/60` never resolved, so `border` fell back to currentColor — the TEXT
+   colour. That is why every card was a transparent box outlined in pure white in dark mode: 36
+   elements carried a currentColor hairline, 48 in light. Only the geometry utilities survived.
+
+   The fix is NOT to add colours to @theme — that would silently repaint every page in the app.
+   Scoped CSS is what the rest of the product already uses, and because the --ph-* tokens flip for
+   dark, one set of rules covers both themes.
+
+   Note also that styles.css's unlayered `:root[data-theme="dark"] button` rule is (0,2,1) and
+   outranks a two-class scoped rule, so every button rule in the .cn-* block is duplicated with a
+   `button.` qualifier. That is why the inline style objects this file used to carry — four of
+   them, re-declaring background/border/shadow/transform on every button to fight that rule — are
+   gone. */
+
 const responseOptions = ["Accepted", "Rejected", "Ignored"];
-
-// This app's global `button { background, border-radius, padding, border, box-shadow, color,
-// font-weight, transform, transition }` rule in styles.css is unlayered, so it silently wins over
-// any Tailwind utility class applied directly to a <button> (see AIGeneratorPage.jsx's
-// PostToLinkedInButton for the original diagnosis, and confirmed again here by inspecting computed
-// styles — every button on this page was rendering the global blue gradient/white-text/12px-radius
-// regardless of className). Resetting those specific properties inline is the established
-// workaround; layout/spacing/font-size classes are unaffected and stay as Tailwind classes.
-const neutralPillStyle = {
-  border: "1px solid var(--border)",
-  borderRadius: "9999px",
-  background: "var(--surface)",
-  boxShadow: "none",
-  color: "var(--text-muted)",
-  fontWeight: 500,
-  padding: "0.4rem 0.9rem",
-  transform: "none",
-  transition: "none",
-};
-
-const brandOutlinePillStyle = {
-  border: "1px solid var(--brand)",
-  borderRadius: "9999px",
-  background: "var(--surface)",
-  boxShadow: "none",
-  color: "var(--brand)",
-  fontWeight: 600,
-  padding: "0.4rem 0.9rem",
-  transform: "none",
-  transition: "none",
-};
-
-const solidBrandPillStyle = {
-  border: "1px solid transparent",
-  borderRadius: "9999px",
-  background: "linear-gradient(180deg, var(--brand), var(--brand-deep))",
-  boxShadow: "none",
-  color: "#ffffff",
-  fontWeight: 600,
-  padding: "0.4rem 0.9rem",
-  transform: "none",
-  transition: "none",
-};
-
-const dismissButtonStyle = {
-  border: "none",
-  borderRadius: "9999px",
-  background: "#1f2937",
-  boxShadow: "none",
-  color: "#ffffff",
-  padding: 0,
-  transform: "none",
-  transition: "none",
-};
 
 function getSeekerInitial(seeker) {
   const name = `${seeker?.firstName || ""} ${seeker?.lastName || ""}`.trim();
@@ -72,11 +40,7 @@ function SeekerAvatar({ seeker, size = "sm" }) {
 
   return (
     <span className={`seeker-avatar seeker-avatar--${size}`} aria-hidden="true">
-      {profilePictureUrl ? (
-        <img src={profilePictureUrl} alt="" />
-      ) : (
-        <span style={{ color: "var(--text-muted)" }}>{initial}</span>
-      )}
+      {profilePictureUrl ? <img src={profilePictureUrl} alt="" /> : <span className="cn-avatar__initial">{initial}</span>}
     </span>
   );
 }
@@ -101,15 +65,15 @@ function formatDate(value) {
 
 function PersonSummary({ person }) {
   return (
-    <div className="min-w-0">
-      <strong className="block truncate font-semibold text-foreground">
+    <div className="cn-person-summary">
+      <strong className="cn-person-summary__name">
         {person?.firstName || "Unknown"} {person?.lastName || "seeker"}
       </strong>
-      <p className="truncate text-xs text-muted-foreground">
+      <p className="cn-person-summary__line">
         {person?.username ? `@${person.username}` : person?.email || person?.tagline || "Profile summary not available"}
       </p>
-      {person?.username && person?.email ? <p className="truncate text-xs text-muted-foreground">{person.email}</p> : null}
-      {person?.bio ? <p className="mt-1 text-xs text-muted-foreground">{person.bio}</p> : null}
+      {person?.username && person?.email ? <p className="cn-person-summary__line">{person.email}</p> : null}
+      {person?.bio ? <p className="cn-person-summary__bio">{person.bio}</p> : null}
     </div>
   );
 }
@@ -152,7 +116,7 @@ function UserPlusIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-3.5 w-3.5"
+      className="cn-icon cn-icon--sm"
       aria-hidden="true"
     >
       <path d="M2 21a8 8 0 0 1 13.292-6"></path>
@@ -175,7 +139,7 @@ function DismissIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-3.5 w-3.5"
+      className="cn-icon cn-icon--sm"
       aria-hidden="true"
     >
       <path d="M18 6 6 18"></path>
@@ -206,60 +170,53 @@ function SeekerSuggestionCard({
       !(connection.status === "Pending" && connection.direction === "received"));
 
   return (
-    <div className="relative flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/70 shadow-elegant backdrop-blur-xl">
+    <article className="cn-person">
       <button
         type="button"
         title="Dismiss suggestion"
+        aria-label="Dismiss suggestion"
         onClick={(event) => {
           event.stopPropagation();
           onDismiss(seeker._id);
         }}
-        style={dismissButtonStyle}
-        className="absolute right-2 top-2 z-10 grid h-6 w-6 place-items-center"
+        className="cn-icon-btn cn-person__dismiss"
       >
         <DismissIcon />
       </button>
 
-      {/* Muted, desaturated cover strip — this app's own surface/border tokens, not the vivid
+      {/* Muted, desaturated cover strip — this app's own surface tokens, not the vivid
           purple-to-blue brand gradient reserved for primary CTAs. */}
-      <div
-        className="h-14 shrink-0"
-        style={{ background: "linear-gradient(135deg, var(--surface-muted), var(--surface-soft))" }}
-      ></div>
+      <div className="cn-person__cover" aria-hidden="true"></div>
 
-      <div className="flex flex-1 flex-col items-center px-4 pb-4 text-center">
-        <div className="-mt-8 rounded-full border-4" style={{ borderColor: "var(--surface)" }}>
+      <div className="cn-person__body">
+        <span className="cn-person__ring">
           <SeekerAvatar seeker={seeker} size="lg" />
-        </div>
+        </span>
 
-        <p className="mt-3 w-full truncate text-sm font-semibold text-foreground">
+        <p className="cn-person__name">
           {seeker.firstName || "Unknown"} {seeker.lastName || "seeker"}
         </p>
-        <p className="mt-0.5 w-full truncate text-xs text-muted-foreground">{getSeekerSubtitle(seeker)}</p>
+        <p className="cn-person__subtitle">{getSeekerSubtitle(seeker)}</p>
 
-        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+        {/* Fixed height whether or not there are skills, so the action below starts at the same
+            offset on every card in the row — see .cn-person__skills in styles.css. */}
+        <div className="cn-person__skills">
           {(seeker.skills || []).slice(0, 3).map((skill) => (
-            <span
-              key={skill}
-              className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2 py-0.5 text-[10px] font-medium"
-            >
+            <span key={skill} className="cn-pill cn-pill--xs">
               {skill}
             </span>
           ))}
-          {!seeker.skills?.length ? (
-            <span className="text-[10px] text-muted-foreground">No skills listed</span>
-          ) : null}
+          {!seeker.skills?.length ? <span className="cn-person__noskills">No skills listed</span> : null}
         </div>
 
-        <div className="mt-3 w-full">
+        <div className="cn-person__action">
           {isIncomingPending ? (
-            <div className="flex gap-2">
+            <div className="cn-btn-row">
               <button
                 type="button"
                 disabled={isResponding}
                 onClick={() => onRespond(connection.id, "Accepted")}
-                style={solidBrandPillStyle}
-                className="flex-1 text-xs"
+                className="cn-btn cn-btn--primary"
               >
                 {isResponding ? "Updating..." : "Accept"}
               </button>
@@ -267,8 +224,7 @@ function SeekerSuggestionCard({
                 type="button"
                 disabled={isResponding}
                 onClick={() => onRespond(connection.id, "Rejected")}
-                style={neutralPillStyle}
-                className="flex-1 text-xs"
+                className="cn-btn"
               >
                 Delete
               </button>
@@ -278,8 +234,7 @@ function SeekerSuggestionCard({
               type="button"
               disabled={isRemoving}
               onClick={() => onRemove(connection.id)}
-              style={neutralPillStyle}
-              className="w-full text-xs"
+              className="cn-btn cn-btn--block"
             >
               {isRemoving ? "Cancelling..." : "Cancel request"}
             </button>
@@ -288,8 +243,7 @@ function SeekerSuggestionCard({
               type="button"
               disabled={isRemoving}
               onClick={() => onRemove(connection.id)}
-              style={neutralPillStyle}
-              className="w-full text-xs"
+              className="cn-btn cn-btn--block"
             >
               {isRemoving ? "Removing..." : "Unfollow"}
             </button>
@@ -298,8 +252,7 @@ function SeekerSuggestionCard({
               type="button"
               disabled={!canConnect || isSending}
               onClick={() => onConnect(seeker._id)}
-              style={brandOutlinePillStyle}
-              className="inline-flex w-full items-center justify-center gap-1.5 text-xs disabled:cursor-not-allowed"
+              className="cn-btn cn-btn--outline cn-btn--block"
             >
               <UserPlusIcon />
               {isSending ? "Sending..." : actionLabel}
@@ -307,7 +260,7 @@ function SeekerSuggestionCard({
           )}
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -412,10 +365,10 @@ export function ConnectionsPage() {
 
   if (session?.role !== "seeker") {
     return (
-      <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-8 text-center text-muted-foreground">
-          <h3 className="font-display text-lg font-semibold text-foreground">Connections are seeker-only</h3>
-          <p className="mt-1 text-sm">This workspace is for job seekers building their professional network.</p>
+      <main className="connections-page">
+        <div className="cn-card-surface cn-gate">
+          <h3 className="cn-gate__title">Connections are seeker-only</h3>
+          <p className="cn-gate__sub">This workspace is for job seekers building their professional network.</p>
         </div>
       </main>
     );
@@ -436,192 +389,177 @@ export function ConnectionsPage() {
   }
 
   return (
-    <main className="flex-1 px-6 py-6 lg:px-8 lg:py-8">
-      <AutoDismissFeedback
-        feedback={feedback}
-        onClear={() => setFeedback({ type: "", message: "" })}
-      />
+    <main className="connections-page">
+      <AutoDismissFeedback feedback={feedback} onClear={() => setFeedback({ type: "", message: "" })} />
 
-      <div className="mt-6 space-y-5">
-        {/* Pending Requests — first, per the reference layout */}
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-5 shadow-elegant backdrop-blur-xl">
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Inbox
-              </p>
-              <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Pending requests</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Accept, reject, or ignore incoming seeker connection requests.
-              </p>
-            </div>
-            <span className="shrink-0 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
-              {pendingConnections.length} pending
-            </span>
+      {/* The hero every sibling seeker page opens with (/applied, /notifications, /ai, /learn all
+          carry the same --ph-hero-soft wash). Connections used to start cold on a bare card, which
+          is most of why it did not read as part of the set. */}
+      <header className="cn-hero">
+        <p className="cn-eyebrow">Network</p>
+        <h1 className="cn-hero__title">Grow your professional network</h1>
+        <p className="cn-hero__sub">
+          Respond to incoming requests, discover seekers worth knowing, and keep track of the connections you have
+          already made.
+        </p>
+      </header>
+
+      {/* Pending Requests — first, per the reference layout */}
+      <section className="cn-card-surface" aria-labelledby="cn-pending-heading">
+        <div className="cn-section__head">
+          <div className="cn-section__headings">
+            <p className="cn-eyebrow">Inbox</p>
+            <h2 className="cn-section-title" id="cn-pending-heading">
+              Pending requests
+            </h2>
+            <p className="cn-section__sub">Accept, reject, or ignore incoming seeker connection requests.</p>
           </div>
+          <span className="cn-count">{pendingConnections.length} pending</span>
+        </div>
 
-          {pendingQuery.isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading pending requests...</p>
-          ) : pendingConnections.length ? (
-            <div className="space-y-3">
-              {pendingConnections.map((connection) => (
-                <div
-                  key={connection.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-surface/40 p-3"
-                >
-                  <PersonSummary person={connection.requester} />
-                  <div className="flex flex-wrap gap-2">
-                    {responseOptions.map((status) => (
-                      <button
-                        key={status}
-                        type="button"
-                        disabled={respondMutation.isPending}
-                        onClick={() =>
-                          respondMutation.mutate({
-                            connectionId: connection.id,
-                            status,
-                          })
-                        }
-                        style={status === "Accepted" ? solidBrandPillStyle : neutralPillStyle}
-                        className="text-xs"
-                      >
-                        {status}
-                      </button>
+        {pendingQuery.isLoading ? (
+          <p className="cn-state">Loading pending requests...</p>
+        ) : pendingConnections.length ? (
+          <div className="cn-rows">
+            {pendingConnections.map((connection) => (
+              <div key={connection.id} className="cn-row">
+                <PersonSummary person={connection.requester} />
+                <div className="cn-row__actions">
+                  {responseOptions.map((status) => (
+                    <button
+                      key={status}
+                      type="button"
+                      disabled={respondMutation.isPending}
+                      onClick={() =>
+                        respondMutation.mutate({
+                          connectionId: connection.id,
+                          status,
+                        })
+                      }
+                      className={status === "Accepted" ? "cn-btn cn-btn--primary" : "cn-btn"}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="cn-empty">
+            <p className="cn-empty__title">No pending requests</p>
+            <p className="cn-empty__sub">Incoming connection invites will appear here.</p>
+          </div>
+        )}
+      </section>
+
+      {/* People You May Know — card grid */}
+      <section className="cn-card-surface" aria-labelledby="cn-discover-heading">
+        <div className="cn-section__head">
+          <div className="cn-section__headings">
+            <p className="cn-eyebrow">Discover</p>
+            <h2 className="cn-section-title" id="cn-discover-heading">
+              People you may know
+            </h2>
+            <p className="cn-section__sub">Seekers you might want to connect with.</p>
+          </div>
+          <span className="cn-count">{discoveredSeekers.length} shown</span>
+        </div>
+
+        {/* No real mutual-connections data source exists yet (discovering another seeker's
+            own connections isn't exposed by any endpoint, and building one is beyond this
+            restyle's scope) — that line from the reference design is intentionally omitted
+            rather than faked. */}
+
+        {seekerDiscoveryQuery.isLoading ? (
+          <p className="cn-state">Searching seekers...</p>
+        ) : discoveredSeekers.length ? (
+          <div className="cn-people">
+            {discoveredSeekers.map((seeker) => (
+              <SeekerSuggestionCard
+                key={seeker._id}
+                seeker={seeker}
+                isSending={sendRequestMutation.isPending}
+                isResponding={respondMutation.isPending}
+                isRemoving={removeConnectionMutation.isPending}
+                onRemove={(connectionId) => removeConnectionMutation.mutate(connectionId)}
+                onDismiss={handleDismissSuggestion}
+                onRespond={(connectionId, status) =>
+                  respondMutation.mutate({
+                    connectionId,
+                    status,
+                  })
+                }
+                onConnect={(targetSeekerId) => {
+                  setFeedback({ type: "", message: "" });
+                  sendRequestMutation.mutate(targetSeekerId);
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="cn-empty">
+            <p className="cn-empty__title">No seekers found</p>
+            <p className="cn-empty__sub">Check back later for new suggestions.</p>
+          </div>
+        )}
+      </section>
+
+      {/* Accepted Connections */}
+      <section className="cn-card-surface" aria-labelledby="cn-accepted-heading">
+        <div className="cn-section__head">
+          <div className="cn-section__headings">
+            <p className="cn-eyebrow">Network</p>
+            <h2 className="cn-section-title" id="cn-accepted-heading">
+              Accepted connections
+            </h2>
+            <p className="cn-section__sub">Your active seeker network, sorted by most recent response.</p>
+          </div>
+          <span className="cn-count">{acceptedConnections.length} connected</span>
+        </div>
+
+        {acceptedQuery.isLoading ? (
+          <p className="cn-state">Loading accepted connections...</p>
+        ) : acceptedConnections.length ? (
+          <div className="cn-rows">
+            {acceptedConnections.map((connection) => (
+              <div key={connection.id} className="cn-row cn-row--stacked">
+                <div className="cn-row__top">
+                  <PersonSummary person={connection.counterpart} />
+                  <div className="cn-row__actions">
+                    <span className="cn-pill">{connection.direction}</span>
+                    <span className="cn-row__meta">
+                      Connected {formatDate(connection.respondedAt || connection.updatedAt)}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={removeConnectionMutation.isPending}
+                      onClick={() => removeConnectionMutation.mutate(connection.id)}
+                      className="cn-btn"
+                    >
+                      {removeConnectionMutation.isPending ? "Removing..." : "Unfollow"}
+                    </button>
+                  </div>
+                </div>
+                {connection.counterpart?.skills?.length ? (
+                  <div className="cn-skills">
+                    {connection.counterpart.skills.slice(0, 6).map((skill) => (
+                      <span key={skill} className="cn-pill">
+                        {skill}
+                      </span>
                     ))}
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-border/40 bg-surface/40 p-6 text-center text-muted-foreground">
-              <p className="font-semibold text-foreground">No pending requests</p>
-              <p className="mt-1 text-sm">Incoming connection invites will appear here.</p>
-            </div>
-          )}
-        </div>
-
-        {/* People You May Know — card grid */}
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-5 shadow-elegant backdrop-blur-xl">
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Discover
-              </p>
-              <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">People you may know</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Seekers you might want to connect with.
-              </p>
-            </div>
-            <span className="shrink-0 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
-              {discoveredSeekers.length} shown
-            </span>
+                ) : null}
+              </div>
+            ))}
           </div>
-
-          {/* No real mutual-connections data source exists yet (discovering another seeker's
-              own connections isn't exposed by any endpoint, and building one is beyond this
-              restyle's scope) — that line from the reference design is intentionally omitted
-              rather than faked. */}
-
-          {seekerDiscoveryQuery.isLoading ? (
-            <p className="text-sm text-muted-foreground">Searching seekers...</p>
-          ) : discoveredSeekers.length ? (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {discoveredSeekers.map((seeker) => (
-                <SeekerSuggestionCard
-                  key={seeker._id}
-                  seeker={seeker}
-                  isSending={sendRequestMutation.isPending}
-                  isResponding={respondMutation.isPending}
-                  isRemoving={removeConnectionMutation.isPending}
-                  onRemove={(connectionId) => removeConnectionMutation.mutate(connectionId)}
-                  onDismiss={handleDismissSuggestion}
-                  onRespond={(connectionId, status) =>
-                    respondMutation.mutate({
-                      connectionId,
-                      status,
-                    })
-                  }
-                  onConnect={(targetSeekerId) => {
-                    setFeedback({ type: "", message: "" });
-                    sendRequestMutation.mutate(targetSeekerId);
-                  }}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-border/40 bg-surface/40 p-6 text-center text-muted-foreground">
-              <p className="font-semibold text-foreground">No seekers found</p>
-              <p className="mt-1 text-sm">Check back later for new suggestions.</p>
-            </div>
-          )}
-        </div>
-
-        {/* Accepted Connections */}
-        <div className="rounded-2xl border border-border/60 bg-card/70 p-5 shadow-elegant backdrop-blur-xl">
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Network
-              </p>
-              <h2 className="mt-1 font-display text-xl font-semibold tracking-tight">Accepted connections</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Your active seeker network, sorted by most recent response.
-              </p>
-            </div>
-            <span className="shrink-0 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium">
-              {acceptedConnections.length} connected
-            </span>
+        ) : (
+          <div className="cn-empty">
+            <p className="cn-empty__title">No accepted connections yet</p>
+            <p className="cn-empty__sub">Send a request or accept one to start building your network.</p>
           </div>
-
-          {acceptedQuery.isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading accepted connections...</p>
-          ) : acceptedConnections.length ? (
-            <div className="space-y-3">
-              {acceptedConnections.map((connection) => (
-                <div key={connection.id} className="rounded-xl border border-border/40 bg-surface/40 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <PersonSummary person={connection.counterpart} />
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                        {connection.direction}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        Connected {formatDate(connection.respondedAt || connection.updatedAt)}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={removeConnectionMutation.isPending}
-                        onClick={() => removeConnectionMutation.mutate(connection.id)}
-                        style={neutralPillStyle}
-                        className="text-xs"
-                      >
-                        {removeConnectionMutation.isPending ? "Removing..." : "Unfollow"}
-                      </button>
-                    </div>
-                  </div>
-                  {connection.counterpart?.skills?.length ? (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {connection.counterpart.skills.slice(0, 6).map((skill) => (
-                        <span
-                          key={skill}
-                          className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface/70 px-2.5 py-0.5 text-xs font-medium"
-                        >
-                          {skill}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-border/40 bg-surface/40 p-6 text-center text-muted-foreground">
-              <p className="font-semibold text-foreground">No accepted connections yet</p>
-              <p className="mt-1 text-sm">Send a request or accept one to start building your network.</p>
-            </div>
-          )}
-        </div>
-      </div>
+        )}
+      </section>
     </main>
   );
 }

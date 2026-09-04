@@ -47,7 +47,7 @@ export function LoginPage() {
       });
 
       const nextSession = await completeLogin(response);
-      navigate(getHomePathForRole(nextSession.role));
+      navigate(getHomePathForRole(nextSession.role, nextSession.isPro));
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     } finally {

@@ -324,10 +324,12 @@ async function runRecruiterIntroductionsForJob(jobId, options = {}) {
     const rankedCandidates = [];
 
     for (const seeker of candidates) {
-      // Re-checked per candidate rather than trusted from the search filter: when Atlas rejects
-      // the $vectorSearch filter (the opt-in path may not be a declared filter field in the
-      // vector index), findCandidatesForJob silently falls back to a text query, and an
-      // un-enforced opt-in here would mean messaging someone who never consented.
+      // Re-checked per candidate rather than trusted from the search filter: whenever Atlas
+      // rejects the $vectorSearch filter (the opt-in path may not be a declared filter field in
+      // the vector index) OR returns nothing at all (a missing or still-building index answers
+      // with an empty set rather than an error), findCandidatesForJob falls back to a text query
+      // whose filter Mongo applies but which Atlas never vetted — and an un-enforced opt-in here
+      // would mean messaging someone who never consented.
       if (!seeker.isPro) {
         incrementReason(runLog.skippedReasons, "notPro");
         continue;

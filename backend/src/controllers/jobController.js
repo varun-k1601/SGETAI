@@ -4,6 +4,9 @@ const { sendSuccess } = require("../utils/apiResponse");
 const { fireAndForget, syncJobAiFields } = require("../services/aiSyncService");
 const { buildTailoredResumeForJob } = require("../services/applicationResumeService");
 const { latexToPlainText, scoreResumeAgainstJob } = require("../services/resumeScoringService");
+// The same profile-vs-job scorer recommendationController.js uses for the /jobs "match %", so an
+// application's stored atsScore and the number the seeker saw before applying are one value.
+const { computeCandidateMatch } = require("../services/matchService");
 const { cleanText, extractResumeText } = require("../utils/resumeTextExtractor");
 const {
   cleanupUploadedMedia,
@@ -687,7 +690,16 @@ const applyToJob = asyncHandler(async (req, res) => {
     );
   }
 
-  const match = await scoreResumeAgainstJob(resumeTextForScoring, job);
+  /* TWO SCORES, TWO FIELDS — they are not interchangeable and this used to store only the first
+     one, in the wrong column.
+
+     resumeMatch is the submitted resume's TEXT against the job description. profileMatch is the
+     seeker's structured PROFILE against the job — the identical call recommendationController.js
+     makes for the "match %" on /jobs. Writing resumeMatch into atsScore is what made /applied
+     disagree with /jobs on every row, and left resumeMatchScore (the field the model reserves for
+     exactly this value) empty. */
+  const resumeMatch = await scoreResumeAgainstJob(resumeTextForScoring, job);
+  const profileMatch = computeCandidateMatch(seeker, job);
 
   const existingApplication = await Application.findOne({
     jobId: job._id,
@@ -702,8 +714,10 @@ const applyToJob = asyncHandler(async (req, res) => {
 
       const previousResumePath = existingApplication.attachedResume?.media?.filePath;
       existingApplication.status = "Pending";
-      existingApplication.atsScore = match.score;
-      existingApplication.atsTag = match.tag;
+      existingApplication.atsScore = profileMatch.score;
+      existingApplication.atsTag = profileMatch.tag;
+      existingApplication.resumeMatchScore = resumeMatch.score;
+      existingApplication.resumeMatchTag = resumeMatch.tag;
       existingApplication.source = "Manual";
       existingApplication.verificationStatus = "Pending";
       existingApplication.withdrawnAt = undefined;
@@ -725,8 +739,10 @@ const applyToJob = asyncHandler(async (req, res) => {
         jobId: job._id,
         jobSeekerId: seeker._id,
         organizationId: job.organizationId,
-        atsScore: match.score,
-        atsTag: match.tag,
+        atsScore: profileMatch.score,
+        atsTag: profileMatch.tag,
+        resumeMatchScore: resumeMatch.score,
+        resumeMatchTag: resumeMatch.tag,
         source: "Manual",
         ...(attachedResume ? { attachedResume } : {}),
         ...(generatedTailoredResume ? { tailoredResume: generatedTailoredResume } : {})
@@ -759,7 +775,11 @@ const applyToJob = asyncHandler(async (req, res) => {
   return sendSuccess(res, {
     message: wasReapplied ? "Application resubmitted successfully." : "Application submitted successfully.",
     application,
-    ats: match,
+    /* `ats` used to be the resume-text match, because that was also what went into atsScore. Now
+       that the two are separated, this response reports both under the names the document uses,
+       so a client can tell which number is which instead of inferring it. */
+    ats: profileMatch,
+    resumeMatch,
     tailoredResume: resumeResult
   }, 201);
 });

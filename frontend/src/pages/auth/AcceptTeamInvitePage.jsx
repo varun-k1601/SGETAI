@@ -95,7 +95,7 @@ export function AcceptTeamInvitePage() {
       });
 
       const nextSession = await completeLogin(response);
-      navigate(getHomePathForRole(nextSession.role), { replace: true });
+      navigate(getHomePathForRole(nextSession.role, nextSession.isPro), { replace: true });
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     } finally {

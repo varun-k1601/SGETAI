@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { BrandLogo } from "../../components/BrandLogo";
 import { useAuth } from "../../context/AuthContext";
-import { getHomePathForRole } from "../../utils/roleHome";
+import { getHomePathForRole, isProSeekerSession, seekerPath } from "../../utils/roleHome";
 
 export function OAuthCallbackPage() {
   const navigate = useNavigate();
@@ -32,11 +32,16 @@ export function OAuthCallbackPage() {
       email,
       username
     })
-      .then(() => {
+      // completeLogin resolves with the HYDRATED session, which is the only place isPro is known
+      // here — the OAuth callback params carry a role but no tier. Reading it off the resolved
+      // session lets a returning Pro seeker land on /pro/home directly instead of being bounced
+      // there by the canonicaliser a moment later.
+      .then((nextSession) => {
+        const isProSeeker = isProSeekerSession(nextSession);
         navigate(
           isNewOAuthUser && role === "seeker"
-            ? "/profile?welcome=oauth"
-            : getHomePathForRole(role),
+            ? seekerPath("/profile", isProSeeker) + "?welcome=oauth"
+            : getHomePathForRole(nextSession?.role ?? role, nextSession?.isPro),
           { replace: true }
         );
       })

@@ -54,7 +54,7 @@ export function OAuthCompleteRecruiterPage() {
 
       if (response.accessToken) {
         const nextSession = await completeLogin(response);
-        navigate(getHomePathForRole(nextSession.role), { replace: true });
+        navigate(getHomePathForRole(nextSession.role, nextSession.isPro), { replace: true });
         return;
       }
 
