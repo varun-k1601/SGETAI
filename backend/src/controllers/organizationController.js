@@ -5,6 +5,7 @@ const Organization = require("../models/Organization");
 const JobSeeker = require("../models/JobSeeker");
 const { sanitizeOrganizationProfile } = require("../utils/profileAccess");
 const { attachMediaUrl } = require("../services/mediaUrlService");
+const { countOrganizationFollowers } = require("../services/followerCountService");
 
 const getOrganizationProfile = asyncHandler(async (req, res) => {
   const organization = await Organization.findById(req.params.id);
@@ -31,6 +32,12 @@ const getOrganizationProfile = asyncHandler(async (req, res) => {
   // there. attachMediaUrl always re-signs, and returns the object unchanged if signing fails so the
   // page falls back to the company initial rather than a broken image.
   profile.logo = await attachMediaUrl(profile.logo);
+
+  // The same number the owner sees on their own profile page, from the same helper — a public
+  // visitor and the company must never be looking at two different counts of the same thing.
+  // Public on purpose: it is an aggregate, it reveals nobody, and it is the only follower-shaped
+  // data either endpoint returns.
+  profile.followerCount = await countOrganizationFollowers(organization._id);
 
   return sendSuccess(res, {
     message: "Organization profile fetched successfully.",

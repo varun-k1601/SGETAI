@@ -1,7 +1,8 @@
 import { useId, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest } from "../../services/api";
+import { API_BASE_URL } from "../../config/env";
 import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
 
 /* ===============================================================================================
@@ -24,28 +25,47 @@ import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
        useState(new Set(["greenhouse", "workday", "google-calendar"]))
 
    ...which rendered a green "✓ Connected" badge on three providers before anything had happened.
-   NONE of the six connectors below is backed by anything. There is no OAuth client, no provider
-   SDK, no sync job, no token storage, no webhook receiver, no model and no route for any of them
-   anywhere in backend/src:
+
+   A "Connected" badge is not a label, it is a claim about system state: a recruiter who sees it
+   believes their pipeline is syncing and stops checking it manually. The rule that follows is not
+   "never show Connected" — it is "never show Connected unless it is true right now".
+
+   ONE OF THE SIX IS NOW REAL. Google Calendar is backed end to end: per-member OAuth against the
+   recruiter's own Google account (OrganizationMember.googleCalendarConnection), the
+   calendar.events scope, refresh-token renewal, an Interview model, and create/update/cancel of
+   the actual Google event — see backend/src/services/googleCalendarService.js and
+   routes/recruiterCalendar.js.
+
+   The other five are unchanged and still backed by nothing. No OAuth client, no provider SDK, no
+   sync job, no token storage, no webhook receiver, no model and no route anywhere in backend/src:
 
      Greenhouse (ATS)        no integration of any kind
      Lever (ATS)             no integration of any kind
      Workday (HRIS)          no integration of any kind
      BambooHR (HRIS)         no integration of any kind
-     Google Calendar         authController's oauthProviders has a `google` entry, but it is
-                             SIGN-IN ONLY — no calendar scope is requested, no refresh token is
-                             stored, and nothing reads or writes a calendar
      Slack (Comms)           no app, no webhook, no bot token; notificationService writes only to
                              the in-app Notification collection
 
-   A "Connected" badge is not a label, it is a claim about system state: a recruiter who sees it
-   believes their pipeline is syncing and stops checking it manually. So every card renders
-   PERMANENTLY in the not-connected state, no card shows a connected badge, no count of connected
-   integrations is computed or displayed, and each card carries a visible "Not yet available"
-   status line plus a title attribute naming the reason — never colour alone. This mirrors the
-   doctrine already written into RecruiterBackgroundCheckPage.jsx for its four unbacked steps.
+   So those five keep the permanent treatment exactly as before: no connected badge, no count of
+   connected integrations, a visible "Not yet available" status line and a title attribute naming
+   the reason — never colour alone. Same as RecruiterBackgroundCheckPage.jsx's four unbacked steps.
 
-   THE ACTION IS REAL, NOT INERT. Rather than an aria-disabled button that does nothing, "Request
+   WHAT THE GOOGLE CALENDAR CARD IS ALLOWED TO CLAIM. Its badge is rendered from
+   GET /recruiter/calendar/status and from nothing else. "Connected" there means a live refresh
+   token exists for THIS SIGNED-IN MEMBER and Google has not rejected it — not that the feature
+   shipped, and not that somebody at this company once connected. Three consequences, stated
+   because each looks like a bug otherwise:
+
+     - The state is PER MEMBER. Two recruiters at one organization legitimately see different
+       states on this same page, because a calendar grant belongs to a person, not a company.
+     - A grant revoked from the recruiter's own Google security page reports Not connected on the
+       next load. The app is never told; the next token refresh fails and the connection is marked
+       revoked at that moment.
+     - With no Google credentials in the environment the card falls back to the same not-yet-
+       available treatment as the other five, rather than offering a Connect button that cannot
+       work.
+
+   THE ACTION IS REAL, NOT INERT — for the other five too. Rather than an aria-disabled button that does nothing, "Request
    access" posts to the EXISTING POST /feedback endpoint (feedbackController.submitFeedback),
    which writes a Feedback row and projects it into a SupportTicket on the admin desk. So the
    click is an honest "notify me about this connector" that a human actually receives. It does not
@@ -116,6 +136,10 @@ const INTEGRATION_CATEGORIES = [
         name: "Google Calendar",
         emoji: "📅",
         description: "Schedule interviews directly from candidate profiles.",
+        // The one connector with a backend behind it. Everything this card renders comes from
+        // GET /recruiter/calendar/status; the flag only says "render the real card, not the
+        // permanent not-available one".
+        isLive: true,
       },
     ],
   },
@@ -172,6 +196,104 @@ function IconInfo(props) {
   );
 }
 
+/* The Google Calendar card. Same .ri-card structure, same tile/body/action slots and the same
+   .ri-card__state status line as the other five — the only additions are a state line that can
+   read "Connected", and an action that can say Connect or Disconnect.
+
+   Four states, and each is a true statement:
+     not configured   no Google credentials on this server. Falls back to the same wording the
+                      other five carry permanently, because from a recruiter's seat it is the same
+                      fact: there is nothing here to connect to.
+     loading          says so rather than guessing at not-connected and flipping a moment later.
+     not connected    a Connect button that starts the OAuth flow.
+     connected        the badge, plus WHICH Google account it is bound to. A recruiter with a
+                      personal and a work Google account needs to know which one the invites will
+                      come from before they schedule anything. */
+function GoogleCalendarCard({
+  connector,
+  status,
+  isLoading,
+  onConnect,
+  onDisconnect,
+  isDisconnecting,
+}) {
+  const configured = Boolean(status?.configured);
+  const connected = Boolean(status?.connected);
+  // A grant that exists but cannot write events. Rare, but it is what a member who approves
+  // sign-in and declines calendar access produces, and "Connected" would be a lie for it.
+  const canSchedule = Boolean(status?.canSchedule);
+
+  const stateLine = isLoading
+    ? "Checking connection…"
+    : !configured
+      ? "Not connected · not yet available"
+      : connected && canSchedule
+        ? `Connected · ${status.googleEmail || "Google account"}`
+        : connected
+          ? "Connected, but calendar permission was declined"
+          : "Not connected";
+
+  const stateTitle = !configured
+    ? UNAVAILABLE_REASON
+    : connected
+      ? `Interviews you schedule are created on ${status.googleEmail || "this Google account"}. This connection is yours alone — teammates connect their own.`
+      : "Connect your Google account to schedule interviews from a candidate's application.";
+
+  return (
+    <li className="ri-card" key={connector.id}>
+      <span className="ri-card__tile" aria-hidden="true">
+        {connector.emoji}
+      </span>
+
+      <div className="ri-card__body">
+        <p className="ri-card__name">
+          {connector.name}
+          {connected && canSchedule ? (
+            <span className="ri-card__badge">Connected</span>
+          ) : null}
+        </p>
+        <p className="ri-card__desc">{connector.description}</p>
+        <p
+          className={`ri-card__state${connected && canSchedule ? " ri-card__state--live" : ""}`}
+          title={stateTitle}
+        >
+          {stateLine}
+        </p>
+      </div>
+
+      <div className="ri-card__action">
+        {!configured ? (
+          // Deliberately NOT a Connect button that would fail: with no credentials there is
+          // nothing to connect to, so this degrades to the same honest affordance as the rest.
+          <button type="button" className="ri-request" disabled title={UNAVAILABLE_REASON}>
+            Not available
+          </button>
+        ) : connected ? (
+          <button
+            type="button"
+            className="ri-request"
+            onClick={onDisconnect}
+            disabled={isDisconnecting}
+            title="Removes this app's access to your Google Calendar. Interviews already scheduled stay on your calendar."
+          >
+            {isDisconnecting ? "Disconnecting…" : "Disconnect"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="ri-request"
+            onClick={onConnect}
+            disabled={isLoading}
+            title="Opens Google's consent screen. SGETAI asks only to create and manage the events it makes — it cannot read the rest of your calendar."
+          >
+            Connect
+          </button>
+        )}
+      </div>
+    </li>
+  );
+}
+
 export function RecruiterIntegrationsPage() {
   const { session } = useAuth();
   const uid = useId();
@@ -180,6 +302,7 @@ export function RecruiterIntegrationsPage() {
   // guard so one recruiter cannot open six support tickets for the same provider by clicking
   // twice — NOT a connection state, and never rendered as one.
   const [requestedIds, setRequestedIds] = useState(() => new Set());
+  const queryClient = useQueryClient();
 
   const requestAccessMutation = useMutation({
     mutationFn: (connector) =>
@@ -210,6 +333,45 @@ export function RecruiterIntegrationsPage() {
     ? requestAccessMutation.variables?.id
     : null;
 
+  /* THE ONLY SOURCE OF THE GOOGLE CALENDAR CARD'S STATE. Nothing about this card is derived from
+     "the feature exists" — it is whatever the server says about THIS member's grant right now.
+     Re-fetched on window focus so returning from the Google consent tab, or from revoking access
+     in Google's own settings, updates the badge without a manual reload. */
+  const calendarQuery = useQuery({
+    queryKey: ["recruiter", "calendar", "status"],
+    queryFn: () => apiRequest("/recruiter/calendar/status", { token: session.accessToken }),
+    enabled: Boolean(session?.accessToken),
+    refetchOnWindowFocus: true,
+  });
+  const calendar = calendarQuery.data || null;
+
+  const disconnectCalendarMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("/recruiter/calendar/disconnect", {
+        method: "POST",
+        token: session.accessToken,
+      }),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ["recruiter", "calendar", "status"] });
+      setFeedback({
+        type: "success",
+        message: response.message || "Google Calendar disconnected.",
+      });
+    },
+    onError: (error) => setFeedback({ type: "error", message: error.message }),
+  });
+
+  /* A REAL top-level navigation, not fetch. The next stop is Google's own consent screen, which
+     cannot be rendered inside an XHR — same reason and same shape as the LinkedIn connect flow.
+     The session token rides as a query param because a top-level navigation carries no
+     Authorization header; the server verifies it exactly as requireAuth would. Nothing comes BACK
+     in a URL except a status and a message. */
+  function connectGoogleCalendar() {
+    window.location.href = `${API_BASE_URL}/recruiter/calendar/connect?token=${encodeURIComponent(
+      session.accessToken
+    )}`;
+  }
+
   return (
     <section className="recruiter-integrations">
       {/* ---- 1. Hero -------------------------------------------------------------------------
@@ -230,9 +392,10 @@ export function RecruiterIntegrationsPage() {
       <p className="ri-notice">
         <IconInfo className="ri-icon ri-notice__icon" />
         <span>
-          None of these connectors is live yet — nothing on this page is syncing, and no data
-          leaves SGETAI. You can register interest in a provider and we'll get in touch when its
-          connector ships.
+          Google Calendar is live — connect your own Google account to schedule interviews from a
+          candidate's application. The rest are not built yet: nothing else on this page is
+          syncing, and no data leaves SGETAI. Register interest in one and we'll get in touch when
+          its connector ships.
         </span>
       </p>
 
@@ -256,6 +419,22 @@ export function RecruiterIntegrationsPage() {
               {category.connectors.map((connector) => {
                 const alreadyRequested = requestedIds.has(connector.id);
                 const isPending = pendingConnectorId === connector.id;
+
+                /* THE ONE REAL CARD. Everything else in this list renders the permanent
+                   not-available treatment below, untouched. */
+                if (connector.isLive) {
+                  return (
+                    <GoogleCalendarCard
+                      key={connector.id}
+                      connector={connector}
+                      status={calendar}
+                      isLoading={calendarQuery.isLoading}
+                      onConnect={connectGoogleCalendar}
+                      onDisconnect={() => disconnectCalendarMutation.mutate()}
+                      isDisconnecting={disconnectCalendarMutation.isPending}
+                    />
+                  );
+                }
 
                 return (
                   <li className="ri-card" key={connector.id}>

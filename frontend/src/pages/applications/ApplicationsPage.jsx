@@ -44,6 +44,11 @@ const APPLICATION_NOTIFICATION_TYPES = new Set([
   "auto_apply_success",
   "application_withdrawn",
   "job_application",
+  // Written by the Google Calendar connector against a specific application, so they belong in
+  // this page's feed rather than only in the global notifications list.
+  "interview_scheduled",
+  "interview_rescheduled",
+  "interview_cancelled",
 ]);
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -127,6 +132,25 @@ function withinLastWeek(value) {
 
   const time = new Date(value).getTime();
   return Number.isFinite(time) && Date.now() - time <= WEEK_MS;
+}
+
+/* Rendered in the READER's timezone with the zone spelled out. The interview also carries the
+   recruiter's IANA zone, but showing a candidate in Bengaluru a time in America/New_York is how
+   people miss interviews — so the stored instant is formatted locally, and the abbreviation makes
+   the zone explicit rather than implied. */
+function formatInterviewWhen(startAt) {
+  if (!startAt) {
+    return "";
+  }
+
+  return new Date(startAt).toLocaleString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
 }
 
 function formatCardDate(value) {
@@ -367,6 +391,31 @@ export function ApplicationsPage() {
             {isAiTracked(app) ? "AI tracking" : "Manually applied"}
           </span>
         </div>
+
+        {/* THE CANDIDATE'S OWN INTERVIEW TIME. The Google invite may sit in a spam folder and the
+            in-app notification scrolls away; this is the place a candidate can go and LOOK. Without
+            it the only way to check when their interview is would be to email the recruiter.
+            Rendered in the reader's own timezone with the zone named, because the recruiter who
+            booked it may be in another one. */}
+        {app.interview?.status === "Scheduled" ? (
+          <div className="ap-interview">
+            <p className="ap-interview__when">
+              <Icon name="calendar" className="ap-icon ap-icon--xs" />
+              Interview {formatInterviewWhen(app.interview.startAt)}
+            </p>
+            {app.interview.meetLink ? (
+              <a
+                className="ap-interview__link"
+                href={app.interview.meetLink}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(event) => event.stopPropagation()}
+              >
+                Join Google Meet
+              </a>
+            ) : null}
+          </div>
+        ) : null}
 
         {(hasResume(app) || canWithdraw) && (
           <div className="ap-card__actions">

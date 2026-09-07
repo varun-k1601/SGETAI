@@ -141,6 +141,14 @@ export function OrganizationPage() {
           <strong>{organization.foundedYear || "N/A"}</strong>
           <small>Company founding year</small>
         </article>
+        {/* The same followerCount the company sees on its own profile page, from the same
+            endpoint helper. `?? 0` keeps a real zero — "N/A" is right for a founding year nobody
+            filled in, but a company with no followers has a known count, not a missing one. */}
+        <article className="stat-surface">
+          <span>Followers</span>
+          <strong>{organization.followerCount ?? 0}</strong>
+          <small>Seekers following this company</small>
+        </article>
       </section>
 
       <section className="organization-layout">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -280,6 +280,137 @@ const organizationSections = [
   },
 ];
 
+/* ===============================================================================================
+   BRINGING AN OPENED SECTION INTO VIEW.
+   ===============================================================================================
+   "Edit profile" was never broken. Clicking it opened the Basic section correctly — 7 fields became
+   editable, the Save button appeared, no console error — and then nothing moved. The page is
+   ~8800px tall, the section it opens starts around y=1050, and the viewport is 900 tall, so every
+   visible pixel was identical before and after the click. From the user's seat the button was dead.
+
+   So the fix is not in the click path, it is here: when editingSection changes, put the section
+   that just opened where the person who clicked can see it, and move the caret into it.
+
+   Everything below is deliberately state-driven rather than wired to a button. FOUR controls call
+   setEditingSection("basic") — the cover's icon Edit, the cover's "Edit profile", the OAuth
+   welcome card's "Complete Profile", and the deep link at /profile?section= — plus every
+   section's own Edit button. Reacting to the state they all share fixes them together, and cannot
+   drift the way five patched call sites would. It also covers the organization branch for free:
+   both roles render the same ProfileEditSection with the same id. */
+
+// The sticky app header overlaps the top of the scroll area, so scrolling a section to y=0 hides
+// its heading underneath it. Measured rather than hardcoded — .app-header's height depends on its
+// own padding and on the viewport, and a guessed constant would rot the moment either changes.
+function getStickyHeaderOffset() {
+  const header = document.querySelector(".app-header");
+
+  if (!header) {
+    return 0;
+  }
+
+  const { position } = window.getComputedStyle(header);
+
+  if (position !== "sticky" && position !== "fixed") {
+    return 0;
+  }
+
+  return Math.max(0, header.getBoundingClientRect().bottom);
+}
+
+/* Where focus goes, and the thing the visibility test is really about: seeing the heading is not
+   enough if the first field is still under the fold. */
+function getSectionFocusTarget(sectionElement) {
+  if (!sectionElement) {
+    return null;
+  }
+
+  const field = sectionElement.querySelector(
+    "input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled])"
+  );
+
+  if (field) {
+    return field;
+  }
+
+  /* A section can open with no fields at all — an "Additional sections" list with nothing in it
+     yet has only an "Add section" button — and stranding a keyboard user on the button they just
+     left is the defect this is fixing, not a case to skip. Scoped past .section-head so it can
+     never land on the section's own Cancel/Save instead of the thing the section is for. */
+  const head = sectionElement.querySelector(".section-head");
+  return (
+    [...sectionElement.querySelectorAll("button:not([disabled]), a[href]")].find(
+      (element) => !head?.contains(element)
+    ) || null
+  );
+}
+
+function prefersReducedMotion() {
+  return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+}
+
+/* IS IT ALREADY IN VIEW? This is the whole of (b): the per-section Edit buttons further down the
+   page open sections the reader is already looking at, and scrolling there would yank the page out
+   from under them.
+
+   "Visible" is not "the top edge is somewhere on screen" — a heading sitting 20px above the fold
+   is technically visible and useless. The test is that BOTH the section heading and its first
+   editable field sit fully between the bottom of the sticky header and the bottom of the viewport.
+   That is exactly the state the scroll is trying to produce, so asking for it directly means no
+   arbitrary "close enough" constant to tune, and no scroll when the click changed nothing about
+   what the user can see. */
+function isSectionComfortablyVisible(sectionElement, headerOffset) {
+  const viewportBottom = window.innerHeight || document.documentElement.clientHeight;
+  const rect = sectionElement.getBoundingClientRect();
+
+  if (rect.top < headerOffset || rect.top >= viewportBottom) {
+    return false;
+  }
+
+  const focusTarget = getSectionFocusTarget(sectionElement);
+
+  // A section with nothing focusable at all only has to fit its own heading.
+  const target = focusTarget ? focusTarget.getBoundingClientRect() : rect;
+  return target.top >= headerOffset && target.bottom <= viewportBottom;
+}
+
+/* Scrolls a profile section into view when it needs it, and hands focus to its first field.
+
+   scrollIntoView + scroll-margin-top rather than window.scrollTo with arithmetic: the scrolling
+   element differs by layout (the window scrolls this page, but .main-panel is overflow-y:auto and
+   scrolls internally the moment anything gives the shell a definite height), and scrollIntoView
+   asks the browser to scroll whichever ancestor actually scrolls. The margin is set inline from
+   the measured header for the same reason — it travels with the element rather than assuming a
+   scroller. */
+function revealProfileSection(sectionId, { focusField = true } = {}) {
+  const sectionElement = document.getElementById(`profile-section-${sectionId}`);
+
+  if (!sectionElement) {
+    return;
+  }
+
+  const headerOffset = getStickyHeaderOffset();
+
+  if (!isSectionComfortablyVisible(sectionElement, headerOffset)) {
+    // A little air under the header so the eyebrow/heading does not sit flush against it.
+    sectionElement.style.scrollMarginTop = `${headerOffset + 16}px`;
+    sectionElement.scrollIntoView({
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+      block: "start"
+    });
+  }
+
+  if (!focusField) {
+    return;
+  }
+
+  /* The other half of "the click did something", and the part that was an outright accessibility
+     defect: a keyboard or screen-reader user got no signal at all, because focus stayed on a
+     button whose label and state never changed. preventScroll because the scroll above already
+     owns the viewport — without it the browser's own focus scroll fights the smooth scroll and
+     lands the field hard against the top edge, under the header. */
+  getSectionFocusTarget(sectionElement)?.focus({ preventScroll: true });
+}
+
 function ProfileEditSection({
   section,
   isEditing,
@@ -325,6 +456,7 @@ function ProfileEditSection({
 
 function ApplicantProfileCover({
   profile,
+  isEditingBasic,
   connectionCount,
   profilePictureUrl,
   backgroundVideoUrl,
@@ -402,7 +534,16 @@ function ApplicantProfileCover({
           )}
         </button>
 
-        <button type="button" className="profile-cover-card__edit" onClick={onEditProfile}>
+        {/* Both cover buttons open the SAME section, so both carry the same relationship to it.
+            aria-expanded is the acknowledgement for anyone who cannot see the viewport move: the
+            control's state flips from collapsed to expanded on the click that opens the section. */}
+        <button
+          type="button"
+          className="profile-cover-card__edit"
+          onClick={onEditProfile}
+          aria-expanded={isEditingBasic}
+          aria-controls="profile-section-basic"
+        >
           Edit
         </button>
 
@@ -425,7 +566,12 @@ function ApplicantProfileCover({
         </div>
 
         <div className="profile-cover-card__actions">
-          <button type="button" onClick={onEditProfile}>
+          <button
+            type="button"
+            onClick={onEditProfile}
+            aria-expanded={isEditingBasic}
+            aria-controls="profile-section-basic"
+          >
             Edit profile
           </button>
           <Link className="outline-button" to="/posts/create">
@@ -606,7 +752,23 @@ export function ProfilePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [feedback, setFeedback] = useState({ type: "", message: "" });
   const [editingSection, setEditingSection] = useState("");
+  // Render order for the merge preview. Named here rather than iterating the response so the panel
+  // has stable ordering and human labels, and so an unknown key from the server renders nothing.
+  const RESUME_PREVIEW_SECTIONS = [
+    { key: "skills", label: "Skills" },
+    { key: "experience", label: "Experience" },
+    { key: "education", label: "Education" },
+    { key: "projects", label: "Projects" },
+    { key: "certifications", label: "Certifications" },
+    { key: "achievements", label: "Achievements" },
+    { key: "customSections", label: "Additional sections" }
+  ];
+
   const [autofillReview, setAutofillReview] = useState(null);
+  /* The per-section escape hatch, for a candidate correcting a badly-parsed first import. Empty by
+     default and reset on every upload: merge is what the button does unless a section is ticked
+     here, never the reverse. */
+  const [replaceSections, setReplaceSections] = useState([]);
   // Live state for the résumé parse, which legitimately runs 20-40 seconds. `phase` comes from
   // real XHR events; `elapsedSeconds` ticks so a long parse never looks frozen.
   const [autofillProgress, setAutofillProgress] = useState(null);
@@ -741,11 +903,16 @@ export function ProfilePage() {
 
   const [form, setForm] = useState(initialForm);
 
-  /* DEEP LINK: /profile?section=<id> opens that section for editing and scrolls to it.
+  /* DEEP LINK: /profile?section=<id> opens that section for editing.
      The free home page's "Profile strength" checklist links here, so "Add your skills" lands on
      the Skills section already in edit mode rather than at the top of a long page. Runs once the
      profile has loaded, because the target element does not exist before the sections render.
-     `portfolio` is a scroll-only target — the portfolio manager owns its own editing state. */
+
+     It no longer scrolls for a real section — setting editingSection is enough, and the effect
+     below does the scrolling for every route into edit mode rather than this one having its own
+     copy that forgets the sticky-header offset. `portfolio` is the exception and still scrolls
+     here: it is a scroll-only target, the portfolio manager owns its own editing state, so
+     nothing sets editingSection for it and the effect below never fires. */
   useEffect(() => {
     const target = searchParams.get("section");
     if (!target || profileQuery.isLoading) {
@@ -754,17 +921,46 @@ export function ProfilePage() {
 
     if (target !== "portfolio") {
       setEditingSection(target);
+      return undefined;
     }
 
-    // rAF, not a bare call: the section it scrolls to may have just been mounted in edit mode by
-    // the line above, and its height changes when it does.
-    const frame = requestAnimationFrame(() => {
-      document
-        .getElementById(`profile-section-${target}`)
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    // rAF, not a bare call: the sections around it are still settling into their final heights.
+    const frame = requestAnimationFrame(() => revealProfileSection(target, { focusField: false }));
     return () => cancelAnimationFrame(frame);
   }, [searchParams, profileQuery.isLoading]);
+
+  /* THE FIX. Whenever a section opens for editing — from either cover button, the OAuth welcome
+     card, a deep link, or a section's own Edit button — bring it into view if it is not already
+     there and put the caret in its first field.
+
+     Keyed on editingSection so it runs after React has re-rendered that section in edit mode:
+     the fields only become focusable at that point, and the section's height changes when they
+     do, which is what the rAF waits out. Closing a section (editingSection === "") is not a
+     navigation and deliberately moves nothing. */
+  useEffect(() => {
+    if (!editingSection) {
+      return undefined;
+    }
+
+    const frame = requestAnimationFrame(() => revealProfileSection(editingSection));
+    return () => cancelAnimationFrame(frame);
+  }, [editingSection]);
+
+  /* Every route into edit mode goes through here. The effect above covers the case that matters —
+     a section OPENING — but not clicking "Edit profile" a second time after scrolling back up to
+     it: editingSection is already "basic", React bails out on the identical value, the effect
+     never re-runs, and the button is dead again for exactly the reason this whole change exists.
+     So a click on an already-open section reveals it directly instead. */
+  const openSectionForEditing = useCallback(
+    (sectionId) => {
+      if (editingSection === sectionId) {
+        requestAnimationFrame(() => revealProfileSection(sectionId));
+        return;
+      }
+      setEditingSection(sectionId);
+    },
+    [editingSection]
+  );
 
   useEffect(() => {
     if (session?.role === "organization") {
@@ -1080,6 +1276,10 @@ export function ProfilePage() {
         warnings: response.warnings || [],
         usedFallback: Boolean(response.usedFallback),
         missingSections: response.missingSections || [],
+        /* Which parsed entries the profile already holds, decided by the SERVER with the same
+           matching keys the merge uses. Computing it here would mean a second implementation of
+           "is this the same skill?" that drifts from the one that actually runs on save. */
+        mergePreview: response.mergePreview || null,
         projectsCount: (draft.projects || []).length,
         certificationsCount: (draft.certifications || []).length,
         achievementsCount: (draft.achievements || []).length,
@@ -1090,7 +1290,7 @@ export function ProfilePage() {
         type: response.usedFallback ? "error" : "success",
         message:
           response.message ||
-          "Résumé imported. Review the details, then click Save all imported details.",
+          "Résumé read. Review the details, then click Add all to my profile.",
       });
     },
     onError: (error) => {
@@ -1104,6 +1304,7 @@ export function ProfilePage() {
       return;
     }
     setAutofillReview(null);
+    setReplaceSections([]);
     setAutofillProgress({ phase: "uploading", progress: 0, startedAt: Date.now(), elapsedSeconds: 0 });
     setFeedback({ type: "", message: "" });
     resumeAutofillMutation.mutate(file);
@@ -1140,6 +1341,7 @@ export function ProfilePage() {
       // Projects / certifications / achievements are loaded by separate queries; refresh them.
       queryClient.invalidateQueries({ queryKey: ["profile"] });
       setAutofillReview(null);
+      setReplaceSections([]);
       setEditingSection("");
       setFeedback({
         type: "success",
@@ -1183,6 +1385,12 @@ export function ProfilePage() {
     }
     if (Array.isArray(draft.achievements) && draft.achievements.length) {
       body.achievements = draft.achievements;
+    }
+
+    // Sections the candidate explicitly ticked to replace. Absent or empty means merge, which is
+    // what the endpoint does for anything this array does not name.
+    if (replaceSections.length) {
+      body.replaceSections = replaceSections;
     }
 
     applyResumeMutation.mutate(body);
@@ -1464,6 +1672,10 @@ export function ProfilePage() {
           { label: "Verification", value: profile.verificationStatus || "Pending", hint: "Organization review state" },
           { label: "Domain", value: profile.domainMatched ? "Matched" : "Needs review", hint: "Email and website domain status" },
           { label: "Industry", value: profile.industry || "Not added", hint: "Shown on company profile" },
+          // Zero is an answer, not a gap: a company with no followers yet renders "0", never a
+          // dash or "Not added" like the text tiles above. `?? 0` rather than `|| 0` so a real 0
+          // from the API is kept and only a missing field falls back.
+          { label: "Followers", value: profile.followerCount ?? 0, hint: "Seekers following this company" },
         ]
       : [
           { label: "Skills", value: profile.skills?.length || 0, hint: "Listed on your profile" },
@@ -1487,7 +1699,8 @@ export function ProfilePage() {
           connectionCount={acceptedConnectionsQuery.isLoading ? 0 : acceptedConnectionsCount}
           profilePictureUrl={profilePictureUrl}
           backgroundVideoUrl={backgroundVideoUrl}
-          onEditProfile={() => setEditingSection("basic")}
+          isEditingBasic={editingSection === "basic"}
+          onEditProfile={() => openSectionForEditing("basic")}
           onOpenProfilePictureManager={() => setMediaModal("profilePicture")}
           onOpenBackgroundVideoManager={() => setMediaModal("backgroundVideo")}
           isUploadingBackground={backgroundCoverMutation.isPending}
@@ -1550,7 +1763,7 @@ export function ProfilePage() {
             </p>
           </div>
           <div className="form-inline-action">
-            <button type="button" onClick={() => setEditingSection("basic")}>
+            <button type="button" onClick={() => openSectionForEditing("basic")}>
               Complete Profile
             </button>
             <button
@@ -1628,7 +1841,7 @@ export function ProfilePage() {
                   section,
                   isEditing,
                   isSaving: updateMutation.isPending && isEditing,
-                  onEdit: () => setEditingSection(section.id),
+                  onEdit: () => openSectionForEditing(section.id),
                   onCancel: () => {
                     resetFields(section.fields);
                     setEditingSection("");
@@ -1713,7 +1926,7 @@ export function ProfilePage() {
                                   ? ` (${autofillProgress.elapsedSeconds}s so far)`
                                   : ""
                               }. Please keep this tab open.`
-                          : "PDF, DOCX, or TXT. Nothing is saved until you review and click Save."}
+                          : "PDF, DOCX, or TXT. Nothing changes until you review and confirm — and what you add is merged with your profile, not swapped for it."}
                       </small>
                     </span>
                   </label>
@@ -1750,8 +1963,8 @@ export function ProfilePage() {
                       {autofillReview.usedFallback
                         ? "We filled in what we could."
                         : autofillReview.missingSections.length
-                          ? "Imported — but some sections came back empty."
-                          : "Imported from your résumé — review and save."}
+                          ? "Read your résumé — but some sections came back empty."
+                          : "Read your résumé — review what we'll add."}
                     </strong>
                     {/* Name the gaps. A draft holding a name and nothing else is technically a
                         success and reads as a broken feature; saying WHICH sections are empty
@@ -1763,9 +1976,13 @@ export function ProfilePage() {
                         below before saving.
                       </p>
                     ) : null}
+                    {/* Says what the button does, because it changed: this used to replace each
+                        section with the résumé's version. Nothing on the profile is removed. */}
                     <p>
                       Check the pre-filled sections below and edit anything, then click
-                      <strong> Save all imported details</strong> to store everything at once.
+                      <strong> Add all to my profile</strong>. This <strong>adds</strong> to what
+                      you already have — existing entries, verified roles and attached files are
+                      kept, and anything already on your profile is matched rather than duplicated.
                     </p>
                     {(autofillReview.projectsCount ||
                       autofillReview.certificationsCount ||
@@ -1777,6 +1994,69 @@ export function ProfilePage() {
                         {autofillReview.achievementsCount ? ` · ${autofillReview.achievementsCount} achievement(s)` : ""}
                         .
                       </p>
+                    ) : null}
+                    {/* WHAT SAVING WILL DO, entry by entry. The button used to replace each
+                        section; it now adds to it, and that is not a difference a candidate can
+                        infer from a spinner. Every parsed entry is labelled New or Already added,
+                        from the server's mergePreview — the same keys the merge itself uses. */}
+                    {autofillReview.mergePreview ? (
+                      <div className="resume-merge-preview">
+                        {RESUME_PREVIEW_SECTIONS.map(({ key, label }) => {
+                          const section = autofillReview.mergePreview[key];
+                          if (!section?.entries?.length) {
+                            return null;
+                          }
+
+                          return (
+                            <div className="resume-merge-preview__section" key={key}>
+                              <p className="resume-merge-preview__head">
+                                <strong>{label}</strong>
+                                <span>
+                                  {section.newCount} new
+                                  {section.existingCount ? ` · ${section.existingCount} already on your profile` : ""}
+                                </span>
+                              </p>
+                              <ul className="resume-merge-preview__list">
+                                {section.entries.map((entry, index) => (
+                                  <li
+                                    key={`${key}-${index}`}
+                                    className={entry.isNew ? "is-new" : "is-existing"}
+                                  >
+                                    <span className="resume-merge-preview__badge">
+                                      {entry.isNew ? "New" : "Already added"}
+                                    </span>
+                                    <span className="resume-merge-preview__label">{entry.label}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                              {/* The escape hatch, offered only where it can do something: a
+                                  section with nothing already on the profile has nothing to
+                                  replace. Merge stays the default — this is an explicit tick. */}
+                              {section.existingCount ? (
+                                <label className="resume-merge-preview__replace">
+                                  <input
+                                    type="checkbox"
+                                    checked={replaceSections.includes(key)}
+                                    onChange={(event) =>
+                                      setReplaceSections((current) =>
+                                        event.target.checked
+                                          ? [...current, key]
+                                          : current.filter((section_) => section_ !== key)
+                                      )
+                                    }
+                                  />
+                                  <span>
+                                    Replace my {label.toLowerCase()} instead of adding to them
+                                    {replaceSections.includes(key)
+                                      ? " — entries this résumé doesn't mention will be removed, except any carrying verification or an attached file."
+                                      : ""}
+                                  </span>
+                                </label>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
                     ) : null}
                     {autofillReview.additionalSectionsCount ? (
                       <p>
@@ -1797,7 +2077,7 @@ export function ProfilePage() {
                         disabled={applyResumeMutation.isPending}
                         onClick={handleSaveAllImported}
                       >
-                        {applyResumeMutation.isPending ? "Saving…" : "Save all imported details"}
+                        {applyResumeMutation.isPending ? "Adding…" : "Add all to my profile"}
                       </button>
                       <button
                         type="button"
@@ -1818,7 +2098,7 @@ export function ProfilePage() {
                   section,
                   isEditing,
                   isSaving: updateMutation.isPending && isEditing,
-                  onEdit: () => setEditingSection(section.id),
+                  onEdit: () => openSectionForEditing(section.id),
                   onCancel: () => {
                     resetFields(section.fields);
                     setEditingSection("");

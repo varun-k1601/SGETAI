@@ -15,6 +15,17 @@ const {
 } = require("../utils/mediaStorage");
 const { downloadFile } = require("../utils/supabaseService");
 const { attachMediaUrl, attachMediaUrls } = require("../services/mediaUrlService");
+const {
+  SECTION_CAPS,
+  sectionKeys: mergeKeys,
+  mergeSection,
+  mergeStrings,
+  mergeSkillGroups,
+  mergeCustomSections,
+  replaceSection,
+  previewSection
+} = require("../services/profileMergeService");
+const { countOrganizationFollowers } = require("../services/followerCountService");
 
 const seekerEditableFields = [
   "firstName",
@@ -249,6 +260,14 @@ function collectProfileMediaSlots(profile) {
 
 async function buildProfileResponse(user) {
   const profile = clonePlain(user);
+
+  // ORGANIZATIONS ONLY. Read off the model this document came from rather than a role argument:
+  // buildProfileResponse has six call sites, and a parameter one of them forgets to pass would
+  // drop the number silently on that one endpoint. A seeker's profile response must not grow this
+  // field at all — followerCount is a property of a company, and a seeker has no followers.
+  if (user?.constructor?.modelName === "Organization") {
+    profile.followerCount = await countOrganizationFollowers(user._id);
+  }
 
   // ONE Supabase call for the whole profile. This used to be three sequential single-signature
   // round-trips (and nothing at all for the portfolio), so a profile with media is now both more
@@ -554,8 +573,7 @@ function importEducation(items = []) {
       startDate: importDate(item.startDate),
       endDate: importDate(item.endDate)
     }))
-    .filter((item) => item.institution || item.degree || item.fieldOfStudy)
-    .slice(0, 10);
+    .filter((item) => item.institution || item.degree || item.fieldOfStudy);
 }
 
 function importExperience(items = []) {
@@ -568,18 +586,21 @@ function importExperience(items = []) {
       isCurrent: Boolean(item.isCurrent),
       description: importString(item.description, 3000)
     }))
-    .filter((item) => item.jobTitle || item.companyName)
-    .slice(0, 15);
+    .filter((item) => item.jobTitle || item.companyName);
 }
 
+/* NOTE ON SIZING. These mappers used to `.slice()` the INCOMING list. They no longer do: once two
+   résumés merge, the union is what has to fit the cap, so the caps moved to profileMergeService
+   where the merged result is known. Truncation there keeps EXISTING entries and is reported in the
+   response, rather than discarding the tail of an upload with no trace. Field-level bounds
+   (importString's max lengths) stay here, where the field is shaped. */
 function importSkillGroups(groups = []) {
   return (Array.isArray(groups) ? groups : [])
     .map((group) => ({
       category: importString(group.category, 60),
       skills: importStringList(group.skills, 40)
     }))
-    .filter((group) => group.category || group.skills.length)
-    .slice(0, 12);
+    .filter((group) => group.category || group.skills.length);
 }
 
 function importProjects(items = []) {
@@ -590,8 +611,7 @@ function importProjects(items = []) {
       projectUrl: importString(item.projectUrl, 400),
       repositoryUrl: importString(item.repositoryUrl, 400)
     }))
-    .filter((item) => item.title)
-    .slice(0, 15);
+    .filter((item) => item.title);
 }
 
 function importTitledList(items = []) {
@@ -600,8 +620,88 @@ function importTitledList(items = []) {
       title: importString(item.title, 160),
       description: importString(item.description, 800)
     }))
-    .filter((item) => item.title)
-    .slice(0, 15);
+    .filter((item) => item.title);
+}
+
+/* The sections a candidate may ask to REPLACE rather than merge. An allowlist, not a pass-through:
+   the request names sections, never fields, and anything it does not name merges. */
+const RESUME_REPLACEABLE_SECTIONS = [
+  "skillGroups",
+  "skills",
+  "preferredRoles",
+  "education",
+  "experience",
+  "projects",
+  "certifications",
+  "achievements",
+  "customSections"
+];
+
+function readReplaceSections(body) {
+  const requested = Array.isArray(body?.replaceSections) ? body.replaceSections : [];
+
+  return new Set(
+    requested
+      .map((value) => String(value || "").trim())
+      .filter((value) => RESUME_REPLACEABLE_SECTIONS.includes(value))
+  );
+}
+
+/* Merge unless this section was explicitly named for replacement. Merge is the default in both
+   directions — an unknown or missing `replaceSections` merges, and a section named there still
+   keeps verification and attached files (see replaceSection). */
+function applyResumeSection({ replace, existing, incoming, keyOf, cap }) {
+  const args = { existing, incoming, keyOf, cap };
+  return replace ? replaceSection(args) : mergeSection(args);
+}
+
+// One human sentence about what the save actually did, because "merged" has to be visible: the
+// candidate clicked a button that used to replace their profile.
+function describeMergeOutcome(summaries, replaced) {
+  const totals = Object.values(summaries).reduce(
+    (acc, summary) => ({
+      added: acc.added + (summary.added || 0) + (summary.skillsAdded || 0),
+      updated: acc.updated + (summary.updated || 0),
+      truncated: acc.truncated + (summary.truncated || 0) + (summary.skillsTruncated || 0),
+      removed: acc.removed + (summary.removed || 0),
+      retainedProtected: acc.retainedProtected + (summary.retainedProtected || 0)
+    }),
+    { added: 0, updated: 0, truncated: 0, removed: 0, retainedProtected: 0 }
+  );
+
+  const parts = [];
+
+  if (totals.added) {
+    parts.push(`Added ${totals.added} new entr${totals.added === 1 ? "y" : "ies"} to your profile.`);
+  } else if (!totals.truncated) {
+    // Only claim there was nothing new when nothing was turned away. "Nothing new to add" next to
+    // "2 entries could not be added" is two contradictory sentences about the same upload.
+    parts.push("Nothing new to add — everything in this résumé was already on your profile.");
+  }
+
+  if (totals.updated) {
+    parts.push(`Filled in details on ${totals.updated} entr${totals.updated === 1 ? "y" : "ies"} you already had.`);
+  }
+
+  if (replaced.length) {
+    parts.push(`Replaced ${replaced.join(", ")} as you asked${totals.removed ? `, removing ${totals.removed} entr${totals.removed === 1 ? "y" : "ies"}` : ""}.`);
+  }
+
+  if (totals.retainedProtected) {
+    parts.push(
+      `${totals.retainedProtected} entr${totals.retainedProtected === 1 ? "y was" : "ies were"} kept because ${totals.retainedProtected === 1 ? "it carries" : "they carry"} verification or an attached file — remove those from the section itself if you no longer want them.`
+    );
+  }
+
+  // Truncation is stated, never silent. Existing entries are the ones that survive a cap, so the
+  // thing that did not fit is always part of the upload the candidate just made.
+  if (totals.truncated) {
+    parts.push(
+      `${totals.truncated} entr${totals.truncated === 1 ? "y" : "ies"} from this résumé could not be added because a section is at its maximum — your existing entries were kept.`
+    );
+  }
+
+  return parts.join(" ");
 }
 
 const applyParsedResume = asyncHandler(async (req, res) => {
@@ -616,6 +716,8 @@ const applyParsedResume = asyncHandler(async (req, res) => {
   }
 
   const body = req.body || {};
+  const replaceSections = readReplaceSections(body);
+  const summaries = {};
 
   // Scalar fields: only overwrite when a non-empty value is provided.
   const setScalar = (field, value) => {
@@ -624,12 +726,25 @@ const applyParsedResume = asyncHandler(async (req, res) => {
     }
   };
 
+  /* THE THREE THE CANDIDATE WRITES THEMSELVES. Name, phone and the URLs are single-valued facts —
+     a person has one phone number — so a résumé overwriting them is right. careerObjective,
+     tagline and bio are not facts, they are pitches, they are role-specific, and they are the
+     fields a candidate hand-edits after importing. A data-science résumé silently replacing the
+     full-stack objective someone wrote is the scalar version of the bug this change fixes, so
+     these three fill only when empty. Clearing one in the profile editor still lets the next
+     import supply a new one. */
+  const setScalarIfEmpty = (field, value) => {
+    if (String(user[field] || "").trim() === "") {
+      setScalar(field, value);
+    }
+  };
+
   setScalar("firstName", importString(body.firstName, 80));
   setScalar("lastName", importString(body.lastName, 80));
   setScalar("phone", importString(body.phone, 40));
-  setScalar("careerObjective", importString(body.careerObjective, 1200));
-  setScalar("tagline", importString(body.tagline, 200));
-  setScalar("bio", importString(body.bio, 2000));
+  setScalarIfEmpty("careerObjective", importString(body.careerObjective, 1200));
+  setScalarIfEmpty("tagline", importString(body.tagline, 200));
+  setScalarIfEmpty("bio", importString(body.bio, 2000));
   setScalar("universityName", importString(body.universityName, 160));
   setScalar("degree", importString(body.degree, 120));
   setScalar("major", importString(body.major, 120));
@@ -648,47 +763,261 @@ const applyParsedResume = asyncHandler(async (req, res) => {
     user.currentStatus = currentStatus;
   }
 
-  // Array sections: replace only when a non-empty set is provided, so we never wipe
-  // existing data with blanks.
-  const skillGroups = importSkillGroups(body.skillGroups);
-  if (skillGroups.length) {
-    user.skillGroups = skillGroups;
-    user.skills = importStringList(skillGroups.flatMap((group) => group.skills));
+  /* Array sections: MERGE into what is already there, so two résumés produce the union rather than
+     the last one uploaded. The empty-parse guard is unchanged and still comes first — a section a
+     résumé says nothing about is left completely alone, in replace mode too, because "the parser
+     found no projects" is not the same statement as "I have no projects". */
+  const incomingSkillGroups = importSkillGroups(body.skillGroups);
+
+  if (incomingSkillGroups.length) {
+    if (replaceSections.has("skillGroups")) {
+      const replaced = replaceSection({
+        existing: user.skillGroups,
+        incoming: incomingSkillGroups,
+        keyOf: mergeKeys.skillGroup,
+        cap: SECTION_CAPS.skillGroups
+      });
+      user.skillGroups = replaced.entries;
+      summaries.skillGroups = replaced.summary;
+    } else {
+      const merged = mergeSkillGroups({ existing: user.skillGroups, incoming: incomingSkillGroups });
+      user.skillGroups = merged.groups;
+      summaries.skillGroups = merged.summary;
+    }
+
+    /* Re-derived from the MERGED groups, never from the incoming set — that assignment is half of
+       why a second upload wiped the first. Unioned with the existing flat list as well, so a skill
+       the candidate typed in without ever putting it in a category is not lost either; the cap is
+       the source's own (groups × skills-per-group), because a derived list must never be tighter
+       than what it is derived from. */
+    const derived = mergeStrings({
+      existing: replaceSections.has("skills") ? [] : user.skills,
+      incoming: (user.skillGroups || []).flatMap((group) => group.skills || []),
+      cap: SECTION_CAPS.skillGroups * SECTION_CAPS.skillsPerGroup
+    });
+    user.skills = derived.values;
   } else {
-    const skills = importStringList(body.skills);
-    if (skills.length) user.skills = skills;
+    const incomingSkills = importStringList(body.skills);
+
+    if (incomingSkills.length) {
+      const merged = mergeStrings({
+        existing: replaceSections.has("skills") ? [] : user.skills,
+        incoming: incomingSkills,
+        cap: SECTION_CAPS.skillGroups * SECTION_CAPS.skillsPerGroup
+      });
+      user.skills = merged.values;
+      summaries.skills = merged.summary;
+    }
   }
 
-  const preferredRoles = importStringList(body.preferredRoles, 12);
-  if (preferredRoles.length) user.preferredRoles = preferredRoles;
+  const incomingRoles = importStringList(body.preferredRoles);
+  if (incomingRoles.length) {
+    const merged = mergeStrings({
+      existing: replaceSections.has("preferredRoles") ? [] : user.preferredRoles,
+      incoming: incomingRoles,
+      cap: SECTION_CAPS.preferredRoles
+    });
+    user.preferredRoles = merged.values;
+    summaries.preferredRoles = merged.summary;
+  }
 
-  const education = importEducation(body.education);
-  if (education.length) user.education = education;
+  const incomingEducation = importEducation(body.education);
+  if (incomingEducation.length) {
+    const result = applyResumeSection({
+      replace: replaceSections.has("education"),
+      existing: user.education,
+      incoming: incomingEducation,
+      keyOf: mergeKeys.education,
+      cap: SECTION_CAPS.education
+    });
+    user.education = result.entries;
+    summaries.education = result.summary;
+  }
 
-  const experience = importExperience(body.experience);
-  if (experience.length) user.experience = experience;
+  /* THE ONE THAT USED TO DESTROY VERIFICATION. importExperience emits six fields and none of them
+     are managerEmail, trustScore or verificationStatus, so the old `user.experience = experience`
+     reverted every Verified role to Pending with trustScore 0 and dropped the manager's email —
+     a candidate lost their completed verification by uploading a CV. Merging against the stored
+     entry means those three are never in play: the incoming object has no such keys. */
+  const incomingExperience = importExperience(body.experience);
+  if (incomingExperience.length) {
+    const result = applyResumeSection({
+      replace: replaceSections.has("experience"),
+      existing: user.experience,
+      incoming: incomingExperience,
+      keyOf: mergeKeys.experience,
+      cap: SECTION_CAPS.experience
+    });
+    user.experience = result.entries;
+    summaries.experience = result.summary;
+  }
 
-  const projects = importProjects(body.projects);
-  if (projects.length) user.projects = projects;
+  // Same class of loss: importProjects emits four fields, so mediaFiles and documents — references
+  // to files that still exist in the storage bucket — were discarded on every import.
+  const incomingProjects = importProjects(body.projects);
+  if (incomingProjects.length) {
+    const result = applyResumeSection({
+      replace: replaceSections.has("projects"),
+      existing: user.projects,
+      incoming: incomingProjects,
+      keyOf: mergeKeys.title,
+      cap: SECTION_CAPS.projects
+    });
+    user.projects = result.entries;
+    summaries.projects = result.summary;
+  }
 
-  const certifications = importTitledList(body.certifications);
-  if (certifications.length) user.licensesAndCertifications = certifications;
+  const incomingCertifications = importTitledList(body.certifications);
+  if (incomingCertifications.length) {
+    const result = applyResumeSection({
+      replace: replaceSections.has("certifications"),
+      existing: user.licensesAndCertifications,
+      incoming: incomingCertifications,
+      keyOf: mergeKeys.title,
+      cap: SECTION_CAPS.certifications
+    });
+    user.licensesAndCertifications = result.entries;
+    summaries.certifications = result.summary;
+  }
 
-  const achievements = importTitledList(body.achievements);
-  if (achievements.length) user.achievements = achievements;
+  const incomingAchievements = importTitledList(body.achievements);
+  if (incomingAchievements.length) {
+    const result = applyResumeSection({
+      replace: replaceSections.has("achievements"),
+      existing: user.achievements,
+      incoming: incomingAchievements,
+      keyOf: mergeKeys.title,
+      cap: SECTION_CAPS.achievements
+    });
+    user.achievements = result.entries;
+    summaries.achievements = result.summary;
+  }
 
-  const customSections = normalizeCustomSections(body.customSections);
-  if (customSections.length) user.customSections = customSections;
+  const incomingCustomSections = normalizeCustomSections(body.customSections);
+  if (incomingCustomSections.length) {
+    if (replaceSections.has("customSections")) {
+      const replaced = replaceSection({
+        existing: user.customSections,
+        incoming: incomingCustomSections,
+        keyOf: mergeKeys.title,
+        cap: SECTION_CAPS.customSections
+      });
+      user.customSections = replaced.entries;
+      summaries.customSections = replaced.summary;
+    } else {
+      const merged = mergeCustomSections({
+        existing: user.customSections,
+        incoming: incomingCustomSections
+      });
+      user.customSections = merged.sections;
+      summaries.customSections = merged.summary;
+    }
+  }
 
   await user.save();
 
+  // Unchanged, and load-bearing for the merge: matching must reflect the UNION of both résumés,
+  // not whichever was uploaded last.
   fireAndForget(() => syncSeekerEmbedding(user._id));
 
   return sendSuccess(res, {
-    message: "Imported résumé details saved to your profile.",
+    message: describeMergeOutcome(summaries, [...replaceSections]),
+    // Per-section counts, so the UI can say what changed rather than only that something did.
+    merge: summaries,
     profile: await buildProfileResponse(user)
   });
 });
+
+/* WHICH PARSED ENTRIES ARE NEW, answered by the server rather than the browser.
+
+   The review panel has to label every parsed entry "New" or "Already in your profile", and that
+   label is a promise about what the Save button will do. Computing it client-side would mean a
+   second implementation of the matching keys — one that folds "Node.js"/"NodeJS" slightly
+   differently, or forgets an alias that gets added to SKILL_ALIASES later — and the first time the
+   two disagreed the panel would confidently mislabel an entry.
+
+   So it runs here, through the SAME mappers the save runs through and the SAME key functions
+   profileMergeService merges with. Labels and behaviour cannot drift, because they are one
+   computation.
+
+   Labels only — no profile content leaves in this payload that the caller did not already send or
+   already own. */
+function buildMergePreview(user, draft = {}) {
+  const section = (existing, incoming, labelOf) => {
+    const flags = previewSection({ existing, incoming, keyOf: labelOf.keyOf });
+    const entries = incoming.map((item, index) => ({
+      label: labelOf.label(item),
+      isNew: flags[index]?.isNew !== false
+    }));
+
+    return {
+      entries,
+      newCount: entries.filter((entry) => entry.isNew).length,
+      existingCount: entries.filter((entry) => !entry.isNew).length
+    };
+  };
+
+  const preview = {
+    education: section(user.education, importEducation(draft.education), {
+      keyOf: mergeKeys.education,
+      label: (item) => [item.degree, item.institution].filter(Boolean).join(" — ")
+    }),
+    experience: section(user.experience, importExperience(draft.experience), {
+      keyOf: mergeKeys.experience,
+      label: (item) => [item.jobTitle, item.companyName].filter(Boolean).join(" — ")
+    }),
+    projects: section(user.projects, importProjects(draft.projects), {
+      keyOf: mergeKeys.title,
+      label: (item) => item.title
+    }),
+    certifications: section(user.licensesAndCertifications, importTitledList(draft.certifications), {
+      keyOf: mergeKeys.title,
+      label: (item) => item.title
+    }),
+    achievements: section(user.achievements, importTitledList(draft.achievements), {
+      keyOf: mergeKeys.title,
+      label: (item) => item.title
+    }),
+    customSections: section(user.customSections, normalizeCustomSections(draft.additionalSections), {
+      keyOf: mergeKeys.title,
+      label: (item) => item.title
+    })
+  };
+
+  /* Skills are compared as one flat set rather than per group: a candidate reading "React is
+     already in your profile" does not care which heading it sits under, and the group a résumé
+     files a skill under changes between résumés far more often than the skill itself. */
+  const heldSkills = [
+    ...(user.skills || []),
+    ...(user.skillGroups || []).flatMap((group) => group.skills || [])
+  ];
+  const incomingSkills = [
+    ...importStringList(draft.skills),
+    ...importSkillGroups(draft.skillGroups).flatMap((group) => group.skills)
+  ];
+  const seenSkill = new Set();
+  const skillEntries = [];
+
+  incomingSkills.forEach((skill) => {
+    const key = mergeKeys.skill(skill);
+    if (!key || seenSkill.has(key)) return;
+    seenSkill.add(key);
+    skillEntries.push({ label: skill, isNew: true });
+  });
+
+  const heldKeys = new Set(heldSkills.map(mergeKeys.skill).filter(Boolean));
+  skillEntries.forEach((entry) => {
+    entry.isNew = !heldKeys.has(mergeKeys.skill(entry.label));
+  });
+
+  preview.skills = {
+    entries: skillEntries,
+    newCount: skillEntries.filter((entry) => entry.isNew).length,
+    existingCount: skillEntries.filter((entry) => !entry.isNew).length
+  };
+
+  return preview;
+}
 
 const parseResumeForProfile = asyncHandler(async (req, res) => {
   if (req.user.role !== "seeker") {
@@ -711,18 +1040,24 @@ const parseResumeForProfile = asyncHandler(async (req, res) => {
   const { draft, warnings, usedFallback, missingSections, modelUsed, providerFailures } =
     await parseResumeToProfile(extractedText);
 
+  // Loaded only to diff the draft against what the candidate already has. Nothing about the user
+  // is written on this request.
+  const user = await findUserByAuth(req.user);
+
   return sendSuccess(res, {
     message: usedFallback
-      ? "We couldn't read most of this résumé automatically. Review what we did find, then fill in the rest by hand."
+      ? "We couldn't read most of this résumé automatically. Review what we did find, then add it to your profile."
       : missingSections.length
-        ? "Résumé imported, but some sections came back empty. Review the details, fill the gaps, then save."
-        : "Resume parsed. Review the imported details, edit anything, then save.",
+        ? "Résumé imported, but some sections came back empty. Review the details, fill the gaps, then add them."
+        : "Résumé read. Review what we found — saving ADDS it to your profile and keeps what is already there.",
     draft,
     warnings,
     usedFallback,
     // Which sections came back empty, so the review panel can name them instead of leaving the
     // candidate to notice the gaps themselves.
     missingSections,
+    // Per-entry "New" / "Already in your profile" flags — see buildMergePreview.
+    mergePreview: user ? buildMergePreview(user, draft) : null,
     // Diagnostics only - provider names and failure kinds, never candidate data. They let the UI
     // say WHICH thing is down ("the local model is not running") rather than a generic apology.
     modelUsed,
@@ -780,5 +1115,10 @@ module.exports = {
      mapper preserves every field its parser counterpart emits. */
   importEducation,
   importExperience,
-  importProjects
+  importProjects,
+  importTitledList,
+  importSkillGroups,
+  /* Also exported for testing: the merge is the half of this boundary that decides what SURVIVES,
+     and the mappers alone can no longer tell you that. */
+  buildMergePreview
 };

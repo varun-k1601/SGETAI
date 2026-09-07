@@ -84,19 +84,28 @@ function getFrontendUrl() {
   return configuredUrl;
 }
 
-function getApiOrigin(req) {
-  return `${req.protocol}://${req.get("host")}`;
-}
-
-function getOAuthRedirectUri(req, providerKey) {
+/* Same rule as the calendar connect flow (see googleCalendarService.js): the redirect URI is
+   configuration, never inferred from the incoming request. This used to fall back to
+   `${req.protocol}://${req.get("host")}/api/auth/oauth/<provider>/callback`, and server.js does not
+   call app.set("trust proxy") — so behind the deployed proxy chain req.protocol reads "http" for an
+   https site and req.get("host") reads whatever Host was forwarded. The provider then answers
+   redirect_uri_mismatch without ever saying what it received. Name the missing variable instead. */
+function getOAuthRedirectUri(providerKey) {
   const provider = oauthProviders[providerKey];
-  return (
-    process.env[provider.redirectUriEnv] ||
-    `${getApiOrigin(req)}/api/auth/oauth/${providerKey}/callback`
-  );
+  const configured = String(process.env[provider.redirectUriEnv] || "").trim();
+
+  if (!configured) {
+    throw new ApiError(
+      503,
+      `${provider.label} sign-in is not configured yet: ${provider.redirectUriEnv} is not set. It ` +
+        `must match the redirect URI registered on the ${provider.label} OAuth client exactly.`
+    );
+  }
+
+  return configured;
 }
 
-function getOAuthProviderConfig(req, providerKey) {
+function getOAuthProviderConfig(providerKey) {
   const provider = oauthProviders[providerKey];
 
   if (!provider) {
@@ -115,7 +124,7 @@ function getOAuthProviderConfig(req, providerKey) {
     providerKey,
     clientId,
     clientSecret,
-    redirectUri: getOAuthRedirectUri(req, providerKey)
+    redirectUri: getOAuthRedirectUri(providerKey)
   };
 }
 
@@ -697,7 +706,12 @@ const startOAuth = asyncHandler(async (req, res) => {
   const providerKey = String(req.params.provider || "").trim().toLowerCase();
 
   try {
-    const provider = getOAuthProviderConfig(req, providerKey);
+    const provider = getOAuthProviderConfig(providerKey);
+    // Same diagnostic as the calendar flow: the value the provider is about to match, in the log,
+    // so a mismatch is one grep rather than an afternoon.
+    console.log(
+      `[OAuth] Starting ${providerKey} sign-in with redirect_uri=${provider.redirectUri}`
+    );
     const requestedRole = String(req.query.role || "seeker").trim().toLowerCase();
     const role = requestedRole === "organization" ? "organization" : "seeker";
     const state = jwt.sign(
@@ -938,7 +952,7 @@ const handleOAuthCallback = asyncHandler(async (req, res) => {
       throw new ApiError(400, "OAuth provider state mismatch.");
     }
 
-    const provider = getOAuthProviderConfig(req, providerKey);
+    const provider = getOAuthProviderConfig(providerKey);
     const tokenPayload = await exchangeOAuthCode(provider, code);
     const profile = await fetchOAuthProfile(provider, tokenPayload);
     const existingIdentity = await findExistingUserByEmailWithPassword(profile.email);

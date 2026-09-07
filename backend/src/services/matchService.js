@@ -1191,6 +1191,11 @@ module.exports = {
   getTopKeywords: extractImportantTerms,
   tagFromScore,
   cosineSimilarity,
+  // Exported unchanged so profileMergeService can decide whether two skill strings are the same
+  // skill. It already folds Node.js/nodejs/Node JS and react/reactjs through SKILL_ALIASES, which
+  // is exactly the collision two uploaded résumés produce — a second normalizer over there would
+  // drift from this one the first time an alias is added.
+  normalizeTerm,
   // Exported unchanged so autoApplyWorker can persist the vector term on the same 0-100 scale the
   // blend itself uses. computePairVectorScore hands back a RAW cosine (-1..1); storing that
   // straight into Application.autoApplyDecision.vectorScore would either fail the 0-100 validator

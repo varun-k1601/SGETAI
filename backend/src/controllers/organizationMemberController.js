@@ -2,6 +2,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
 const ApiError = require("../utils/ApiError");
+const googleCalendar = require("../services/googleCalendarService");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendSuccess } = require("../utils/apiResponse");
 const { sendEmail } = require("../utils/email");
@@ -18,6 +19,21 @@ const INVITE_TOKEN_TYPE = "org-member-invite";
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+/* Cuts a member's Google Calendar connection: asks Google to drop the grant, then clears the
+   stored tokens. Loaded with select:false fields explicitly, because that is the only way to read
+   a refresh token, and the only reason to read one here is to revoke it. */
+async function revokeMemberCalendarGrant(memberId) {
+  const withTokens = await googleCalendar.loadConnection(memberId);
+
+  if (!withTokens?.googleCalendarConnection) {
+    return;
+  }
+
+  await googleCalendar.revokeToken(withTokens.googleCalendarConnection.refreshToken);
+  withTokens.googleCalendarConnection = undefined;
+  await withTokens.save();
 }
 
 function getFrontendUrl() {
@@ -210,6 +226,10 @@ const inviteMember = asyncHandler(async (req, res) => {
       // back to "Invited" without clearing it would hand them their old access back without them
       // ever opening the new link. They must set a new password through completeInvite.
       existingMember.passwordHash = undefined;
+      // Same reasoning as removeMember: the calendar grant was cut when they were removed, and a
+      // returning teammate re-consents rather than inheriting a stale one.
+      await revokeMemberCalendarGrant(existingMember._id);
+      existingMember.googleCalendarConnection = undefined;
     }
 
     await existingMember.save();
@@ -397,6 +417,18 @@ const removeMember = asyncHandler(async (req, res) => {
   // Disabled, not deleted — historically-posted jobs (Job.postedByMemberId) still need a real
   // member document to resolve against.
   member.status = "Disabled";
+
+  /* Their Google Calendar grant goes with them. A removed recruiter's OAuth tokens are live
+     credentials against a personal Google account: leaving them on a disabled row would mean this
+     app still holds the ability to write to the calendar of someone it no longer employs, and
+     would keep working until Google's own expiry. Revoked at Google as well as cleared here, so it
+     also disappears from that person's own account permissions page.
+
+     Interviews they already scheduled keep their googleEventId and stay visible; what is gone is
+     this app's ability to touch that calendar again. Rescheduling one of those returns a clear
+     "that calendar is no longer connected" rather than silently writing to someone else's. */
+  await revokeMemberCalendarGrant(member._id);
+
   await member.save();
 
   return sendSuccess(res, {

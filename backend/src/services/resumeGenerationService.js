@@ -1846,5 +1846,11 @@ module.exports = {
   resolveResumeVariant,
   getResumeTemplate,
   buildContactLine,
-  buildResumeHeadline
+  buildResumeHeadline,
+  /* Exported unchanged for profileMergeService, which decides whether an imported résumé entry is
+     one the profile already holds. Both answer the same question — "are these two titles the same
+     thing written differently?" — so they share one normalizer rather than two that can disagree
+     about punctuation or case. dedupeTitledItems itself is not exported: it collapses repeats
+     within ONE list, which mergeSection's keyed merge already subsumes. */
+  normalizeTitleKey
 };

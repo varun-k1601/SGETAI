@@ -311,7 +311,18 @@ export function AppShell() {
       ? recruiterNavItems
       : seekerNavItems.map((item) => ({ ...item, to: seekerPath(item.to, isProSeeker) }));
   const navItems = buildNavItems(baseNavItems, isProSeeker);
-  const profilePath = isAdmin ? "/admin/overview" : seekerPath("/profile", isProSeeker);
+  // Where "View profile" goes, per role — and for organizations this is LOAD-BEARING, not a
+  // convenience. recruiterNavItems has no Profile row, so the header avatar menu is a recruiter's
+  // only route to their own profile page; without the organization branch here, moving the route
+  // to /recruiter/profile would leave them with no way in at all.
+  //   organization → /recruiter/profile, alongside every other /recruiter/* page
+  //   seeker       → /profile, or /pro/profile on the Pro tier (unchanged, both tiers)
+  //   admin        → /admin/overview (unchanged — admins have no profile page of their own)
+  const profilePath = isAdmin
+    ? "/admin/overview"
+    : isRecruiter
+      ? "/recruiter/profile"
+      : seekerPath("/profile", isProSeeker);
   // Where the header bell goes, per role. One expression rather than three buttons.
   //   organization → /recruiter/notifications, its own route inside the recruiter group
   //   seeker       → /notifications, or /pro/notifications on the Pro tier

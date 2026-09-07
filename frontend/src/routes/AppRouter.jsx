@@ -57,6 +57,7 @@ import { RecruiterCandidatesPage } from "../pages/recruiter/RecruiterCandidatesP
 import { RecruiterCompanyPostsPage } from "../pages/recruiter/RecruiterCompanyPostsPage";
 import { RecruiterBackgroundCheckPage } from "../pages/recruiter/RecruiterBackgroundCheckPage";
 import { RecruiterIntegrationsPage } from "../pages/recruiter/RecruiterIntegrationsPage";
+import { RecruiterCalendarCallbackPage } from "../pages/recruiter/RecruiterCalendarCallbackPage";
 import { RecruiterMessagesPage } from "../pages/recruiter/RecruiterMessagesPage";
 import { RecruiterSettingsPage } from "../pages/recruiter/RecruiterSettingsPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
@@ -203,6 +204,32 @@ function NotificationsRoute() {
   return <NotificationsPage />;
 }
 
+// The same forwarding NotificationsRoute does, one level up. An organization on either shape of
+// the shared profile path is sent to /recruiter/profile, where their own profile now lives
+// alongside every other /recruiter/* page; everyone else renders the shared route underneath
+// unchanged.
+//
+// It sits ABOVE TierCanonical rather than being the route's element (which is where
+// NotificationsRoute sits) so that BOTH /profile and /pro/profile forward in ONE hop. As an
+// element it would run after the canonicaliser, making a recruiter on the legacy /pro/profile
+// take two: strip the prefix, then forward. Placing it here also means organizations never enter
+// the tier machinery at all, which is the honest description of the arrangement — tier prefixes
+// are a seeker concept.
+//
+// It cannot loop: /recruiter/profile is registered inside the recruiter group, not under this
+// wrapper, so the redirect fires at most once. It cannot catch anyone else either — the test is
+// an explicit equality against "organization". Seekers of both tiers fall through to <Outlet />
+// and are not redirected.
+function SharedProfileRoute() {
+  const { session } = useAuth();
+
+  if (session?.role === "organization") {
+    return <Navigate to="/recruiter/profile" replace />;
+  }
+
+  return <Outlet />;
+}
+
 export function AppRouter() {
   return (
     <Routes>
@@ -297,18 +324,27 @@ export function AppRouter() {
         </Route>
       </Route>
 
-      {/* ProfilePage is shared — it already branches internally on session.role to render either a
-          seeker or an organization profile (companyName/industry/companySize fields), so it is not
-          seeker-only. /profile MOVED here from the seeker-only group above when it became the
-          canonical path: it is now the recruiter's own profile page too, which /pro/profile used
-          to be, so narrowing it to seekers would have broken that. */}
+      {/* ProfilePage is shared — ONE component that branches internally on session.role to render
+          either a seeker or an organization profile (companyName/industry/companySize fields), and
+          it is mounted here and at /recruiter/profile without being forked.
+
+          What changed: /profile is no longer the recruiter's canonical path. Their profile moved
+          to /recruiter/profile to sit with every other /recruiter/* page, so SharedProfileRoute
+          forwards organizations off this path before anything else runs. The allowlist below still
+          admits organizations on purpose — the wrapper needs them to reach it in order to redirect
+          them, and narrowing it to ["seeker"] would have RoleRoute bounce a recruiter to
+          /recruiter/overview instead of to their own profile.
+
+          Seekers are untouched by all of this: both tiers, both URL shapes. */}
       <Route element={<RoleRoute allowedRoles={["seeker", "organization"]} />}>
-        <Route element={<TierCanonical />}>
-          <Route element={<AppShell />}>
-            {/* An ORGANIZATION reaching either shape keeps /profile: TierCanonical's add branch
-                requires role === "seeker", so it never fires for them, and its strip branch sends
-                a recruiter who lands on /pro/profile back to the clean path. */}
-            {tierRoutes([["/profile", <ProfilePage />]])}
+        <Route element={<SharedProfileRoute />}>
+          <Route element={<TierCanonical />}>
+            <Route element={<AppShell />}>
+              {/* Only seekers get this far, so the canonicaliser above does exactly what it does
+                  everywhere else: a Pro seeker is moved to /pro/profile, a free seeker is kept on
+                  /profile, and neither is a special case any more. */}
+              {tierRoutes([["/profile", <ProfilePage />]])}
+            </Route>
           </Route>
         </Route>
       </Route>
@@ -346,11 +382,22 @@ export function AppRouter() {
           <Route path="/recruiter/company-posts" element={<RecruiterCompanyPostsPage />} />
           <Route path="/recruiter/background-check" element={<RecruiterBackgroundCheckPage />} />
           <Route path="/recruiter/integrations" element={<RecruiterIntegrationsPage />} />
+          {/* Where the backend lands a recruiter after Google's consent screen. Inside the
+              recruiter group like every other /recruiter/* page: the OAuth exchange already
+              happened server-side, so by the time this renders the visitor is just a signed-in
+              recruiter reading a result. */}
+          <Route path="/recruiter/calendar/callback" element={<RecruiterCalendarCallbackPage />} />
           <Route path="/recruiter/messages" element={<RecruiterMessagesPage />} />
           {/* The SAME NotificationsPage component the seeker and admin paths mount — not a copy.
               Its NOTIFICATION_TYPES registry and per-role category chips must stay single-source;
               a RecruiterNotificationsPage.jsx would fork them on day one. */}
           <Route path="/recruiter/notifications" element={<NotificationsPage />} />
+          {/* The recruiter's own profile — the SAME ProfilePage the seeker paths mount, not a
+              copy. It already branches on session.role internally; a RecruiterProfilePage.jsx
+              would fork a component that is currently one. Reached from the header avatar menu
+              (AppShell's profilePath), which is a recruiter's only entry point because
+              recruiterNavItems has no Profile row. */}
+          <Route path="/recruiter/profile" element={<ProfilePage />} />
           <Route path="/recruiter/settings" element={<RecruiterSettingsPage />} />
           <Route path="/recruiter/applications" element={<RecruiterApplicationsPage />} />
           <Route path="/recruiter/applications/:jobId" element={<RecruiterJobApplicantsPage />} />

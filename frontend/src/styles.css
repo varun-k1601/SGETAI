@@ -4380,6 +4380,110 @@ body {
   background: color-mix(in srgb, #f59e0b 12%, transparent);
 }
 
+/* WHAT THE IMPORT WILL ADD, per entry. Scoped entirely to the review panel so it cannot reach any
+   other page, and built from the tokens that panel already uses — this is a new block of content
+   inside an existing card, not a new card style. */
+.resume-merge-preview {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+}
+
+.resume-merge-preview__section {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.resume-merge-preview__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.resume-autofill-review .resume-merge-preview__head strong {
+  color: var(--text-strong);
+  font-size: 0.9rem;
+}
+
+.resume-autofill-review .resume-merge-preview__head span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+/* Out-ranks the panel's own `ul` rule (bulleted and indented) — these are chips, not prose. */
+.resume-autofill-review ul.resume-merge-preview__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.resume-merge-preview__list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.2rem 0.5rem 0.2rem 0.25rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.8rem;
+}
+
+.resume-merge-preview__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 24ch;
+}
+
+.resume-merge-preview__badge {
+  flex: none;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* NEW carries the accent; ALREADY ADDED is deliberately quieter — it is reassurance, not an
+   action, and the candidate is scanning for what this upload is about to contribute. */
+.resume-merge-preview__list li.is-new {
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--border));
+}
+
+.resume-merge-preview__list li.is-new .resume-merge-preview__badge {
+  color: #ffffff;
+  background: var(--brand);
+}
+
+.resume-merge-preview__list li.is-existing {
+  color: var(--text-muted);
+}
+
+.resume-merge-preview__list li.is-existing .resume-merge-preview__badge {
+  color: var(--text-muted);
+  background: var(--surface-muted);
+}
+
+.resume-merge-preview__replace {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.resume-merge-preview__replace input {
+  margin-top: 0.15rem;
+  flex: none;
+}
+
+
 .resume-autofill-review__actions {
   display: flex;
   flex-wrap: wrap;
@@ -28826,6 +28930,163 @@ body.career-agent-resizing {
   transform: none;
   cursor: not-allowed;
   opacity: 1;
+}
+
+
+/* --- Google Calendar: the one connected connector --------------------------------------------
+   Additive only. Every selector below names markup that exists on the Google Calendar card alone
+   (.ri-card__badge, .ri-card__state--live) or on the callback page (a.ri-request, .ri-callback*),
+   so the five unbacked cards render byte-identically to before this connector shipped.
+   --------------------------------------------------------------------------------------------- */
+
+/* The badge. It renders only while GET /recruiter/calendar/status reports a live grant for this
+   member, which is the whole doctrine of this page compressed into one selector: there is no way
+   to reach it from markup alone. */
+.recruiter-integrations .ri-card__badge {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--rc-gradient);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: 2px;
+}
+
+/* The connected state line. The base .ri-card__state is a DASHED pill on a sunk background —
+   deliberately provisional-looking, because on every other card it reports an absence. Solid
+   border and an accent tint here, because this one reports a fact. */
+.recruiter-integrations .ri-card__state--live {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--rc-accent) 45%, var(--ph-border));
+  background: color-mix(in srgb, var(--rc-accent) 10%, transparent);
+  color: var(--ph-ink);
+}
+
+/* The callback page's "Back to Integrations" is a Link, so it is an <a>, and the button rule next
+   to it is element-qualified (button.ri-request) to out-rank the global unlayered button styles.
+   This gives the anchor the same geometry without loosening that qualifier. */
+.recruiter-integrations a.ri-request {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 15px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--rc-gradient);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.recruiter-integrations .ri-callback {
+  display: grid;
+  gap: 10px;
+  max-width: 34rem;
+}
+
+.recruiter-integrations .ri-callback__title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ph-ink);
+}
+
+.recruiter-integrations .ri-callback__body,
+.recruiter-integrations .ri-callback__note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ph-muted);
+}
+
+/* --- Scheduling panel, recruiter applicant view ----------------------------------------------- */
+
+.job-applicants .ja-interview__current {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.job-applicants .ja-interview__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.job-applicants .ja-interview__form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.job-applicants .ja-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ph-muted);
+}
+
+.job-applicants .ja-field--wide {
+  grid-column: 1 / -1;
+}
+
+/* Element-qualified for the same reason .ja-status-btn is: styles.css carries global unlayered
+   input/textarea rules that would otherwise win on specificity inside this panel. */
+.job-applicants .ja-field input,
+.job-applicants .ja-field textarea {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--ph-border);
+  border-radius: 10px;
+  background: var(--ph-surface);
+  color: var(--ph-ink);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.job-applicants .ja-interview__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* --- The candidate's own view of the time, on Applied Jobs ------------------------------------- */
+
+.applied-page .ap-interview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+}
+
+.applied-page .ap-interview__when {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.applied-page .ap-interview__link {
+  font-size: 12px;
+  color: var(--brand);
 }
 
 /* --- 4. Developer access ------------------------------------------------------------------------ */

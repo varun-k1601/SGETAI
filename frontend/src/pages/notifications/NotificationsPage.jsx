@@ -28,6 +28,11 @@ const NOTIFICATION_TYPES = {
   recruiter_introduction_received: { label: "Introduction", tone: "accent" },
   chat_message: { label: "Message", tone: "success" },
   application_status: { label: "Application", tone: "success" },
+  // Written by the Google Calendar connector when a recruiter schedules, moves or cancels an
+  // interview. Registered here so they render with a real label rather than the generic fallback.
+  interview_scheduled: { label: "Interview", tone: "success" },
+  interview_rescheduled: { label: "Interview", tone: "accent" },
+  interview_cancelled: { label: "Interview", tone: "neutral" },
   job_application: { label: "Application", tone: "neutral" },
   application_withdrawn: { label: "Application", tone: "neutral" },
   connection_request: { label: "Connection", tone: "neutral" },

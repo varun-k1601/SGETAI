@@ -28,14 +28,31 @@ const Organization = require("../models/Organization");
 const OrganizationMember = require("../models/OrganizationMember");
 const Follow = require("../models/Follow");
 const VerificationRequest = require("../models/VerificationRequest");
+const Interview = require("../models/Interview");
 const { createNotification } = require("../services/notificationService");
 const { attachOrganizationLogos } = require("../services/mediaUrlService");
 const { runAutoApplyForJob } = require("../workers/autoApplyWorker");
 const { runRecruiterIntroductionsForJob } = require("../workers/recruiterIntroductionWorker");
 
-function toApplicationResponse(application, latestVerificationRequest) {
+function toApplicationResponse(application, latestVerificationRequest, interview = null) {
   return {
     ...application.toObject(),
+    /* The live interview for this application, if one is scheduled. Attached here rather than
+       fetched per-row by the applicants page, which would be one request per candidate. Carries no
+       googleEventId — that is an internal handle for addressing the event on Google, of no use to
+       any client and not something to hand out. */
+    interview: interview
+      ? {
+          _id: interview._id,
+          startAt: interview.startAt,
+          endAt: interview.endAt,
+          timezone: interview.timezone,
+          title: interview.title,
+          meetLink: interview.meetLink,
+          htmlLink: interview.htmlLink,
+          status: interview.status
+        }
+      : null,
     latestVerificationRequest: latestVerificationRequest
       ? {
           _id: latestVerificationRequest._id,
@@ -868,6 +885,15 @@ const getJobApplications = asyncHandler(async (req, res) => {
     )
     .sort({ atsScore: -1, createdAt: 1 });
   const rankedApplications = applications;
+  // One query for every scheduled interview on this job, keyed by application — the recruiter's
+  // list needs to show "Scheduled for…" beside the candidates that have one.
+  const interviews = await Interview.find({
+    applicationId: { $in: rankedApplications.map((application) => application._id) },
+    status: "Scheduled"
+  });
+  const interviewByApplicationId = new Map(
+    interviews.map((interview) => [interview.applicationId.toString(), interview])
+  );
   const verificationRequests = await VerificationRequest.find({
     applicationId: { $in: rankedApplications.map((application) => application._id) }
   }).sort({ createdAt: -1 });
@@ -886,7 +912,8 @@ const getJobApplications = asyncHandler(async (req, res) => {
     applications: rankedApplications.map((application) =>
       toApplicationResponse(
         application,
-        latestVerificationRequestByApplicationId.get(application._id.toString()) || null
+        latestVerificationRequestByApplicationId.get(application._id.toString()) || null,
+        interviewByApplicationId.get(application._id.toString()) || null
       )
     )
   });

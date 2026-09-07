@@ -30,6 +30,176 @@ import { AutoDismissFeedback } from "../../components/AutoDismissFeedback";
    feature this codebase's other restyles have deliberately avoided.
    =============================================================================================== */
 
+/* The recruiter's own IANA zone, read from the browser. Sent with every schedule so the event
+   carries an explicit zone rather than a naive local time — Google would otherwise resolve it
+   against the calendar's zone, which is not necessarily the one the recruiter is sitting in. */
+function getBrowserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+// A <input type="datetime-local"> value is a naive wall-clock string with no zone. Converting it
+// here would guess; instead it is sent as an ISO instant built from the browser's own clock, and
+// the zone travels beside it as a name. The two together are unambiguous.
+function toIsoFromLocalInput(value) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function formatInterviewWhen(interview) {
+  if (!interview?.startAt) {
+    return "";
+  }
+
+  return new Date(interview.startAt).toLocaleString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}
+
+/* SCHEDULING AN INTERVIEW — a deliberate action, not a side effect of a status change.
+
+   Moving an application to "Interview" from the status buttons above creates no calendar event:
+   a status change carries no time, no duration and no zone, so it could only invent them, and a
+   recruiter correcting a mis-click would already have emailed the candidate an invite. Scheduling
+   here is explicit, carries the time the recruiter picked, and sets the status to Interview as a
+   consequence — which is unambiguously what just happened.
+
+   The panel only appears once the acting member has connected their own Google Calendar; before
+   that it says so and links to Integrations, rather than offering a form that would fail on
+   submit. */
+function InterviewPanel({
+  application,
+  candidateName,
+  calendarStatus,
+  onSchedule,
+  onReschedule,
+  onCancel,
+  isBusy,
+}) {
+  const interview = application.interview;
+  const [startAt, setStartAt] = useState("");
+  const [durationMinutes, setDurationMinutes] = useState(45);
+  const [notes, setNotes] = useState("");
+
+  const connected = Boolean(calendarStatus?.connected && calendarStatus?.canSchedule);
+
+  function submit(event) {
+    event.preventDefault();
+    const iso = toIsoFromLocalInput(startAt);
+
+    if (!iso) {
+      return;
+    }
+
+    const payload = {
+      startAt: iso,
+      durationMinutes: Number(durationMinutes),
+      timezone: getBrowserTimezone(),
+      notes,
+    };
+
+    if (interview) {
+      onReschedule({ interviewId: interview._id, ...payload });
+      return;
+    }
+
+    onSchedule(payload);
+  }
+
+  return (
+    <div className="ja-card" aria-labelledby="ja-interview-heading">
+      <h3 className="ja-card__title" id="ja-interview-heading">
+        Interview
+      </h3>
+
+      {interview ? (
+        <div className="ja-interview__current">
+          <p className="ja-status-current">
+            Scheduled <strong>{formatInterviewWhen(interview)}</strong>
+          </p>
+          <p className="ja-card__desc">
+            {candidateName} was invited by email and notified in SGETAI.
+            {interview.meetLink ? " A Google Meet link is on the invite." : ""}
+          </p>
+          <div className="ja-interview__links">
+            {interview.meetLink ? (
+              <a className="ja-link" href={interview.meetLink} target="_blank" rel="noreferrer">
+                Join Google Meet
+              </a>
+            ) : null}
+            {interview.htmlLink ? (
+              <a className="ja-link" href={interview.htmlLink} target="_blank" rel="noreferrer">
+                Open in Google Calendar
+              </a>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {!connected ? (
+        <p className="ja-callout">
+          {calendarStatus?.configured === false
+            ? "Google Calendar is not configured on this server, so interviews cannot be scheduled from here yet."
+            : "Connect your Google Calendar to schedule interviews. The connection is yours alone — each teammate connects their own account."}
+        </p>
+      ) : (
+        <form className="ja-interview__form" onSubmit={submit}>
+          <label className="ja-field">
+            <span>{interview ? "New date and time" : "Date and time"}</span>
+            <input
+              type="datetime-local"
+              value={startAt}
+              onChange={(event) => setStartAt(event.target.value)}
+              required
+            />
+          </label>
+          <label className="ja-field">
+            <span>Duration (minutes)</span>
+            <input
+              type="number"
+              min="5"
+              max="480"
+              value={durationMinutes}
+              onChange={(event) => setDurationMinutes(event.target.value)}
+              required
+            />
+          </label>
+          {!interview ? (
+            <label className="ja-field ja-field--wide">
+              <span>Notes for the candidate (optional)</span>
+              <textarea rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
+            </label>
+          ) : null}
+          <div className="ja-interview__actions">
+            <button type="submit" className="ja-status-btn" disabled={isBusy || !startAt}>
+              {interview ? "Reschedule" : "Schedule interview"}
+            </button>
+            {interview ? (
+              <button
+                type="button"
+                className="ja-status-btn ja-status-btn--danger"
+                disabled={isBusy}
+                onClick={() => onCancel(interview._id)}
+                title="Cancels the Google Calendar event as well, and notifies the candidate."
+              >
+                Cancel interview
+              </button>
+            ) : null}
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
 const statusOptions = ["Pending", "UnderReview", "Interview", "Accepted", "Rejected"];
 const statusFilters = ["All", ...statusOptions, "Withdrawn"];
 
@@ -291,6 +461,52 @@ export function RecruiterJobApplicantsPage() {
 
     return counts;
   }, [allApplications]);
+
+  // Same status endpoint the integrations card reads. Decides whether the scheduling form is
+  // offered at all, so a recruiter is never shown a form that will 400 on submit.
+  const calendarStatusQuery = useQuery({
+    queryKey: ["recruiter", "calendar", "status"],
+    queryFn: () => apiRequest("/recruiter/calendar/status", { token: session?.accessToken }),
+    enabled: Boolean(session?.accessToken),
+  });
+
+  function afterInterviewChange(response) {
+    // The interview rides on the application payload, so the applicants list is what refreshes.
+    queryClient.invalidateQueries({ queryKey: ["job-applications", jobId, "recruiter-review"] });
+    setFeedback({ type: "success", message: response.message || "Interview updated." });
+  }
+
+  const scheduleInterviewMutation = useMutation({
+    mutationFn: (body) =>
+      apiRequest(`/recruiter/calendar/applications/${selectedApplication._id}/interview`, {
+        method: "POST",
+        token: session.accessToken,
+        body,
+      }),
+    onSuccess: afterInterviewChange,
+    onError: (error) => setFeedback({ type: "error", message: error.message }),
+  });
+
+  const rescheduleInterviewMutation = useMutation({
+    mutationFn: ({ interviewId, ...body }) =>
+      apiRequest(`/recruiter/calendar/interviews/${interviewId}`, {
+        method: "PATCH",
+        token: session.accessToken,
+        body,
+      }),
+    onSuccess: afterInterviewChange,
+    onError: (error) => setFeedback({ type: "error", message: error.message }),
+  });
+
+  const cancelInterviewMutation = useMutation({
+    mutationFn: (interviewId) =>
+      apiRequest(`/recruiter/calendar/interviews/${interviewId}`, {
+        method: "DELETE",
+        token: session.accessToken,
+      }),
+    onSuccess: afterInterviewChange,
+    onError: (error) => setFeedback({ type: "error", message: error.message }),
+  });
 
   const statusMutation = useMutation({
     mutationFn: (status) =>
@@ -834,6 +1050,29 @@ export function RecruiterJobApplicantsPage() {
                   </div>
                 )}
               </div>
+
+              <InterviewPanel
+                application={selectedApplication}
+                candidateName={candidateName}
+                calendarStatus={calendarStatusQuery.data}
+                onSchedule={(body) => {
+                  setFeedback({ type: "", message: "" });
+                  scheduleInterviewMutation.mutate(body);
+                }}
+                onReschedule={(body) => {
+                  setFeedback({ type: "", message: "" });
+                  rescheduleInterviewMutation.mutate(body);
+                }}
+                onCancel={(interviewId) => {
+                  setFeedback({ type: "", message: "" });
+                  cancelInterviewMutation.mutate(interviewId);
+                }}
+                isBusy={
+                  scheduleInterviewMutation.isPending ||
+                  rescheduleInterviewMutation.isPending ||
+                  cancelInterviewMutation.isPending
+                }
+              />
 
               <div className="ja-card" aria-labelledby="ja-status-heading">
                 <h3 className="ja-card__title" id="ja-status-heading">

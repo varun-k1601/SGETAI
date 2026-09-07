@@ -44,6 +44,7 @@ const feedbackRoutes = require("./routes/feedback");
 const supportRoutes = require("./routes/support");
 const supportSelfRoutes = require("./routes/supportSelf");
 const organizationMemberRoutes = require("./routes/organizationMembers");
+const recruiterCalendarRoutes = require("./routes/recruiterCalendar");
 
 function createApp() {
   const app = express();
@@ -118,6 +119,7 @@ function createApp() {
   app.use("/api/support/me", supportSelfRoutes);
   app.use("/api/support", supportRoutes);
   app.use("/api/organization/members", organizationMemberRoutes);
+  app.use("/api/recruiter/calendar", recruiterCalendarRoutes);
 
   app.use(notFound);
   app.use(errorHandler);

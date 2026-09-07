@@ -3,6 +3,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const { sendSuccess } = require("../utils/apiResponse");
 
 const Application = require("../models/Application");
+const Interview = require("../models/Interview");
 const Job = require("../models/Job");
 const JobSeeker = require("../models/JobSeeker");
 const Organization = require("../models/Organization");
@@ -121,13 +122,44 @@ const getMyApplications = asyncHandler(async (req, res) => {
   // afterwards, unchanged.
   const applicationsWithLogos = await attachPopulatedOrganizationLogos(applications);
 
+  /* THE CANDIDATE'S OWN INTERVIEW TIME. A scheduled interview exists as a Google invite and an
+     in-app notification, but neither is a place to go and LOOK — the invite can land in spam and a
+     notification scrolls away. Without this the only way for a candidate to check when their
+     interview is would be to email the recruiter and ask.
+
+     Read-only and scoped to this seeker's own applications; the recruiter's identity, the Google
+     event id and the calendar it lives on are not part of it. */
+  const interviews = await Interview.find({
+    applicationId: { $in: applicationsWithLogos.map((application) => application._id) },
+    jobSeekerId: req.user.id,
+    status: "Scheduled"
+  }).select("applicationId startAt endAt timezone title meetLink status");
+  const interviewByApplicationId = new Map(
+    interviews.map((interview) => [interview.applicationId.toString(), interview])
+  );
+
   return sendSuccess(res, {
     message: "Applications fetched successfully.",
     verificationEligibility,
-    applications: applicationsWithLogos.map((application) => ({
-      ...application,
-      verificationEligibility
-    }))
+    applications: applicationsWithLogos.map((application) => {
+      const interview = interviewByApplicationId.get(application._id.toString());
+
+      return {
+        ...application,
+        verificationEligibility,
+        interview: interview
+          ? {
+              _id: interview._id,
+              startAt: interview.startAt,
+              endAt: interview.endAt,
+              timezone: interview.timezone,
+              title: interview.title,
+              meetLink: interview.meetLink,
+              status: interview.status
+            }
+          : null
+      };
+    })
   });
 });
 
