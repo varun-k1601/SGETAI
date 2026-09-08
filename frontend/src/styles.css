@@ -18468,14 +18468,6 @@ body.career-agent-resizing {
   white-space: nowrap;
 }
 
-.notif-page .nt-pill--state {
-  align-self: flex-start;
-  margin-top: 8px;
-  background: var(--ph-success-soft);
-  color: var(--ph-success);
-  font-size: 11px;
-}
-
 .notif-page .nt-notice {
   margin: 0;
   padding: 12px 16px;

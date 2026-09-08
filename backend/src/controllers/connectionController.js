@@ -3,7 +3,10 @@ const asyncHandler = require("../utils/asyncHandler");
 const { sendSuccess } = require("../utils/apiResponse");
 const Connection = require("../models/Connection");
 const JobSeeker = require("../models/JobSeeker");
-const { createNotification } = require("../services/notificationService");
+const {
+  createNotification,
+  resolveConnectionRequestNotification
+} = require("../services/notificationService");
 const { attachMediaUrl } = require("../services/mediaUrlService");
 const { requireNonEmptyString } = require("../utils/validation");
 
@@ -173,6 +176,14 @@ const respondToConnection = asyncHandler(async (req, res) => {
   connection.respondedAt = new Date();
   await connection.save();
 
+  /* The recipient has now dealt with this request, so their prompt is spent — including for
+     "Ignored", which sends the requester nothing but is still an answer as far as the recipient's
+     notification list is concerned. Done for all three statuses on purpose. */
+  await resolveConnectionRequestNotification({
+    recipientId: connection.recipient._id,
+    connectionId: connection._id
+  });
+
   if (status !== "Ignored") {
     const actionLabel = status === "Accepted" ? "accepted" : "rejected";
     await createNotification({
@@ -268,6 +279,14 @@ const removeConnection = asyncHandler(async (req, res) => {
   }
 
   await connection.deleteOne();
+
+  /* deleteOne() is a hard delete, so a still-Pending request removed this way would leave the
+     recipient holding a prompt that points at nothing — which is exactly how the oldest orphaned
+     notification in production came to exist. */
+  await resolveConnectionRequestNotification({
+    recipientId: connection.recipient,
+    connectionId: connection._id
+  });
 
   return sendSuccess(res, {
     message: "Connection removed successfully."

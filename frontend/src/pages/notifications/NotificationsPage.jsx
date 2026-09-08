@@ -254,10 +254,6 @@ export function NotificationsPage() {
   const queryClient = useQueryClient();
   const [feedback, setFeedback] = useState({ type: "", message: "" });
   const [activeCategory, setActiveCategory] = useState("all");
-  // A connection request notification stays in the list after it is answered, and there is no
-  // notification to re-check after a response — track which ones this session has resolved
-  // locally, mirroring the same approach ConnectionsPage relies on.
-  const [connectionResponses, setConnectionResponses] = useState({});
 
   const notificationsKey = ["notifications", session?.role, "page"];
 
@@ -431,16 +427,35 @@ export function NotificationsPage() {
         token: session.accessToken,
         body: { status },
       }),
-    onSuccess: (response, variables) => {
+    onSuccess: (response) => {
       setFeedback({ type: "success", message: response.message || "Connection request updated." });
-      setConnectionResponses((current) => ({
-        ...current,
-        [variables.notificationId]: variables.status,
-      }));
+      // The server deletes the recipient's prompt as part of responding, so the refetch is what
+      // removes this row — nothing local needs to remember that it was answered.
       invalidateNotifications();
       queryClient.invalidateQueries({ queryKey: ["connections"] });
     },
+    /* The same request can be answered somewhere else first — the Connections page, a second tab,
+       a phone. This endpoint then replies 400 ("already been responded to") or 404 ("not found",
+       the connection having been removed outright). Neither is a failure the user should be shown
+       in red: the request is in exactly the state they were asking for. Refetch so the row goes,
+       and say what happened. 403 and everything else stay real errors.
+
+       Keyed off the status code rather than the message text, which is safe here because these
+       buttons hard-code status to "Accepted" or "Rejected" — the endpoint's only other 400, an
+       invalid status string, is unreachable from this page. */
     onError: (error) => {
+      const alreadyResolved = error.status === 400 || error.status === 404;
+
+      if (alreadyResolved) {
+        setFeedback({
+          type: "success",
+          message: "That request was already answered somewhere else.",
+        });
+        invalidateNotifications();
+        queryClient.invalidateQueries({ queryKey: ["connections"] });
+        return;
+      }
+
       setFeedback({ type: "error", message: error.message });
     },
   });
@@ -578,7 +593,6 @@ export function NotificationsPage() {
                 const destination = destinationFor(notification);
                 const connectionId = notification.metadata?.connectionId;
                 const isConnectionRequest = notification.type === "connection_request";
-                const answered = connectionResponses[notification._id];
 
                 return (
                   <li
@@ -614,43 +628,39 @@ export function NotificationsPage() {
                       <p className="nt-row__message">{notification.message}</p>
                       <p className="nt-row__time">{formatDate(notification.createdAt)}</p>
 
+                      {/* No answered state to render. A connection_request notification exists
+                          only while the request is still answerable — the server deletes it the
+                          moment it is responded to or the connection is removed — so if this row
+                          is on screen, these two buttons are live. */}
                       {isConnectionRequest && connectionId ? (
-                        answered ? (
-                          <span className="nt-pill nt-pill--state">
-                            {answered === "Accepted" ? "Accepted" : "Declined"}
-                          </span>
-                        ) : (
-                          <div className="nt-row__inline">
-                            <button
-                              type="button"
-                              className="nt-btn nt-btn--sm"
-                              disabled={respondConnectionMutation.isPending}
-                              onClick={() =>
-                                respondConnectionMutation.mutate({
-                                  connectionId,
-                                  status: "Accepted",
-                                  notificationId: notification._id,
-                                })
-                              }
-                            >
-                              Accept
-                            </button>
-                            <button
-                              type="button"
-                              className="nt-btn nt-btn--sm nt-btn--ghost"
-                              disabled={respondConnectionMutation.isPending}
-                              onClick={() =>
-                                respondConnectionMutation.mutate({
-                                  connectionId,
-                                  status: "Rejected",
-                                  notificationId: notification._id,
-                                })
-                              }
-                            >
-                              Decline
-                            </button>
-                          </div>
-                        )
+                        <div className="nt-row__inline">
+                          <button
+                            type="button"
+                            className="nt-btn nt-btn--sm"
+                            disabled={respondConnectionMutation.isPending}
+                            onClick={() =>
+                              respondConnectionMutation.mutate({
+                                connectionId,
+                                status: "Accepted",
+                              })
+                            }
+                          >
+                            Accept
+                          </button>
+                          <button
+                            type="button"
+                            className="nt-btn nt-btn--sm nt-btn--ghost"
+                            disabled={respondConnectionMutation.isPending}
+                            onClick={() =>
+                              respondConnectionMutation.mutate({
+                                connectionId,
+                                status: "Rejected",
+                              })
+                            }
+                          >
+                            Decline
+                          </button>
+                        </div>
                       ) : null}
                     </div>
 

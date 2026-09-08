@@ -13,6 +13,7 @@
     "seed:jobs": "node src/scripts/seedRecruiterJobs.js",
     "organizations:verify-matched": "node src/scripts/verifyMatchedOrganizations.js",
     "migrate:introduction-channels": "node src/scripts/backfillIntroductionChannels.js",
+    "cleanup:connection-notifications": "node src/scripts/cleanupResolvedConnectionNotifications.js",
     "agent:evaluate": "node src/scripts/evaluateCareerAgent.js",
     "cleanup:jobs-applications": "node src/scripts/cleanupJobsAndApplications.js",
     "migrate:support-tickets": "node src/scripts/migrateFeedbackToSupportTickets.js",
